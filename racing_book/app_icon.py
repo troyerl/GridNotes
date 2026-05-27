@@ -29,10 +29,9 @@ def _resource_base() -> Path:
 
 def icon_path() -> Path | None:
     base = _resource_base()
-    if sys.platform == "win32":
-        ico = base / "icon.ico"
-        if ico.is_file():
-            return ico
+    ico = base / "icon.ico"
+    if ico.is_file():
+        return ico
     png = base / "icon.png"
     return png if png.is_file() else None
 
