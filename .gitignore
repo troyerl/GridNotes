@@ -1,2 +1,6 @@
 __pycache__
 driver_history.db
+.build-venv/
+build/
+dist/
+*.spec.bak

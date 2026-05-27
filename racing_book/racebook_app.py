@@ -50,6 +50,10 @@ REASON_OUT_TEXT_TO_ID = {
     "disqualified": REASON_OUT_DISQUALIFIED,
 }
 
+ROW_BG_LIKED = QColor(210, 255, 210)
+ROW_BG_DISLIKED = QColor(255, 210, 210)
+ROW_FG_FOR_HIGHLIGHT = QColor(0, 0, 0)
+
 
 def _normalize_reason_out_id(reason_out_id, reason_out) -> int | None:
     """Return 0 for Running, 1-4 for known DNF reasons, None if unknown/missing."""
@@ -126,6 +130,252 @@ def _format_last_seen_et_mmddyyyy_hm(last_seen_at: str | None) -> str:
         return et.strftime("%m/%d/%Y %-I:%M %p")
     except Exception:
         return "N/A"
+
+
+def _sqlite_row_to_int(value) -> int | None:
+    try:
+        return int(value)
+    except Exception:
+        return None
+
+
+def _normalize_1_based(pos) -> int | None:
+    # iRacing event_result uses 0-based positions (0 == P1).
+    if isinstance(pos, int) and pos >= 0:
+        return pos + 1
+    return None
+
+
+def _parse_iracing_event_result(data: dict) -> tuple[list[dict], str | None, str | None]:
+    """
+    Parse iRacing `event_result` JSON into our internal `races` format:
+      [{"subsession_id": int, "results": list[dict]}]
+    Returns (races, series_name, race_timestamp).
+    """
+    payload = data.get("data")
+    if not isinstance(payload, dict):
+        return ([], None, None)
+
+    sub_id = payload.get("subsession_id", 0)
+    series_name = payload.get("series_name") or payload.get("season_name")
+    race_timestamp = payload.get("end_time") or payload.get("start_time")
+
+    sessions = payload.get("session_results", [])
+    if not isinstance(sessions, list):
+        return ([], series_name, race_timestamp)
+
+    for s in sessions:
+        if not isinstance(s, dict):
+            continue
+        if s.get("simsession_type_name") == "Race" or s.get("simsession_type") == 6:
+            results = s.get("results", [])
+            return ([{"subsession_id": sub_id, "results": results}], series_name, race_timestamp)
+
+    return ([], series_name, race_timestamp)
+
+
+def _parse_races_from_json(data) -> tuple[list[dict], str | None, str | None]:
+    """
+    Supported formats:
+      1) {"races": [{"subsession_id":..., "results":[...]}]}
+      2) [{"subsession_id":..., "results":[...]}]
+      3) iRacing event_result payload:
+         {"type":"event_result","data":{...}}
+    Returns (races, series_name, race_timestamp).
+    """
+    if isinstance(data, dict) and data.get("type") == "event_result":
+        return _parse_iracing_event_result(data)
+
+    if isinstance(data, dict):
+        races = data.get("races", [])
+        return (races if isinstance(races, list) else [], None, None)
+
+    if isinstance(data, list):
+        return (data, None, None)
+
+    return ([], None, None)
+
+
+def _compute_last_license(driver: dict) -> str | None:
+    sr = _sr_from_sub_level(driver.get("new_sub_level"))
+    if sr is None:
+        sr = _sr_from_sub_level(driver.get("old_sub_level"))
+
+    lic_group = _license_group_from_level(driver.get("new_license_level"))
+    if lic_group is None:
+        lic_group = _license_group_from_level(driver.get("old_license_level"))
+
+    if lic_group and sr is not None:
+        return f"{lic_group} {sr:.2f}"
+    return None
+
+
+def _compute_irating_change(driver: dict) -> int:
+    ir_change = driver.get("irating_change")
+    if isinstance(ir_change, int):
+        return ir_change
+    old_ir = driver.get("oldi_rating")
+    new_ir = driver.get("newi_rating")
+    if isinstance(old_ir, int) and isinstance(new_ir, int):
+        return new_ir - old_ir
+    return 0
+
+
+def _compute_new_irating(driver: dict) -> int | None:
+    new_ir = driver.get("newi_rating")
+    if isinstance(new_ir, int):
+        return new_ir
+    old_ir = driver.get("oldi_rating")
+    return old_ir if isinstance(old_ir, int) else None
+
+
+def _compute_new_sr(driver: dict) -> float | None:
+    sr = _sr_from_sub_level(driver.get("new_sub_level"))
+    if sr is not None:
+        return sr
+    return _sr_from_sub_level(driver.get("old_sub_level"))
+
+
+def _maybe_update_last_seen(
+    cursor: sqlite3.Cursor,
+    cust_id: int,
+    race_timestamp: str | None,
+    new_ir: int | None,
+    new_sr: float | None,
+    last_license: str | None,
+    series_name: str | None,
+    start_pos: int | None,
+) -> None:
+    if not race_timestamp:
+        return
+
+    cursor.execute("SELECT last_seen_at FROM drivers WHERE cust_id = ?", (cust_id,))
+    row = cursor.fetchone()
+    existing_last_seen = row[0] if row and row[0] else None
+
+    # ISO strings compare lexicographically in chronological order (when normalized).
+    if existing_last_seen is not None and existing_last_seen >= race_timestamp:
+        return
+
+    cursor.execute(
+        """
+        UPDATE drivers
+        SET last_irating = COALESCE(?, last_irating),
+            last_safety = COALESCE(?, last_safety),
+            last_license = COALESCE(?, last_license),
+            last_series = COALESCE(?, last_series),
+            last_starting_pos = COALESCE(?, last_starting_pos),
+            last_seen_at = ?
+        WHERE cust_id = ?
+        """,
+        (new_ir, new_sr, last_license, series_name, start_pos, race_timestamp, cust_id),
+    )
+
+
+def _import_race_entries(
+    cursor: sqlite3.Cursor,
+    races: list[dict],
+    series_name: str | None,
+    race_timestamp: str | None,
+    license_text_fallback: str | None,
+) -> tuple[int, int]:
+    races_imported = 0
+    results_imported = 0
+
+    for entry in races:
+        if not isinstance(entry, dict):
+            continue
+        sub_id = entry.get("subsession_id", 0)
+        results = entry.get("results", [])
+        if not isinstance(results, list):
+            continue
+
+        any_result = False
+        for driver in results:
+            if not isinstance(driver, dict):
+                continue
+
+            cust_id = _sqlite_row_to_int(driver.get("cust_id"))
+            if cust_id is None:
+                continue
+
+            name = driver.get("name", driver.get("display_name"))
+
+            cursor.execute(
+                """
+                INSERT INTO drivers (cust_id, driver_name)
+                VALUES (?, ?)
+                ON CONFLICT(cust_id) DO UPDATE SET driver_name=excluded.driver_name
+                """,
+                (cust_id, name),
+            )
+
+            finish = driver.get("finish", driver.get("finish_position"))
+            finish = _normalize_1_based(finish) if finish is not None else None
+
+            start_pos = _normalize_1_based(driver.get("starting_position"))
+
+            reason_out = driver.get("reason_out")
+            reason_out = reason_out.strip() if isinstance(reason_out, str) and reason_out.strip() else None
+            reason_out_id = _normalize_reason_out_id(driver.get("reason_out_id"), reason_out)
+            if reason_out_id == REASON_OUT_RUNNING:
+                reason_out = reason_out or "Running"
+
+            ir_change = _compute_irating_change(driver)
+            new_ir = _compute_new_irating(driver)
+            new_sr = _compute_new_sr(driver)
+            last_license = _compute_last_license(driver)
+
+            license_text = driver.get("license", "Unknown")
+            if license_text == "Unknown" and license_text_fallback:
+                license_text = license_text_fallback
+
+            cursor.execute(
+                """
+                INSERT INTO race_results (
+                    cust_id,
+                    subsession_id,
+                    finish_position,
+                    incidents,
+                    irating_change,
+                    license_class,
+                    starting_position,
+                    reason_out,
+                    reason_out_id
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    cust_id,
+                    sub_id,
+                    finish,
+                    driver.get("incidents", 0),
+                    ir_change,
+                    license_text,
+                    start_pos,
+                    reason_out,
+                    reason_out_id,
+                ),
+            )
+
+            _maybe_update_last_seen(
+                cursor,
+                cust_id,
+                race_timestamp,
+                new_ir,
+                new_sr,
+                last_license,
+                series_name,
+                start_pos,
+            )
+
+            any_result = True
+            results_imported += 1
+
+        if any_result:
+            races_imported += 1
+
+    return (races_imported, results_imported)
 
 
 class RaceBookApp(QMainWindow):
@@ -365,6 +615,26 @@ class RaceBookApp(QMainWindow):
         self.apply_driver_filters()
 
     def refresh_ui_table(self):
+        rows, pref_by_driver, dnf_by_driver = self._fetch_table_data()
+
+        was_sorting = self.table.isSortingEnabled()
+        if was_sorting:
+            self.table.setSortingEnabled(False)
+
+        self.table.setRowCount(0)
+        for row_idx, row_data in enumerate(rows):
+            self.table.insertRow(row_idx)
+            display_row, cust_id = self._build_display_row(row_data, dnf_by_driver)
+            self._render_table_row(row_idx, display_row)
+            self._apply_preference_row_style(row_idx, len(display_row), pref_by_driver.get(cust_id))
+
+        if was_sorting:
+            self.table.setSortingEnabled(True)
+        self.apply_driver_filters()
+
+    def _fetch_table_data(
+        self,
+    ) -> tuple[list[tuple], dict[int, int], dict[int, list[int]]]:
         conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
 
@@ -399,57 +669,48 @@ class RaceBookApp(QMainWindow):
         pref_by_driver: dict[int, int] = {}
         cursor.execute("SELECT cust_id, race_preference FROM drivers WHERE race_preference IS NOT NULL")
         for cust_id, pref in cursor.fetchall():
-            if cust_id is None or pref is None:
-                continue
-            try:
-                pref_by_driver[int(cust_id)] = int(pref)
-            except Exception:
-                continue
+            cid = _sqlite_row_to_int(cust_id)
+            p = _sqlite_row_to_int(pref)
+            if cid is not None and p is not None:
+                pref_by_driver[cid] = p
 
-        dnf_by_driver: dict[int, tuple[int, int, int, int, int, int]] = {}
-        cursor.execute(
-            """
-            SELECT
-                cust_id,
-                reason_out_id,
-                reason_out
-            FROM race_results
-            """
-        )
+        dnf_by_driver: dict[int, list[int]] = {}
+        cursor.execute("SELECT cust_id, reason_out_id, reason_out FROM race_results")
         for cust_id, reason_out_id, reason_out in cursor.fetchall():
-            if cust_id is None:
+            cid = _sqlite_row_to_int(cust_id)
+            if cid is None:
                 continue
             rid = _normalize_reason_out_id(reason_out_id, reason_out)
             if rid is None or rid == REASON_OUT_RUNNING:
                 continue
-            if cust_id not in dnf_by_driver:
-                dnf_by_driver[cust_id] = [0, 0, 0, 0, 0, 0]  # total, disc, eject, quit, dq, other
-            dnf_by_driver[cust_id][0] += 1
+
+            # total, disc, eject, quit, dq, other
+            if cid not in dnf_by_driver:
+                dnf_by_driver[cid] = [0, 0, 0, 0, 0, 0]
+            dnf_by_driver[cid][0] += 1
             if rid == REASON_OUT_DISCONNECTED:
-                dnf_by_driver[cust_id][1] += 1
+                dnf_by_driver[cid][1] += 1
             elif rid == REASON_OUT_EJECTED:
-                dnf_by_driver[cust_id][2] += 1
+                dnf_by_driver[cid][2] += 1
             elif rid == REASON_OUT_QUIT:
-                dnf_by_driver[cust_id][3] += 1
+                dnf_by_driver[cid][3] += 1
             elif rid == REASON_OUT_DISQUALIFIED:
-                dnf_by_driver[cust_id][4] += 1
+                dnf_by_driver[cid][4] += 1
             else:
-                dnf_by_driver[cust_id][5] += 1
+                dnf_by_driver[cid][5] += 1
 
         conn.close()
+        return rows, pref_by_driver, dnf_by_driver
 
-        was_sorting = self.table.isSortingEnabled()
-        if was_sorting:
-            self.table.setSortingEnabled(False)
-
-        self.table.setRowCount(0)
-        for row_idx, row_data in enumerate(rows):
-            self.table.insertRow(row_idx)
-            name, avg_inc, avg_fin, total_races, last_ir, last_sr, last_series, avg_pos_delta, cust_id = row_data
-            dnf_total, disc, eject, quit_, dq, other = dnf_by_driver.get(cust_id, (0, 0, 0, 0, 0, 0))
-            breakdown = _format_dnf_breakdown(disc, eject, quit_, dq, other)
-
-            display_row = [
+    def _build_display_row(
+        self, row_data: tuple, dnf_by_driver: dict[int, list[int]]
+    ) -> tuple[list, int]:
+        name, avg_inc, avg_fin, total_races, last_ir, last_sr, last_series, avg_pos_delta, cust_id = row_data
+        cid = int(cust_id)
+        dnf_total, disc, eject, quit_, dq, other = dnf_by_driver.get(cid, [0, 0, 0, 0, 0, 0])
+        breakdown = _format_dnf_breakdown(disc, eject, quit_, dq, other) or "—"
+        return (
+            [
                 name,
                 avg_inc,
                 avg_fin,
@@ -459,39 +720,40 @@ class RaceBookApp(QMainWindow):
                 last_series,
                 avg_pos_delta,
                 dnf_total,
-                breakdown or "—",
-                cust_id,
-            ]
-            for col_idx, value in enumerate(display_row):
-                item = QTableWidgetItem()
-                if value is None:
-                    item.setText("N/A")
-                else:
-                    if isinstance(value, (int, float)):
-                        item.setData(Qt.ItemDataRole.EditRole, value)
-                    item.setText(str(value))
-                item.setFlags(item.flags() ^ Qt.ItemFlag.ItemIsEditable)
-                self.table.setItem(row_idx, col_idx, item)
+                breakdown,
+                cid,
+            ],
+            cid,
+        )
 
-            pref = pref_by_driver.get(cust_id)
-            if pref == 1:
-                bg = QColor(210, 255, 210)  # light green
-            elif pref == -1:
-                bg = QColor(255, 210, 210)  # light red
-            else:
-                bg = None
+    def _make_table_item(self, value) -> QTableWidgetItem:
+        item = QTableWidgetItem()
+        if value is None:
+            item.setText("N/A")
+        else:
+            if isinstance(value, (int, float)):
+                item.setData(Qt.ItemDataRole.EditRole, value)
+            item.setText(str(value))
+        item.setFlags(item.flags() ^ Qt.ItemFlag.ItemIsEditable)
+        return item
 
-            if bg is not None:
-                fg = QColor(0, 0, 0)
-                for col_idx in range(len(display_row)):
-                    it = self.table.item(row_idx, col_idx)
-                    if it is not None:
-                        it.setBackground(bg)
-                        it.setForeground(fg)
+    def _render_table_row(self, row_idx: int, display_row: list) -> None:
+        for col_idx, value in enumerate(display_row):
+            self.table.setItem(row_idx, col_idx, self._make_table_item(value))
 
-        if was_sorting:
-            self.table.setSortingEnabled(True)
-        self.apply_driver_filters()
+    def _apply_preference_row_style(self, row_idx: int, col_count: int, pref: int | None) -> None:
+        if pref == 1:
+            bg = ROW_BG_LIKED
+        elif pref == -1:
+            bg = ROW_BG_DISLIKED
+        else:
+            return
+
+        for col_idx in range(col_count):
+            it = self.table.item(row_idx, col_idx)
+            if it is not None:
+                it.setBackground(bg)
+                it.setForeground(ROW_FG_FOR_HIGHLIGHT)
 
     def on_driver_selected(self):
         selected_ranges = self.table.selectedRanges()
@@ -513,54 +775,65 @@ class RaceBookApp(QMainWindow):
             txt = item.text().strip()
             return txt if txt else "N/A"
 
+        last_seen_at, notes, pref = self._fetch_driver_notes_meta(self.selected_cust_id)
+
+        self._update_preference_buttons(pref)
+        last_seen_fmt = _format_last_seen_et_mmddyyyy_hm(last_seen_at)
+
+        series_value = cell_text(6)
+        self.driver_title_label.setText(
+            self._build_notes_header_html(
+                driver_name=driver_name,
+                cust_id=self.selected_cust_id,
+                last_seen_fmt=last_seen_fmt,
+                series_value=series_value,
+                cell_text=cell_text,
+            )
+        )
+        self.notes_edit.setText(notes or "")
+
+    def _fetch_driver_notes_meta(self, cust_id: int) -> tuple[str | None, str, int | None]:
         conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
         cursor.execute(
             "SELECT last_seen_at, notes, race_preference FROM drivers WHERE cust_id = ?",
-            (self.selected_cust_id,),
+            (cust_id,),
         )
-        res = cursor.fetchone()
+        row = cursor.fetchone()
         conn.close()
 
-        last_seen_at = res[0] if res else None
-        pref = res[2] if res and len(res) > 2 else None
-        try:
-            pref = int(pref) if pref is not None else None
-        except Exception:
-            pref = None
-        self._update_preference_buttons(pref)
-        last_seen_fmt = _format_last_seen_et_mmddyyyy_hm(last_seen_at)
+        if not row:
+            return None, "", None
 
-        # Show driver as its own line, then mirror key stats below as a 2-column vertical grid:
-        # "Column: value | Column: value"
-        series_value = cell_text(6)
-        series_line = f"<b>Series:</b> {html.escape(series_value)}" if series_value != "N/A" else "<b>Series:</b> N/A"
+        last_seen_at = row[0]
+        notes = row[1] or ""
+        pref = _sqlite_row_to_int(row[2])
+        return last_seen_at, notes, pref
 
+    def _build_notes_header_html(
+        self,
+        driver_name: str,
+        cust_id: int,
+        last_seen_fmt: str,
+        series_value: str,
+        cell_text,
+    ) -> str:
         driver_line = (
-            f"<b>{html.escape(driver_name)}</b> (ID: {self.selected_cust_id})"
+            f"<b>{html.escape(driver_name)}</b> (ID: {cust_id})"
             f" — Last raced: {html.escape(last_seen_fmt)} ET"
         )
+        series_line = (
+            f"<b>Series:</b> {html.escape(series_value)}"
+            if series_value != "N/A"
+            else "<b>Series:</b> N/A"
+        )
 
-        cols = [
-            (2, None),
-            (3, None),
-            (4, None),
-            (5, None),
-            (7, None),
-            (8, None),
-            (9, None),
-            (10, None),
-        ]
+        cols = [2, 3, 4, 5, 7, 8, 9, 10]
         kvs: list[tuple[str, str]] = []
-        for col_idx, override_label in cols:
-            if override_label:
-                label = override_label
-                value = f"{driver_name} (ID: {self.selected_cust_id})"
-            else:
-                header = self.table.horizontalHeaderItem(col_idx)
-                label = header.text() if header else f"Col {col_idx}"
-                value = cell_text(col_idx)
-            kvs.append((label, value))
+        for col_idx in cols:
+            header = self.table.horizontalHeaderItem(col_idx)
+            label = header.text() if header else f"Col {col_idx}"
+            kvs.append((label, cell_text(col_idx)))
 
         split_at = (len(kvs) + 1) // 2
         left = kvs[:split_at]
@@ -570,12 +843,8 @@ class RaceBookApp(QMainWindow):
         for i in range(max(len(left), len(right))):
             l = left[i] if i < len(left) else ("", "")
             r = right[i] if i < len(right) else ("", "")
-            left_txt = (
-                f"<b>{html.escape(l[0])}:</b> {html.escape(l[1])}" if l[0] else ""
-            )
-            right_txt = (
-                f"<b>{html.escape(r[0])}:</b> {html.escape(r[1])}" if r[0] else ""
-            )
+            left_txt = f"<b>{html.escape(l[0])}:</b> {html.escape(l[1])}" if l[0] else ""
+            right_txt = f"<b>{html.escape(r[0])}:</b> {html.escape(r[1])}" if r[0] else ""
             rows_html.append(
                 "<tr>"
                 f"<td style='padding-right:18px; white-space:nowrap;'>{left_txt}</td>"
@@ -583,7 +852,7 @@ class RaceBookApp(QMainWindow):
                 "</tr>"
             )
 
-        self.driver_title_label.setText(
+        return (
             driver_line
             + "<br/>"
             + series_line
@@ -592,9 +861,6 @@ class RaceBookApp(QMainWindow):
             + "".join(rows_html)
             + "</table>"
         )
-
-        notes = res[1] if res and len(res) > 1 else ""
-        self.notes_edit.setText(notes or "")
 
     def _update_preference_buttons(self, pref: int | None):
         # Visually select the matching preference button.
@@ -664,53 +930,6 @@ class RaceBookApp(QMainWindow):
         self.refresh_ui_table()
         self._select_driver_row_by_cust_id(cust_id)
 
-    def log_current_race_results(self):
-        if not self.current_subsession_id:
-            return
-
-        conn = sqlite3.connect(DB_NAME)
-        cursor = conn.cursor()
-        cursor.execute("SELECT cust_id FROM drivers")
-        drivers_in_session = cursor.fetchall()
-
-        for (c_id,) in drivers_in_session:
-            cursor.execute(
-                """
-                INSERT INTO race_results (
-                    cust_id,
-                    subsession_id,
-                    finish_position,
-                    incidents,
-                    irating_change,
-                    license_class,
-                    starting_position,
-                    reason_out,
-                    reason_out_id
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    c_id,
-                    self.current_subsession_id,
-                    random.randint(1, 30),
-                    random.choice([0, 2, 4, 8, 12]),
-                    random.randint(-40, 40),
-                    "A 4.99",
-                    None,
-                    None,
-                    REASON_OUT_RUNNING,
-                ),
-            )
-
-        conn.commit()
-        conn.close()
-        self.refresh_ui_table()
-        QMessageBox.information(
-            self,
-            "Race Logged",
-            f"Logged simulated positions for Subsession #{self.current_subsession_id}",
-        )
-
     def import_json_data(self):
         file_paths, _ = QFileDialog.getOpenFileNames(
             self, "Open Historic Race Log(s)", "", "JSON Files (*.json)"
@@ -734,196 +953,20 @@ class RaceBookApp(QMainWindow):
                 with open(file_path, "r") as f:
                     data = json.load(f)
 
-                races: list[dict] = []
-                series_name: str | None = None
-                race_timestamp: str | None = None
+                races, series_name, race_timestamp = _parse_races_from_json(data)
+                license_text_fallback = None
+                if isinstance(data, dict) and isinstance(data.get("data"), dict):
+                    # For event_result payloads we used license_category as a fallback earlier; keep that behavior.
+                    cat = data["data"].get("license_category")
+                    license_text_fallback = str(cat) if cat else None
 
-                # Supported formats:
-                # 1) {"races": [{"subsession_id":..., "results":[...]}]}
-                # 2) [{"subsession_id":..., "results":[...]}]
-                # 3) iRacing event_result payload:
-                #    {"type":"event_result","data":{"subsession_id":...,"session_results":[{"simsession_type_name":"Race","results":[...]}]}}
-                if isinstance(data, dict):
-                    if data.get("type") == "event_result" and isinstance(data.get("data"), dict):
-                        payload = data["data"]
-                        sub_id = payload.get("subsession_id", 0)
-                        series_name = payload.get("series_name") or payload.get("season_name")
-                        race_timestamp = payload.get("end_time") or payload.get("start_time")
-                        sessions = payload.get("session_results", [])
-                        if isinstance(sessions, list):
-                            for s in sessions:
-                                if not isinstance(s, dict):
-                                    continue
-                                if s.get("simsession_type_name") == "Race" or s.get("simsession_type") == 6:
-                                    results = s.get("results", [])
-                                    races.append({"subsession_id": sub_id, "results": results})
-                                    break
-                    else:
-                        races = data.get("races", [])
-                elif isinstance(data, list):
-                    races = data
-
-                races_imported = 0
-                results_imported = 0
-
-                for entry in races:
-                    if not isinstance(entry, dict):
-                        continue
-                    sub_id = entry.get("subsession_id", 0)
-                    results = entry.get("results", [])
-                    if not isinstance(results, list):
-                        continue
-
-                    any_result = False
-                    for driver in results:
-                        if not isinstance(driver, dict):
-                            continue
-                        c_id = driver.get("cust_id")
-                        name = driver.get("name", driver.get("display_name"))
-                        if c_id is None:
-                            continue
-
-                        cursor.execute(
-                            """
-                            INSERT INTO drivers (cust_id, driver_name)
-                            VALUES (?, ?)
-                            ON CONFLICT(cust_id) DO UPDATE SET driver_name=excluded.driver_name
-                            """,
-                            (c_id, name),
-                        )
-
-                        finish = driver.get("finish", driver.get("finish_position"))
-                        # iRacing event_result finish_position is 0-based (0 == P1)
-                        if isinstance(finish, int) and finish >= 0:
-                            finish += 1
-                        ir_change = driver.get("irating_change")
-                        if ir_change is None:
-                            old_ir = driver.get("oldi_rating")
-                            new_ir = driver.get("newi_rating")
-                            if isinstance(old_ir, int) and isinstance(new_ir, int):
-                                ir_change = new_ir - old_ir
-                            else:
-                                ir_change = 0
-
-                        new_ir = driver.get("newi_rating")
-                        if not isinstance(new_ir, int):
-                            new_ir = (
-                                driver.get("oldi_rating")
-                                if isinstance(driver.get("oldi_rating"), int)
-                                else None
-                            )
-
-                        new_sr = _sr_from_sub_level(driver.get("new_sub_level"))
-                        if new_sr is None:
-                            new_sr = _sr_from_sub_level(driver.get("old_sub_level"))
-
-                        lic_group = _license_group_from_level(driver.get("new_license_level"))
-                        if lic_group is None:
-                            lic_group = _license_group_from_level(driver.get("old_license_level"))
-
-                        last_license = None
-                        if lic_group and new_sr is not None:
-                            last_license = f"{lic_group} {new_sr:.2f}"
-
-                        license_text = driver.get("license", "Unknown")
-                        if (
-                            license_text == "Unknown"
-                            and isinstance(data, dict)
-                            and isinstance(data.get("data"), dict)
-                        ):
-                            cat = data["data"].get("license_category")
-                            if cat:
-                                license_text = str(cat)
-
-                        start_pos = driver.get("starting_position")
-                        if isinstance(start_pos, int) and start_pos >= 0:
-                            start_pos += 1  # 0-based in event_result (0 == P1)
-                        else:
-                            start_pos = None
-
-                        reason_out = driver.get("reason_out")
-                        if not isinstance(reason_out, str) or not reason_out.strip():
-                            reason_out = None
-
-                        reason_out_id = _normalize_reason_out_id(
-                            driver.get("reason_out_id"), reason_out
-                        )
-                        if reason_out_id == REASON_OUT_RUNNING:
-                            reason_out = reason_out or "Running"
-
-                        cursor.execute(
-                            """
-                            INSERT INTO race_results (
-                                cust_id,
-                                subsession_id,
-                                finish_position,
-                                incidents,
-                                irating_change,
-                                license_class,
-                                starting_position,
-                                reason_out,
-                                reason_out_id
-                            )
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            """,
-                            (
-                                c_id,
-                                sub_id,
-                                finish,
-                                driver.get("incidents", 0),
-                                ir_change,
-                                license_text,
-                                start_pos,
-                                reason_out,
-                                reason_out_id,
-                            ),
-                        )
-
-                        cursor.execute(
-                            """
-                            SELECT last_seen_at
-                            FROM drivers
-                            WHERE cust_id = ?
-                            """,
-                            (c_id,),
-                        )
-
-                        row = cursor.fetchone()
-                        existing_last_seen = row[0] if row and row[0] else None
-
-                        should_update_last_seen = (
-                            race_timestamp is not None
-                            and (existing_last_seen is None or existing_last_seen < race_timestamp)
-                        )
-
-                        if should_update_last_seen:
-                            cursor.execute(
-                                """
-                                UPDATE drivers
-                                SET last_irating = COALESCE(?, last_irating),
-                                    last_safety = COALESCE(?, last_safety),
-                                    last_license = COALESCE(?, last_license),
-                                    last_series = COALESCE(?, last_series),
-                                    last_starting_pos = COALESCE(?, last_starting_pos),
-                                    last_seen_at = ?
-                                WHERE cust_id = ?
-                                """,
-                                (
-                                    new_ir,
-                                    new_sr,
-                                    last_license,
-                                    series_name,
-                                    start_pos,
-                                    race_timestamp,
-                                    c_id,
-                                ),
-                            )
-
-                        any_result = True
-                        results_imported += 1
-
-                    if any_result:
-                        races_imported += 1
+                races_imported, results_imported = _import_race_entries(
+                    cursor,
+                    races,
+                    series_name,
+                    race_timestamp,
+                    license_text_fallback,
+                )
 
                 total_races_imported += races_imported
                 total_results_imported += results_imported

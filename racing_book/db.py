@@ -1,6 +1,32 @@
+import os
 import sqlite3
+import sys
+from pathlib import Path
 
-DB_NAME = "driver_history.db"
+APP_NAME = "RacingBook"
+
+
+def _get_data_dir() -> Path:
+    """Return a stable writable folder for app data (dev vs bundled)."""
+    if getattr(sys, "frozen", False):
+        if sys.platform == "darwin":
+            base = Path.home() / "Library" / "Application Support" / APP_NAME
+        elif sys.platform == "win32":
+            base = Path(os.environ.get("APPDATA", Path.home())) / APP_NAME
+        else:
+            base = Path.home() / ".local" / "share" / APP_NAME
+    else:
+        base = Path.cwd()
+
+    base.mkdir(parents=True, exist_ok=True)
+    return base
+
+
+def get_db_path() -> str:
+    return str(_get_data_dir() / "driver_history.db")
+
+
+DB_NAME = get_db_path()
 
 
 def _existing_columns(cursor: sqlite3.Cursor, table: str) -> set[str]:
