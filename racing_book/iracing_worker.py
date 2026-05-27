@@ -87,29 +87,41 @@ class IRacingWorker(QThread):
             self.msleep(1000)
 
             try:
-                if self._sdk_connected and not (
-                    self.ir.is_initialized and self.ir.is_connected
-                ):
+                # pyirsdk uses iRacing shared memory. In some session/UI states, `is_connected`
+                # can briefly be false even though the SDK is initialized. For our UI, treat
+                # "initialized" as connected-to-SDK, and use `is_connected` as "fully live".
+                is_initialized = bool(getattr(self.ir, "is_initialized", False))
+                is_connected = bool(getattr(self.ir, "is_connected", False))
+
+                if self._sdk_connected and not is_initialized:
                     self._sdk_connected = False
                     self._last_emit_key = None
                     self.ir.shutdown()
                     self._emit_connection(False)
 
                 elif not self._sdk_connected:
-                    if not (
-                        self.ir.startup()
-                        and self.ir.is_initialized
-                        and self.ir.is_connected
-                    ):
+                    # Keep trying startup until the shared memory becomes available.
+                    if not self.ir.startup():
+                        continue
+                    is_initialized = bool(getattr(self.ir, "is_initialized", False))
+                    is_connected = bool(getattr(self.ir, "is_connected", False))
+                    if not is_initialized:
                         continue
                     self._sdk_connected = True
                     self._last_emit_key = None
+                    # Emit "connected" as soon as SDK is initialized.
                     self._emit_connection(True, 0)
 
                 if not self._sdk_connected:
                     continue
 
                 active_drivers, subsession_id = _parse_session_drivers(self.ir)
+
+                # If the SDK is initialized but not fully connected yet, still surface that to the UI.
+                # (Drivers may be empty until session info arrives.)
+                if not is_connected and not active_drivers:
+                    self._emit_connection(True, subsession_id)
+                    continue
 
                 emit_key = (
                     subsession_id,
