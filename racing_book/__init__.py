@@ -1,0 +1,2 @@
+"""Racing Book application package."""
+
