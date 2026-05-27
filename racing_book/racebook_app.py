@@ -53,6 +53,10 @@ ROW_BG_LIKED = QColor(210, 255, 210)
 ROW_BG_DISLIKED = QColor(255, 210, 210)
 ROW_FG_FOR_HIGHLIGHT = QColor(0, 0, 0)
 
+COL_CUST_ID = 10
+COL_NOTE = 11
+NOTE_INDICATOR = "+"
+
 _TABLE_DATA_SQL = """
     SELECT
         d.driver_name,
@@ -78,7 +82,8 @@ _TABLE_DATA_SQL = """
         COALESCE(dnf.eject, 0),
         COALESCE(dnf.quit_, 0),
         COALESCE(dnf.dq, 0),
-        COALESCE(dnf.other, 0)
+        COALESCE(dnf.other, 0),
+        CASE WHEN TRIM(COALESCE(d.notes, '')) != '' THEN 1 ELSE 0 END AS has_notes
     FROM drivers d
     LEFT JOIN race_results r ON d.cust_id = r.cust_id
     LEFT JOIN (
@@ -497,7 +502,7 @@ class RaceBookApp(QMainWindow):
         left_layout.addLayout(ignore_layout)
 
         self.table = QTableWidget()
-        self.table.setColumnCount(11)
+        self.table.setColumnCount(12)
         self.table.setHorizontalHeaderLabels(
             [
                 "Driver Name",
@@ -511,9 +516,13 @@ class RaceBookApp(QMainWindow):
                 "DNFs",
                 "DNF Breakdown",
                 "Customer ID",
+                "Note",
             ]
         )
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(
+            COL_NOTE, QHeaderView.ResizeMode.ResizeToContents
+        )
         self.table.horizontalHeader().setSortIndicatorShown(True)
         self.table.setSortingEnabled(True)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -589,7 +598,7 @@ class RaceBookApp(QMainWindow):
             if ignore_name and name_lc == ignore_name:
                 hidden = True
             if current_only:
-                cust_item = self.table.item(row, 10)
+                cust_item = self.table.item(row, COL_CUST_ID)
                 try:
                     cust_id = int(cust_item.text()) if cust_item else None
                 except Exception:
@@ -714,10 +723,12 @@ class RaceBookApp(QMainWindow):
             quit_,
             dq,
             other,
+            has_notes,
         ) = row_data
         cid = int(cust_id)
         pref = _sqlite_row_to_int(race_preference)
         breakdown = _format_dnf_breakdown(disc, eject, quit_, dq, other) or "—"
+        has_note = bool(has_notes)
         return (
             [
                 name,
@@ -731,6 +742,7 @@ class RaceBookApp(QMainWindow):
                 dnf_total,
                 breakdown,
                 cid,
+                has_note,
             ],
             cid,
             pref,
@@ -747,9 +759,22 @@ class RaceBookApp(QMainWindow):
         item.setFlags(item.flags() ^ Qt.ItemFlag.ItemIsEditable)
         return item
 
+    def _make_note_item(self, has_note: bool) -> QTableWidgetItem:
+        item = QTableWidgetItem(NOTE_INDICATOR if has_note else "")
+        item.setFlags(item.flags() ^ Qt.ItemFlag.ItemIsEditable)
+        item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        item.setData(Qt.ItemDataRole.UserRole, 1 if has_note else 0)
+        if has_note:
+            item.setToolTip("Has scouting notes")
+        return item
+
     def _render_table_row(self, row_idx: int, display_row: list) -> None:
         for col_idx, value in enumerate(display_row):
-            self.table.setItem(row_idx, col_idx, self._make_table_item(value))
+            if col_idx == COL_NOTE:
+                item = self._make_note_item(bool(value))
+            else:
+                item = self._make_table_item(value)
+            self.table.setItem(row_idx, col_idx, item)
 
     def _apply_preference_row_style(self, row_idx: int, col_count: int, pref: int | None) -> None:
         if pref == 1:
@@ -771,7 +796,7 @@ class RaceBookApp(QMainWindow):
             return
 
         row = selected_ranges[0].topRow()
-        cust_id_item = self.table.item(row, 10)
+        cust_id_item = self.table.item(row, COL_CUST_ID)
         if not cust_id_item:
             return
 
@@ -836,7 +861,7 @@ class RaceBookApp(QMainWindow):
             else "<b>Series:</b> N/A"
         )
 
-        cols = [2, 3, 4, 5, 7, 8, 9, 10]
+        cols = [2, 3, 4, 5, 7, 8, 9, COL_CUST_ID]
         kvs: list[tuple[str, str]] = []
         for col_idx in cols:
             header = self.table.horizontalHeaderItem(col_idx)
@@ -892,7 +917,7 @@ class RaceBookApp(QMainWindow):
 
     def _row_for_cust_id(self, cust_id: int) -> int | None:
         for row in range(self.table.rowCount()):
-            item = self.table.item(row, 10)
+            item = self.table.item(row, COL_CUST_ID)
             if not item:
                 continue
             try:
@@ -906,6 +931,12 @@ class RaceBookApp(QMainWindow):
         row = self._row_for_cust_id(cust_id)
         if row is not None:
             self.table.selectRow(row)
+
+    def _set_note_indicator(self, cust_id: int, has_note: bool) -> None:
+        row_idx = self._row_for_cust_id(cust_id)
+        if row_idx is None:
+            return
+        self.table.setItem(row_idx, COL_NOTE, self._make_note_item(has_note))
 
     def _clear_row_style(self, row_idx: int) -> None:
         for col_idx in range(self.table.columnCount()):
@@ -929,6 +960,7 @@ class RaceBookApp(QMainWindow):
             (notes_text, self.selected_cust_id),
         )
         self._db_conn.commit()
+        self._set_note_indicator(self.selected_cust_id, bool(notes_text.strip()))
         QMessageBox.information(self, "Saved", "Driver notebook updated successfully.")
 
     def set_race_preference(self, pref: int | None):
