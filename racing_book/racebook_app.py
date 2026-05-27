@@ -974,22 +974,40 @@ class RaceBookApp(QMainWindow):
     def start_sdk_worker(self):
         worker = IRacingWorker()
         if not getattr(worker, "available", False):
-            self._set_status(STATUS_OFFLINE, "Offline — import JSON or install iRacing SDK")
+            self._set_status(STATUS_OFFLINE, "Offline — import JSON (live SDK needs Windows + pyirsdk)")
             self._update_live_session_filter(active=False, hint=MSG_SESSION_NOT_CONNECTED)
             self.worker = None
             return
 
         self.worker = worker
+        self.worker.connection_changed.connect(self.handle_sdk_connection)
         self.worker.drivers_updated.connect(self.handle_sdk_update)
         self.worker.start()
         self._update_live_session_filter(active=False, hint=MSG_SESSION_NOT_CONNECTED)
 
+    def handle_sdk_connection(self, connected: bool, subsession_id: int) -> None:
+        if connected:
+            label = f"Live — session #{subsession_id}" if subsession_id else "Live — connected to iRacing"
+            self._set_status(STATUS_CONNECTED, label)
+            self._update_live_session_filter(active=True, hint="")
+            self.current_subsession_id = subsession_id
+            return
+
+        self.current_subsession_id = 0
+        self.active_cust_ids = set()
+        self._set_status(STATUS_WAITING, "Waiting for iRacing…")
+        self._update_live_session_filter(active=False, hint=MSG_SESSION_NOT_CONNECTED)
+        if hasattr(self, "chk_current_race_only"):
+            self.chk_current_race_only.setChecked(False)
+
     def handle_sdk_update(self, active_drivers, subsession_id):
         self.current_subsession_id = subsession_id
-        self._set_status(
-            STATUS_CONNECTED,
-            f"Live — session #{subsession_id} · {len(active_drivers)} drivers",
-        )
+        driver_count = len(active_drivers)
+        if subsession_id:
+            status = f"Live — session #{subsession_id} · {driver_count} drivers"
+        else:
+            status = f"Live — connected · {driver_count} drivers"
+        self._set_status(STATUS_CONNECTED, status)
         self._update_live_session_filter(active=True, hint="")
 
         self.active_cust_ids = {d.get("cust_id") for d in active_drivers if d.get("cust_id") is not None}

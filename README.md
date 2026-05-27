@@ -9,10 +9,10 @@ pip install -r requirements.txt
 python main.py
 ```
 
-Optional live SDK support:
+Optional live SDK support (Windows only, while iRacing is running):
 
 ```bash
-pip install iracingdata
+pip install pyirsdk
 ```
 
 ## Build a Windows installer

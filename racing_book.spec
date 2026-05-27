@@ -14,6 +14,7 @@ a = Analysis(
         "racing_book",
         "racing_book.db",
         "racing_book.iracing_worker",
+        "irsdk",
         "racing_book.racebook_app",
         "racing_book.theme",
     ],

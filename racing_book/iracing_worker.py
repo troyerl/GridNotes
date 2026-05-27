@@ -1,67 +1,115 @@
 from PyQt6.QtCore import QThread, pyqtSignal
 
 
+def _parse_session_drivers(ir) -> tuple[list[dict], int]:
+    """Read driver list and subsession id from pyirsdk session YAML."""
+    subsession_id = 0
+    drivers_raw: list = []
+
+    try:
+        weekend = ir["WeekendInfo"]
+        if isinstance(weekend, dict):
+            subsession_id = int(weekend.get("SubSessionID") or 0)
+    except Exception:
+        pass
+
+    try:
+        driver_info = ir["DriverInfo"]
+        if isinstance(driver_info, dict):
+            drivers_raw = driver_info.get("Drivers") or []
+    except Exception:
+        pass
+
+    if not isinstance(drivers_raw, list):
+        drivers_raw = []
+
+    active_drivers: list[dict] = []
+    for d in drivers_raw:
+        if not isinstance(d, dict):
+            continue
+
+        if d.get("CarIsPaceCar") or d.get("IsPaceCar") or d.get("UserName") == "Pace Car":
+            continue
+
+        cust_id = d.get("UserID")
+        if cust_id is None:
+            cust_id = d.get("CustID")
+        if cust_id is None:
+            continue
+
+        name = d.get("UserName") or d.get("UserNameShort") or f"Driver {cust_id}"
+        active_drivers.append({"cust_id": int(cust_id), "name": str(name)})
+
+    return active_drivers, subsession_id
+
+
 class IRacingWorker(QThread):
     """
-    Polled worker thread that listens to the iRacing SDK API memory map
-    to avoid blocking the main GUI thread.
+    Polled worker thread using pyirsdk (irsdk) to read iRacing's live session data
+    without blocking the main GUI thread.
     """
 
     drivers_updated = pyqtSignal(list, int)  # (driver_list, subsession_id)
+    connection_changed = pyqtSignal(bool, int)  # (connected, subsession_id)
 
     def __init__(self):
         super().__init__()
         self.running = True
         self.available = False
         self.ir = None
+        self._sdk_connected = False
         self._last_emit_key: tuple | None = None
+        self._last_connection_emit: bool | None = None
 
-        # Delayed import to gracefully handle situations where iRacing isn't installed
         try:
-            import iracingdata
+            import irsdk
         except Exception:
             return
 
         try:
-            self.ir = iracingdata.iracingdata()
+            self.ir = irsdk.IRSDK()
             self.available = True
         except Exception:
             self.ir = None
             self.available = False
+
+    def _emit_connection(self, connected: bool, subsession_id: int = 0) -> None:
+        if self._last_connection_emit == connected:
+            return
+        self._last_connection_emit = connected
+        self.connection_changed.emit(connected, subsession_id)
 
     def run(self):
         if not self.available or self.ir is None:
             return
 
         while self.running:
-            self.msleep(2000)  # Poll every 2 seconds
-
-            if not self.ir.is_connected:
-                if not self.ir.startup():
-                    continue
-
-            session_info = self.ir.session_info
-            if not session_info:
-                continue
+            self.msleep(1000)
 
             try:
-                subsession_id = session_info.get("WeekendInfo", {}).get("SubSessionID", 0)
-                driver_info_list = session_info.get("DriverInfo", {}).get("Drivers", [])
+                if self._sdk_connected and not (
+                    self.ir.is_initialized and self.ir.is_connected
+                ):
+                    self._sdk_connected = False
+                    self._last_emit_key = None
+                    self.ir.shutdown()
+                    self._emit_connection(False)
 
-                active_drivers = []
-                for d in driver_info_list:
-                    # Skip pace car (common variants)
-                    if d.get("IsPaceCar") or d.get("UserName") == "Pace Car":
+                elif not self._sdk_connected:
+                    if not (
+                        self.ir.startup()
+                        and self.ir.is_initialized
+                        and self.ir.is_connected
+                    ):
                         continue
+                    self._sdk_connected = True
+                    self._last_emit_key = None
+                    self._emit_connection(True, 0)
 
-                    cust_id = d.get("UserID")
-                    name = d.get("UserName")
-                    if cust_id is None:
-                        continue
-                    active_drivers.append({"cust_id": cust_id, "name": name})
-
-                if not active_drivers:
+                if not self._sdk_connected:
                     continue
+
+                active_drivers, subsession_id = _parse_session_drivers(self.ir)
 
                 emit_key = (
                     subsession_id,
@@ -71,11 +119,17 @@ class IRacingWorker(QThread):
                     continue
 
                 self._last_emit_key = emit_key
+                self._emit_connection(True, subsession_id)
                 self.drivers_updated.emit(active_drivers, subsession_id)
 
             except Exception as e:
-                print(f"Error parsing SDK data: {e}")
+                print(f"Error reading iRacing SDK: {e}")
 
     def stop(self):
         self.running = False
+        if self.ir is not None and self._sdk_connected:
+            try:
+                self.ir.shutdown()
+            except Exception:
+                pass
         self.wait()
