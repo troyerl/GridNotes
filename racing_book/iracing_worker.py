@@ -1,4 +1,8 @@
+import logging
+
 from PyQt6.QtCore import QThread, pyqtSignal
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_session_drivers(ir) -> tuple[list[dict], int]:
@@ -77,10 +81,12 @@ class IRacingWorker(QThread):
         if self._last_connection_emit == connected:
             return
         self._last_connection_emit = connected
+        logger.info("SDK connection_changed=%s subsession_id=%s", connected, subsession_id)
         self.connection_changed.emit(connected, subsession_id)
 
     def run(self):
         if not self.available or self.ir is None:
+            logger.info("pyirsdk unavailable (import/IRSDK init failed).")
             return
 
         while self.running:
@@ -102,10 +108,12 @@ class IRacingWorker(QThread):
                 elif not self._sdk_connected:
                     # Keep trying startup until the shared memory becomes available.
                     if not self.ir.startup():
+                        logger.debug("pyirsdk startup() false (shared memory not ready)")
                         continue
                     is_initialized = bool(getattr(self.ir, "is_initialized", False))
                     is_connected = bool(getattr(self.ir, "is_connected", False))
                     if not is_initialized:
+                        logger.debug("pyirsdk not initialized yet")
                         continue
                     self._sdk_connected = True
                     self._last_emit_key = None
@@ -116,6 +124,13 @@ class IRacingWorker(QThread):
                     continue
 
                 active_drivers, subsession_id = _parse_session_drivers(self.ir)
+                logger.debug(
+                    "pyirsdk tick init=%s connected=%s subsession=%s drivers=%s",
+                    is_initialized,
+                    is_connected,
+                    subsession_id,
+                    len(active_drivers),
+                )
 
                 # If the SDK is initialized but not fully connected yet, still surface that to the UI.
                 # (Drivers may be empty until session info arrives.)
@@ -135,7 +150,7 @@ class IRacingWorker(QThread):
                 self.drivers_updated.emit(active_drivers, subsession_id)
 
             except Exception as e:
-                print(f"Error reading iRacing SDK: {e}")
+                logger.exception("Error reading iRacing SDK: %s", e)
 
     def stop(self):
         self.running = False

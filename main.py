@@ -1,9 +1,12 @@
 import sys
 from pathlib import Path
 
+import logging
+
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication
 
+from racing_book.db import get_data_dir_path
 from racing_book.racebook_app import RaceBookApp
 from racing_book.theme import APP_STYLESHEET
 
@@ -25,6 +28,19 @@ def _load_app_icon() -> QIcon | None:
 
 
 def main() -> int:
+    # Log to a file so Windows users can debug even without a console.
+    try:
+        log_path = get_data_dir_path() / "racingbook.log"
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+            handlers=[logging.FileHandler(log_path, encoding="utf-8")],
+        )
+        logging.getLogger(__name__).info("App starting. Log file: %s", log_path)
+    except Exception:
+        # If logging setup fails, continue without it.
+        pass
+
     app = QApplication(sys.argv)
     app.setStyleSheet(APP_STYLESHEET)
 

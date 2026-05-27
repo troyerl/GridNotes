@@ -22,6 +22,10 @@ def _get_data_dir() -> Path:
     return base
 
 
+def get_data_dir_path() -> Path:
+    return _get_data_dir()
+
+
 def get_db_path() -> str:
     return str(_get_data_dir() / "driver_history.db")
 
