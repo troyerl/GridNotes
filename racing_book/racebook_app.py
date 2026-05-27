@@ -4,7 +4,7 @@ import sqlite3
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QEvent, Qt
 from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
@@ -32,7 +33,13 @@ from PyQt6.QtWidgets import (
 
 from .db import connect_db, get_setting, init_db, set_setting
 from .iracing_worker import IRacingWorker
-from .theme import STATUS_CONNECTED, STATUS_OFFLINE, STATUS_WAITING
+from .theme import (
+    STATUS_CONNECTED,
+    STATUS_OFFLINE,
+    STATUS_WAITING,
+    configure_scroll_area,
+    configure_widget_scrollbars,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +67,9 @@ REASON_OUT_TEXT_TO_ID = {
 
 ROW_BG_LIKED = QColor(42, 72, 52)
 ROW_BG_DISLIKED = QColor(72, 42, 42)
+ROW_BG_HOVER = QColor(45, 52, 64)
 ROW_FG_FOR_HIGHLIGHT = QColor(232, 234, 237)
+PREF_DATA_ROLE = Qt.ItemDataRole.UserRole + 1
 
 COL_NAME = 0
 COL_RACES = 1
@@ -191,6 +200,32 @@ _DRIVER_DETAIL_SQL = """
     WHERE d.cust_id = ?
     GROUP BY d.cust_id
 """
+
+
+class WrappingLabel(QLabel):
+    """Label that wraps long text and reports correct height in scroll areas."""
+
+    def __init__(self, text: str = "—", parent: QWidget | None = None) -> None:
+        super().__init__(text, parent)
+        self.setWordWrap(True)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
+    def hasHeightForWidth(self) -> bool:
+        return True
+
+    def heightForWidth(self, width: int) -> int:
+        if width <= 0:
+            return super().sizeHint().height()
+        bounds = self.fontMetrics().boundingRect(
+            0,
+            0,
+            width,
+            10_000,
+            int(Qt.TextFlag.TextWordWrap),
+            self.text(),
+        )
+        return bounds.height() + 6
 
 
 def _display_val(value) -> str:
@@ -541,6 +576,7 @@ class RaceBookApp(QMainWindow):
         self.selected_cust_id = None
         self.worker = None
         self.active_cust_ids: set[int] = set()
+        self._hover_row: int | None = None
 
         init_db()
         self._db_conn = connect_db()
@@ -580,6 +616,16 @@ class RaceBookApp(QMainWindow):
         self.table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
 
+        row_h = self.table.verticalHeader().defaultSectionSize()
+        configure_widget_scrollbars(
+            self.table,
+            single_step=row_h,
+            page_step=row_h * 4,
+            horizontal_single=72,
+            horizontal_page=240,
+            always_show=True,
+        )
+
         for col in (
             COL_RACES,
             COL_AVG_INC,
@@ -605,6 +651,54 @@ class RaceBookApp(QMainWindow):
                 label = header_item.text()
                 header_item.setToolTip(f"Click to sort by {label}")
 
+        self.table.setMouseTracking(True)
+        self.table.viewport().setMouseTracking(True)
+        self.table.entered.connect(self._on_table_row_entered)
+        self.table.viewport().installEventFilter(self)
+
+    def eventFilter(self, obj, event) -> bool:
+        if obj is self.table.viewport() and event.type() == QEvent.Type.Leave:
+            self._clear_table_row_hover()
+        return super().eventFilter(obj, event)
+
+    def _pref_for_row(self, row_idx: int) -> int | None:
+        name_item = self.table.item(row_idx, COL_NAME)
+        if name_item is None:
+            return None
+        return _sqlite_row_to_int(name_item.data(PREF_DATA_ROLE))
+
+    def _restore_row_background(self, row_idx: int) -> None:
+        pref = self._pref_for_row(row_idx)
+        if pref in (1, -1):
+            self._apply_preference_row_style(row_idx, self.table.columnCount(), pref)
+        else:
+            self._clear_row_style(row_idx)
+
+    def _apply_row_hover(self, row_idx: int) -> None:
+        selected = self.table.selectionModel().selectedRows()
+        if selected and selected[0].row() == row_idx:
+            return
+        for col_idx in range(self.table.columnCount()):
+            item = self.table.item(row_idx, col_idx)
+            if item is not None:
+                item.setBackground(ROW_BG_HOVER)
+
+    def _clear_table_row_hover(self) -> None:
+        if self._hover_row is None:
+            return
+        self._restore_row_background(self._hover_row)
+        self._hover_row = None
+
+    def _on_table_row_entered(self, index) -> None:
+        if not index.isValid():
+            return
+        row = index.row()
+        if row == self._hover_row:
+            return
+        self._clear_table_row_hover()
+        self._hover_row = row
+        self._apply_row_hover(row)
+
     def _update_live_session_filter(self, *, active: bool, hint: str) -> None:
         self.chk_current_race_only.setVisible(active)
         self.chk_current_race_only.setEnabled(active)
@@ -615,8 +709,13 @@ class RaceBookApp(QMainWindow):
 
     def _set_detail_field(self, key: str, value) -> None:
         label = self._detail_fields.get(key)
-        if label is not None:
-            label.setText(_display_val(value))
+        if label is None:
+            return
+        text = _display_val(value)
+        label.setText(text)
+        if key in ("series", "dnf_breakdown"):
+            label.setToolTip(text if text != "—" else "")
+            label.updateGeometry()
 
     def _clear_driver_details(self) -> None:
         self.driver_name_label.clear()
@@ -839,18 +938,29 @@ class RaceBookApp(QMainWindow):
         self.driver_meta_label.setWordWrap(True)
         detail_layout.addWidget(self.driver_meta_label)
 
+        series_title = QLabel("Series")
+        series_title.setObjectName("statLabel")
+        detail_layout.addWidget(series_title)
+        self._detail_fields = {}
+        series_value = WrappingLabel("—")
+        series_value.setObjectName("seriesValue")
+        detail_layout.addWidget(series_value)
+        self._detail_fields["series"] = series_value
+
         stats_form = QFormLayout()
         stats_form.setSpacing(2)
         stats_form.setContentsMargins(0, 6, 0, 0)
         stats_form.setVerticalSpacing(2)
         stats_form.setHorizontalSpacing(12)
         stats_form.setLabelAlignment(
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+        )
+        stats_form.setFormAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
         )
         stats_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
-        self._detail_fields: dict[str, QLabel] = {}
+        stats_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
         for key, title in [
-            ("series", "Series"),
             ("avg_finish", "Avg finish"),
             ("avg_incidents", "Avg incidents"),
             ("races", "Races tracked"),
@@ -860,14 +970,24 @@ class RaceBookApp(QMainWindow):
             ("dnfs", "DNFs"),
             ("dnf_breakdown", "DNF breakdown"),
         ]:
-            value = QLabel("—")
+            if key == "dnf_breakdown":
+                value: QLabel = WrappingLabel("—")
+            else:
+                value = QLabel("—")
+                value.setWordWrap(True)
+                value.setSizePolicy(
+                    QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
+                )
+                value.setAlignment(
+                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+                )
             value.setObjectName("statValue")
-            value.setWordWrap(True)
             stats_form.addRow(title, value)
             self._detail_fields[key] = value
         detail_layout.addLayout(stats_form)
 
         self.driver_detail_scroll.setWidget(self.driver_detail_frame)
+        configure_scroll_area(self.driver_detail_scroll, page_step=96)
         self.driver_detail_scroll.setVisible(False)
         right_layout.addWidget(self.driver_detail_scroll)
 
@@ -878,6 +998,7 @@ class RaceBookApp(QMainWindow):
             "e.g. Aggressive on restarts, gives room on restarts, weak under pressure…"
         )
         self.notes_edit.setMinimumHeight(140)
+        configure_widget_scrollbars(self.notes_edit, single_step=20, page_step=100)
         notes_layout.addWidget(self.notes_edit)
         right_layout.addWidget(notes_group, stretch=1)
 
@@ -908,7 +1029,7 @@ class RaceBookApp(QMainWindow):
 
         main_splitter.addWidget(right_panel)
         right_panel.setMinimumWidth(300)
-        right_panel.setMaximumWidth(440)
+        right_panel.setMaximumWidth(520)
         main_splitter.setStretchFactor(0, 5)
         main_splitter.setStretchFactor(1, 2)
         main_splitter.setSizes([1000, 340])
@@ -1048,13 +1169,14 @@ class RaceBookApp(QMainWindow):
         if was_sorting:
             self.table.setSortingEnabled(False)
 
+        self._clear_table_row_hover()
         self.table.setUpdatesEnabled(False)
         try:
             self.table.clearContents()
             self.table.setRowCount(len(rows))
             for row_idx, row_data in enumerate(rows):
                 display_row, cust_id, pref = self._build_display_row(row_data)
-                self._render_table_row(row_idx, display_row, cust_id)
+                self._render_table_row(row_idx, display_row, cust_id, pref)
                 self._apply_preference_row_style(row_idx, len(display_row), pref)
         finally:
             self.table.setUpdatesEnabled(True)
@@ -1136,7 +1258,9 @@ class RaceBookApp(QMainWindow):
             item.setToolTip("Has scouting notes")
         return item
 
-    def _render_table_row(self, row_idx: int, display_row: list, cust_id: int) -> None:
+    def _render_table_row(
+        self, row_idx: int, display_row: list, cust_id: int, pref: int | None = None
+    ) -> None:
         for col_idx, value in enumerate(display_row):
             if col_idx == COL_NOTE:
                 item = self._make_note_item(bool(value))
@@ -1144,6 +1268,7 @@ class RaceBookApp(QMainWindow):
                 item = self._make_table_item(value)
             if col_idx == COL_NAME:
                 item.setData(Qt.ItemDataRole.UserRole, cust_id)
+                item.setData(PREF_DATA_ROLE, pref)
             self.table.setItem(row_idx, col_idx, item)
 
     def _apply_preference_row_style(self, row_idx: int, col_count: int, pref: int | None) -> None:
@@ -1273,6 +1398,9 @@ class RaceBookApp(QMainWindow):
 
         row_idx = self._row_for_cust_id(cust_id)
         if row_idx is not None:
+            name_item = self.table.item(row_idx, COL_NAME)
+            if name_item is not None:
+                name_item.setData(PREF_DATA_ROLE, pref)
             if pref is None:
                 self._clear_row_style(row_idx)
             else:
@@ -1344,10 +1472,11 @@ class RaceBookApp(QMainWindow):
         if total_results_imported == 0 and total_results_skipped > 0:
             QMessageBox.information(
                 self,
-                "Import — Already Up to Date",
-                f"All {total_results_skipped} driver result(s) in the selected file(s) were "
-                "already imported (matched by subsession ID).\n\n"
-                "Stats and notes were not changed.",
+                "Data Already Saved",
+                "This race session is already saved in your database.\n\n"
+                f"{total_results_skipped} driver result(s) were not imported again "
+                "(matched by subsession ID).\n\n"
+                "Your stats and scouting notes were not changed.",
             )
             return
 
@@ -1369,17 +1498,25 @@ class RaceBookApp(QMainWindow):
         detail = ""
         if total_results_skipped:
             detail = (
-                f"\n\nSkipped {total_results_skipped} result(s) already on file for that subsession."
+                f"\n\n{total_results_skipped} driver result(s) were already saved and were not "
+                "imported again."
             )
         if errors:
             detail += "\n\nSome files had issues:\n" + "\n".join(errors[:10])
             if len(errors) > 10:
                 detail += f"\n... and {len(errors) - 10} more."
 
+        title = "Import Complete"
+        if total_results_skipped and not total_results_imported:
+            title = "Data Already Saved"
+        elif total_results_skipped:
+            title = "Import Complete — Some Data Already Saved"
+
         QMessageBox.information(
             self,
-            "Import Successful",
-            f"Imported {total_results_imported} driver results across {total_races_imported} races from {total_files} file(s)."
+            title,
+            f"Imported {total_results_imported} new driver result(s) across "
+            f"{total_races_imported} race(s) from {total_files} file(s)."
             + detail,
         )
 
