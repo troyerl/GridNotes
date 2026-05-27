@@ -29,6 +29,15 @@ def get_db_path() -> str:
 DB_NAME = get_db_path()
 
 
+def connect_db(db_name: str = DB_NAME) -> sqlite3.Connection:
+    """Open SQLite with a small page cache to keep memory use low."""
+    conn = sqlite3.connect(db_name)
+    conn.execute("PRAGMA cache_size = -512")  # 512 KiB page cache
+    conn.execute("PRAGMA mmap_size = 0")
+    conn.execute("PRAGMA temp_store = FILE")
+    return conn
+
+
 def _existing_columns(cursor: sqlite3.Cursor, table: str) -> set[str]:
     cursor.execute(f"PRAGMA table_info({table})")
     return {row[1] for row in cursor.fetchall()}
@@ -58,7 +67,7 @@ def _migrate_schema(cursor: sqlite3.Cursor) -> None:
 
 
 def init_db(db_name: str = DB_NAME) -> None:
-    conn = sqlite3.connect(db_name)
+    conn = connect_db(db_name)
     cursor = conn.cursor()
 
     # Track core driver identity and permanent notes
@@ -103,7 +112,7 @@ def init_db(db_name: str = DB_NAME) -> None:
 
 
 def get_setting(key: str, default: str | None = None, db_name: str = DB_NAME) -> str | None:
-    conn = sqlite3.connect(db_name)
+    conn = connect_db(db_name)
     cursor = conn.cursor()
     cursor.execute("SELECT value FROM app_settings WHERE key = ?", (key,))
     row = cursor.fetchone()
@@ -112,7 +121,7 @@ def get_setting(key: str, default: str | None = None, db_name: str = DB_NAME) ->
 
 
 def set_setting(key: str, value: str | None, db_name: str = DB_NAME) -> None:
-    conn = sqlite3.connect(db_name)
+    conn = connect_db(db_name)
     cursor = conn.cursor()
     cursor.execute(
         "INSERT INTO app_settings (key, value) VALUES (?, ?) "

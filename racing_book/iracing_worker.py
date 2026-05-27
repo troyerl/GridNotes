@@ -14,6 +14,7 @@ class IRacingWorker(QThread):
         self.running = True
         self.available = False
         self.ir = None
+        self._last_emit_key: tuple | None = None
 
         # Delayed import to gracefully handle situations where iRacing isn't installed
         try:
@@ -53,17 +54,24 @@ class IRacingWorker(QThread):
                     if d.get("IsPaceCar") or d.get("UserName") == "Pace Car":
                         continue
 
-                    active_drivers.append(
-                        {
-                            "cust_id": d.get("UserID"),
-                            "name": d.get("UserName"),
-                            "license": d.get("LicString"),
-                            "irating": d.get("IRating"),
-                        }
-                    )
+                    cust_id = d.get("UserID")
+                    name = d.get("UserName")
+                    if cust_id is None:
+                        continue
+                    active_drivers.append({"cust_id": cust_id, "name": name})
 
-                if active_drivers:
-                    self.drivers_updated.emit(active_drivers, subsession_id)
+                if not active_drivers:
+                    continue
+
+                emit_key = (
+                    subsession_id,
+                    tuple((d["cust_id"], d["name"]) for d in active_drivers),
+                )
+                if emit_key == self._last_emit_key:
+                    continue
+
+                self._last_emit_key = emit_key
+                self.drivers_updated.emit(active_drivers, subsession_id)
 
             except Exception as e:
                 print(f"Error parsing SDK data: {e}")
@@ -71,4 +79,3 @@ class IRacingWorker(QThread):
     def stop(self):
         self.running = False
         self.wait()
-

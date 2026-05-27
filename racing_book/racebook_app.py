@@ -1,6 +1,5 @@
 import json
 import html
-import random
 import sqlite3
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -25,7 +24,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .db import DB_NAME, get_setting, init_db, set_setting
+from .db import connect_db, get_setting, init_db, set_setting
 from .iracing_worker import IRacingWorker
 
 # iRacing reason_out_id (0 = finished on track; excluded from DNF stats)
@@ -53,6 +52,63 @@ REASON_OUT_TEXT_TO_ID = {
 ROW_BG_LIKED = QColor(210, 255, 210)
 ROW_BG_DISLIKED = QColor(255, 210, 210)
 ROW_FG_FOR_HIGHLIGHT = QColor(0, 0, 0)
+
+_TABLE_DATA_SQL = """
+    SELECT
+        d.driver_name,
+        ROUND(AVG(r.incidents), 1) AS avg_inc,
+        ROUND(AVG(r.finish_position), 1) AS avg_fin,
+        COUNT(r.id) AS total_races,
+        d.last_irating,
+        d.last_safety,
+        d.last_series,
+        ROUND(
+            AVG(
+                CASE
+                    WHEN r.starting_position IS NOT NULL AND r.finish_position IS NOT NULL
+                    THEN (r.starting_position - r.finish_position)
+                END
+            ),
+            1
+        ) AS avg_pos_delta,
+        d.cust_id,
+        d.race_preference,
+        COALESCE(dnf.dnf_total, 0),
+        COALESCE(dnf.disc, 0),
+        COALESCE(dnf.eject, 0),
+        COALESCE(dnf.quit_, 0),
+        COALESCE(dnf.dq, 0),
+        COALESCE(dnf.other, 0)
+    FROM drivers d
+    LEFT JOIN race_results r ON d.cust_id = r.cust_id
+    LEFT JOIN (
+        SELECT
+            cust_id,
+            COUNT(*) AS dnf_total,
+            SUM(CASE WHEN rid = 1 THEN 1 ELSE 0 END) AS disc,
+            SUM(CASE WHEN rid = 2 THEN 1 ELSE 0 END) AS eject,
+            SUM(CASE WHEN rid = 3 THEN 1 ELSE 0 END) AS quit_,
+            SUM(CASE WHEN rid = 4 THEN 1 ELSE 0 END) AS dq,
+            SUM(CASE WHEN rid NOT IN (1, 2, 3, 4) THEN 1 ELSE 0 END) AS other
+        FROM (
+            SELECT
+                cust_id,
+                CASE
+                    WHEN reason_out_id IN (1, 2, 3, 4) THEN reason_out_id
+                    WHEN LOWER(TRIM(COALESCE(reason_out, ''))) = 'disconnected' THEN 1
+                    WHEN LOWER(TRIM(COALESCE(reason_out, ''))) = 'ejected' THEN 2
+                    WHEN LOWER(TRIM(COALESCE(reason_out, ''))) = 'quit' THEN 3
+                    WHEN LOWER(TRIM(COALESCE(reason_out, ''))) = 'disqualified' THEN 4
+                    ELSE NULL
+                END AS rid
+            FROM race_results
+        )
+        WHERE rid IS NOT NULL
+        GROUP BY cust_id
+    ) dnf ON d.cust_id = dnf.cust_id
+    GROUP BY d.cust_id
+    ORDER BY total_races DESC, d.driver_name ASC
+"""
 
 
 def _normalize_reason_out_id(reason_out_id, reason_out) -> int | None:
@@ -390,6 +446,7 @@ class RaceBookApp(QMainWindow):
         self.active_cust_ids: set[int] = set()
 
         init_db()
+        self._db_conn = connect_db()
         self.init_ui()
         self.start_sdk_worker()
 
@@ -553,12 +610,11 @@ class RaceBookApp(QMainWindow):
         if res != QMessageBox.StandardButton.Yes:
             return
 
-        conn = sqlite3.connect(DB_NAME)
+        conn = self._db_conn
         cursor = conn.cursor()
         cursor.execute("DELETE FROM race_results")
         cursor.execute("DELETE FROM drivers")
         conn.commit()
-        conn.close()
 
         self.current_subsession_id = 0
         self.selected_cust_id = None
@@ -599,7 +655,7 @@ class RaceBookApp(QMainWindow):
 
         self.active_cust_ids = {d.get("cust_id") for d in active_drivers if d.get("cust_id") is not None}
 
-        conn = sqlite3.connect(DB_NAME)
+        conn = self._db_conn
         cursor = conn.cursor()
         for d in active_drivers:
             cursor.execute(
@@ -611,103 +667,56 @@ class RaceBookApp(QMainWindow):
                 (d["cust_id"], d["name"]),
             )
         conn.commit()
-        conn.close()
         self.apply_driver_filters()
 
     def refresh_ui_table(self):
-        rows, pref_by_driver, dnf_by_driver = self._fetch_table_data()
+        rows = self._fetch_table_data()
 
         was_sorting = self.table.isSortingEnabled()
         if was_sorting:
             self.table.setSortingEnabled(False)
 
-        self.table.setRowCount(0)
-        for row_idx, row_data in enumerate(rows):
-            self.table.insertRow(row_idx)
-            display_row, cust_id = self._build_display_row(row_data, dnf_by_driver)
-            self._render_table_row(row_idx, display_row)
-            self._apply_preference_row_style(row_idx, len(display_row), pref_by_driver.get(cust_id))
+        self.table.setUpdatesEnabled(False)
+        try:
+            self.table.clearContents()
+            self.table.setRowCount(len(rows))
+            for row_idx, row_data in enumerate(rows):
+                display_row, cust_id, pref = self._build_display_row(row_data)
+                self._render_table_row(row_idx, display_row)
+                self._apply_preference_row_style(row_idx, len(display_row), pref)
+        finally:
+            self.table.setUpdatesEnabled(True)
 
         if was_sorting:
             self.table.setSortingEnabled(True)
         self.apply_driver_filters()
 
-    def _fetch_table_data(
-        self,
-    ) -> tuple[list[tuple], dict[int, int], dict[int, list[int]]]:
-        conn = sqlite3.connect(DB_NAME)
-        cursor = conn.cursor()
+    def _fetch_table_data(self) -> list[tuple]:
+        cursor = self._db_conn.cursor()
+        cursor.execute(_TABLE_DATA_SQL)
+        return cursor.fetchall()
 
-        cursor.execute(
-            """
-            SELECT
-                d.driver_name,
-                ROUND(AVG(r.incidents), 1) as avg_inc,
-                ROUND(AVG(r.finish_position), 1) as avg_fin,
-                COUNT(r.id) as total_races,
-                d.last_irating,
-                d.last_safety,
-                d.last_series,
-                ROUND(
-                    AVG(
-                        CASE
-                            WHEN r.starting_position IS NOT NULL AND r.finish_position IS NOT NULL
-                            THEN (r.starting_position - r.finish_position)
-                        END
-                    ),
-                    1
-                ) as avg_pos_delta,
-                d.cust_id
-            FROM drivers d
-            LEFT JOIN race_results r ON d.cust_id = r.cust_id
-            GROUP BY d.cust_id
-            ORDER BY total_races DESC, d.driver_name ASC
-            """
-        )
-        rows = cursor.fetchall()
-
-        pref_by_driver: dict[int, int] = {}
-        cursor.execute("SELECT cust_id, race_preference FROM drivers WHERE race_preference IS NOT NULL")
-        for cust_id, pref in cursor.fetchall():
-            cid = _sqlite_row_to_int(cust_id)
-            p = _sqlite_row_to_int(pref)
-            if cid is not None and p is not None:
-                pref_by_driver[cid] = p
-
-        dnf_by_driver: dict[int, list[int]] = {}
-        cursor.execute("SELECT cust_id, reason_out_id, reason_out FROM race_results")
-        for cust_id, reason_out_id, reason_out in cursor.fetchall():
-            cid = _sqlite_row_to_int(cust_id)
-            if cid is None:
-                continue
-            rid = _normalize_reason_out_id(reason_out_id, reason_out)
-            if rid is None or rid == REASON_OUT_RUNNING:
-                continue
-
-            # total, disc, eject, quit, dq, other
-            if cid not in dnf_by_driver:
-                dnf_by_driver[cid] = [0, 0, 0, 0, 0, 0]
-            dnf_by_driver[cid][0] += 1
-            if rid == REASON_OUT_DISCONNECTED:
-                dnf_by_driver[cid][1] += 1
-            elif rid == REASON_OUT_EJECTED:
-                dnf_by_driver[cid][2] += 1
-            elif rid == REASON_OUT_QUIT:
-                dnf_by_driver[cid][3] += 1
-            elif rid == REASON_OUT_DISQUALIFIED:
-                dnf_by_driver[cid][4] += 1
-            else:
-                dnf_by_driver[cid][5] += 1
-
-        conn.close()
-        return rows, pref_by_driver, dnf_by_driver
-
-    def _build_display_row(
-        self, row_data: tuple, dnf_by_driver: dict[int, list[int]]
-    ) -> tuple[list, int]:
-        name, avg_inc, avg_fin, total_races, last_ir, last_sr, last_series, avg_pos_delta, cust_id = row_data
+    def _build_display_row(self, row_data: tuple) -> tuple[list, int, int | None]:
+        (
+            name,
+            avg_inc,
+            avg_fin,
+            total_races,
+            last_ir,
+            last_sr,
+            last_series,
+            avg_pos_delta,
+            cust_id,
+            race_preference,
+            dnf_total,
+            disc,
+            eject,
+            quit_,
+            dq,
+            other,
+        ) = row_data
         cid = int(cust_id)
-        dnf_total, disc, eject, quit_, dq, other = dnf_by_driver.get(cid, [0, 0, 0, 0, 0, 0])
+        pref = _sqlite_row_to_int(race_preference)
         breakdown = _format_dnf_breakdown(disc, eject, quit_, dq, other) or "—"
         return (
             [
@@ -724,6 +733,7 @@ class RaceBookApp(QMainWindow):
                 cid,
             ],
             cid,
+            pref,
         )
 
     def _make_table_item(self, value) -> QTableWidgetItem:
@@ -793,14 +803,12 @@ class RaceBookApp(QMainWindow):
         self.notes_edit.setText(notes or "")
 
     def _fetch_driver_notes_meta(self, cust_id: int) -> tuple[str | None, str, int | None]:
-        conn = sqlite3.connect(DB_NAME)
-        cursor = conn.cursor()
+        cursor = self._db_conn.cursor()
         cursor.execute(
             "SELECT last_seen_at, notes, race_preference FROM drivers WHERE cust_id = ?",
             (cust_id,),
         )
         row = cursor.fetchone()
-        conn.close()
 
         if not row:
             return None, "", None
@@ -882,18 +890,30 @@ class RaceBookApp(QMainWindow):
             self.btn_pref_like.setStyleSheet("")
             self.btn_pref_dislike.setStyleSheet("")
 
-    def _select_driver_row_by_cust_id(self, cust_id: int):
+    def _row_for_cust_id(self, cust_id: int) -> int | None:
         for row in range(self.table.rowCount()):
             item = self.table.item(row, 10)
             if not item:
                 continue
             try:
-                row_id = int(item.text())
+                if int(item.text()) == cust_id:
+                    return row
             except Exception:
                 continue
-            if row_id == cust_id:
-                self.table.selectRow(row)
-                return
+        return None
+
+    def _select_driver_row_by_cust_id(self, cust_id: int):
+        row = self._row_for_cust_id(cust_id)
+        if row is not None:
+            self.table.selectRow(row)
+
+    def _clear_row_style(self, row_idx: int) -> None:
+        for col_idx in range(self.table.columnCount()):
+            item = self.table.item(row_idx, col_idx)
+            if item is None:
+                continue
+            item.setData(Qt.ItemDataRole.BackgroundRole, None)
+            item.setData(Qt.ItemDataRole.ForegroundRole, None)
 
     def save_driver_notes(self):
         if not self.selected_cust_id:
@@ -903,14 +923,12 @@ class RaceBookApp(QMainWindow):
             return
 
         notes_text = self.notes_edit.toPlainText()
-        conn = sqlite3.connect(DB_NAME)
-        cursor = conn.cursor()
+        cursor = self._db_conn.cursor()
         cursor.execute(
             "UPDATE drivers SET notes = ? WHERE cust_id = ?",
             (notes_text, self.selected_cust_id),
         )
-        conn.commit()
-        conn.close()
+        self._db_conn.commit()
         QMessageBox.information(self, "Saved", "Driver notebook updated successfully.")
 
     def set_race_preference(self, pref: int | None):
@@ -919,16 +937,20 @@ class RaceBookApp(QMainWindow):
             return
 
         cust_id = self.selected_cust_id
-        conn = sqlite3.connect(DB_NAME)
-        cursor = conn.cursor()
+        cursor = self._db_conn.cursor()
         cursor.execute(
             "UPDATE drivers SET race_preference = ? WHERE cust_id = ?",
             (pref, cust_id),
         )
-        conn.commit()
-        conn.close()
-        self.refresh_ui_table()
-        self._select_driver_row_by_cust_id(cust_id)
+        self._db_conn.commit()
+        self._update_preference_buttons(pref)
+
+        row_idx = self._row_for_cust_id(cust_id)
+        if row_idx is not None:
+            if pref is None:
+                self._clear_row_style(row_idx)
+            else:
+                self._apply_preference_row_style(row_idx, self.table.columnCount(), pref)
 
     def import_json_data(self):
         file_paths, _ = QFileDialog.getOpenFileNames(
@@ -942,7 +964,7 @@ class RaceBookApp(QMainWindow):
         total_results_imported = 0
         errors: list[str] = []
 
-        conn = sqlite3.connect(DB_NAME)
+        conn = self._db_conn
         cursor = conn.cursor()
 
         for file_path in file_paths:
@@ -950,13 +972,12 @@ class RaceBookApp(QMainWindow):
                 continue
             total_files += 1
             try:
-                with open(file_path, "r") as f:
+                with open(file_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
 
                 races, series_name, race_timestamp = _parse_races_from_json(data)
                 license_text_fallback = None
                 if isinstance(data, dict) and isinstance(data.get("data"), dict):
-                    # For event_result payloads we used license_category as a fallback earlier; keep that behavior.
                     cat = data["data"].get("license_category")
                     license_text_fallback = str(cat) if cat else None
 
@@ -974,11 +995,12 @@ class RaceBookApp(QMainWindow):
                 if results_imported == 0:
                     errors.append(f"{file_path}: no race results found/imported")
 
+                del data, races
+
             except Exception as e:
                 errors.append(f"{file_path}: {e}")
 
         conn.commit()
-        conn.close()
 
         self.refresh_ui_table()
 
@@ -1011,5 +1033,7 @@ class RaceBookApp(QMainWindow):
     def closeEvent(self, event):
         if self.worker is not None:
             self.worker.stop()
+        if hasattr(self, "_db_conn"):
+            self._db_conn.close()
         event.accept()
 
