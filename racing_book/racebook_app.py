@@ -526,7 +526,7 @@ def _import_race_entries(
 class RaceBookApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Racing Book")
+        self.setWindowTitle("GridNotes")
         self.setMinimumSize(1280, 760)
         self.resize(1440, 860)
 
@@ -681,7 +681,7 @@ class RaceBookApp(QMainWindow):
         header = QHBoxLayout()
         title_block = QVBoxLayout()
         title_block.setSpacing(2)
-        app_title = QLabel("Racing Book")
+        app_title = QLabel("GridNotes")
         app_title.setObjectName("appTitle")
         app_subtitle = QLabel("Driver scouting notes & race history")
         app_subtitle.setObjectName("appSubtitle")

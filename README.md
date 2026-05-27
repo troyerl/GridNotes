@@ -1,6 +1,6 @@
-# Racing Book
+# GridNotes
 
-iRacing driver history and race logger — track notes, stats, and race results offline or with the live iRacing SDK.
+iRacing driver scouting notes and race history — track notes, stats, and race results offline or with the live iRacing SDK.
 
 ## Run from source
 
@@ -33,35 +33,48 @@ The script will:
 
 1. Create a temporary `.build-venv`
 2. Install PyInstaller and dependencies
-3. Build `dist\Racing Book\Racing Book.exe`
+3. Build `dist\GridNotes\GridNotes.exe`
 4. Create an installer if [Inno Setup 6](https://jrsoftware.org/isinfo.php) is installed, otherwise a zip
 
 Outputs:
 
-- `dist\Racing Book\` — portable app folder
-- `dist\RacingBook-Setup.exe` — setup wizard (when Inno Setup is installed)
-- `dist\RacingBook-Windows.zip` — fallback if Inno Setup is not installed
+- `dist\GridNotes\` — portable app folder
+- `dist\GridNotes-Setup.exe` — setup wizard (when Inno Setup is installed)
+- `dist\GridNotes-Windows.zip` — fallback if Inno Setup is not installed
 
 ## End-user install (Windows)
 
-**With installer:** run `RacingBook-Setup.exe` and follow the wizard.
+**With installer:** run `GridNotes-Setup.exe` and follow the wizard.
 
-**With zip:** unzip and run `Racing Book.exe`.
+**With zip:** unzip and run `GridNotes.exe`.
 
 Driver history and settings are stored in:
 
-`%APPDATA%\RacingBook\driver_history.db`
+`%APPDATA%\GridNotes\driver_history.db`
+
+(If you used the app before it was renamed, data is copied automatically from `%APPDATA%\RacingBook\`.)
 
 ## Development notes
 
 - When running from source, the database stays in the project folder as `driver_history.db`
-- When running the bundled app, data lives in `%APPDATA%\RacingBook\` so updates do not wipe history
+- When running the bundled app, data lives in `%APPDATA%\GridNotes\` so updates do not wipe history
+
+## Windows taskbar icon
+
+The Windows build generates `icon.ico` from `icon.png` automatically during `scripts\build_installer.bat`.
+If you run from source on Windows and the taskbar icon is missing:
+
+```bash
+pip install Pillow
+python scripts/generate_icon.py
+python main.py
+```
 
 ## Troubleshooting log (for support)
 
 If something goes wrong, check the log file (errors, SDK connection, imports):
 
-- **Installed app:** `%APPDATA%\RacingBook\racingbook.log`
-- **Run from source:** `racingbook.log` in the project folder
+- **Installed app:** `%APPDATA%\GridNotes\gridnotes.log`
+- **Run from source:** `gridnotes.log` in the project folder
 
-Older logs are kept as `racingbook.log.1`, `racingbook.log.2`, etc. (rotates at 2 MB).
+The log file is cleared each time the app starts.

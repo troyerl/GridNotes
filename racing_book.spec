@@ -1,15 +1,26 @@
-# PyInstaller spec for Racing Book (Windows primary; macOS bundle optional)
+# PyInstaller spec for GridNotes (Windows primary; macOS bundle optional)
 
 import os
 import sys
 
 block_cipher = None
 
+_datas = [("icon.png", ".")]
+if os.path.isfile("icon.ico"):
+    _datas.append(("icon.ico", "."))
+
+_win_icon = None
+if sys.platform == "win32":
+    if os.path.isfile("icon.ico"):
+        _win_icon = "icon.ico"
+    elif os.path.isfile("icon.png"):
+        _win_icon = "icon.png"
+
 a = Analysis(
     ["main.py"],
     pathex=[],
     binaries=[],
-    datas=[("icon.png", ".")],
+    datas=_datas,
     hiddenimports=[
         "racing_book",
         "racing_book.db",
@@ -56,7 +67,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="Racing Book",
+    name="GridNotes",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -67,7 +78,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon="icon.png" if sys.platform == "win32" else None,
+    icon=_win_icon,
 )
 
 coll = COLLECT(
@@ -78,7 +89,7 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name="Racing Book",
+    name="GridNotes",
 )
 
 if sys.platform == "darwin":
@@ -86,12 +97,12 @@ if sys.platform == "darwin":
     _bundle_icon = "icon.icns" if os.path.isfile("icon.icns") else None
     app = BUNDLE(
         coll,
-        name="Racing Book.app",
+        name="GridNotes.app",
         icon=_bundle_icon,
-        bundle_identifier="com.racingbook.app",
+        bundle_identifier="com.gridnotes.app",
         info_plist={
-            "CFBundleName": "Racing Book",
-            "CFBundleDisplayName": "Racing Book",
+            "CFBundleName": "GridNotes",
+            "CFBundleDisplayName": "GridNotes",
             "CFBundleVersion": "1.0.0",
             "CFBundleShortVersionString": "1.0.0",
             "NSHighResolutionCapable": True,

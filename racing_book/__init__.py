@@ -1,2 +1,2 @@
-"""Racing Book application package."""
+"""GridNotes application package."""
 

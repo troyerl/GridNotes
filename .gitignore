@@ -4,3 +4,4 @@ driver_history.db
 build/
 dist/
 *.spec.bak
+.DS_Store

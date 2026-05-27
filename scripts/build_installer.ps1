@@ -1,16 +1,16 @@
-# Build a distributable Racing Book Windows app + installer.
+# Build a distributable GridNotes Windows app + installer.
 $ErrorActionPreference = "Stop"
 
 $RootDir = Split-Path -Parent $PSScriptRoot
 Set-Location $RootDir
 
-$AppName = "Racing Book"
+$AppName = "GridNotes"
 $BuildVenv = Join-Path $RootDir ".build-venv"
 $DistDir = Join-Path $RootDir "dist"
 $BuildDir = Join-Path $RootDir "build"
 $AppDistDir = Join-Path $DistDir $AppName
-$ZipPath = Join-Path $DistDir "RacingBook-Windows.zip"
-$SetupPath = Join-Path $DistDir "RacingBook-Setup.exe"
+$ZipPath = Join-Path $DistDir "GridNotes-Windows.zip"
+$SetupPath = Join-Path $DistDir "GridNotes-Setup.exe"
 $IssPath = Join-Path $RootDir "scripts\racing_book.iss"
 
 Write-Host "==> Building $AppName from $RootDir"
@@ -34,10 +34,13 @@ Write-Host "==> Cleaning previous build artifacts"
 if (Test-Path $BuildDir) { Remove-Item -Recurse -Force $BuildDir }
 if (Test-Path $DistDir) { Remove-Item -Recurse -Force $DistDir }
 
+Write-Host "==> Generating icon.ico for Windows"
+python (Join-Path $RootDir "scripts\generate_icon.py")
+
 Write-Host "==> Running PyInstaller"
 pyinstaller racing_book.spec --noconfirm --clean
 
-$ExePath = Join-Path $AppDistDir "Racing Book.exe"
+$ExePath = Join-Path $AppDistDir "GridNotes.exe"
 if (-not (Test-Path $ExePath)) {
     throw "Error: expected executable at $ExePath"
 }
@@ -63,7 +66,7 @@ foreach ($InnoCompiler in $InnoCandidates) {
 
 if (-not $BuiltInstaller) {
     Write-Host "==> Inno Setup not found; creating ZIP package instead"
-    Write-Host "    Install Inno Setup 6 to produce RacingBook-Setup.exe:"
+    Write-Host "    Install Inno Setup 6 to produce GridNotes-Setup.exe:"
     Write-Host "    https://jrsoftware.org/isinfo.php"
     if (Test-Path $ZipPath) { Remove-Item -Force $ZipPath }
     Compress-Archive -Path (Join-Path $AppDistDir "*") -DestinationPath $ZipPath
@@ -75,13 +78,13 @@ Write-Host "  App folder: $AppDistDir"
 if ($BuiltInstaller) {
     Write-Host "  Installer:  $SetupPath"
     Write-Host ""
-    Write-Host "Share RacingBook-Setup.exe with others. They run it and follow the setup wizard."
+    Write-Host "Share GridNotes-Setup.exe with others. They run it and follow the setup wizard."
 } else {
     Write-Host "  Zip:        $ZipPath"
     Write-Host ""
-    Write-Host "Share the zip with others. They unzip it and run Racing Book.exe."
+    Write-Host "Share the zip with others. They unzip it and run GridNotes.exe."
 }
 
 Write-Host ""
 Write-Host "User data is stored at:"
-Write-Host "  %APPDATA%\RacingBook\driver_history.db"
+Write-Host "  %APPDATA%\GridNotes\driver_history.db"

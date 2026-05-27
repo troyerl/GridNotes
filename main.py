@@ -1,37 +1,21 @@
 import sys
-from pathlib import Path
 
-from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication
 
+from racing_book.app_icon import load_app_icon, set_windows_app_user_model_id
 from racing_book.log_config import setup_logging
 from racing_book.racebook_app import RaceBookApp
 from racing_book.theme import APP_STYLESHEET
 
 
-def _app_icon_path() -> Path | None:
-    if getattr(sys, "frozen", False):
-        path = Path(sys._MEIPASS) / "icon.png"
-    else:
-        path = Path(__file__).resolve().parent / "icon.png"
-    return path if path.is_file() else None
-
-
-def _load_app_icon() -> QIcon | None:
-    path = _app_icon_path()
-    if path is None:
-        return None
-    icon = QIcon(str(path))
-    return icon if not icon.isNull() else None
-
-
 def main() -> int:
+    set_windows_app_user_model_id()
     setup_logging()
 
     app = QApplication(sys.argv)
     app.setStyleSheet(APP_STYLESHEET)
 
-    icon = _load_app_icon()
+    icon = load_app_icon()
     if icon is not None:
         app.setWindowIcon(icon)
 

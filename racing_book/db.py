@@ -3,18 +3,27 @@ import sqlite3
 import sys
 from pathlib import Path
 
-APP_NAME = "RacingBook"
+APP_NAME = "GridNotes"
+LEGACY_APP_NAME = "RacingBook"  # pre-rename data folder
+
+
+def _install_data_dir(name: str) -> Path:
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / name
+    if sys.platform == "win32":
+        return Path(os.environ.get("APPDATA", Path.home())) / name
+    return Path.home() / ".local" / "share" / name
 
 
 def _get_data_dir() -> Path:
     """Return a stable writable folder for app data (dev vs bundled)."""
     if getattr(sys, "frozen", False):
-        if sys.platform == "darwin":
-            base = Path.home() / "Library" / "Application Support" / APP_NAME
-        elif sys.platform == "win32":
-            base = Path(os.environ.get("APPDATA", Path.home())) / APP_NAME
-        else:
-            base = Path.home() / ".local" / "share" / APP_NAME
+        base = _install_data_dir(APP_NAME)
+        legacy = _install_data_dir(LEGACY_APP_NAME)
+        if not base.exists() and legacy.exists():
+            import shutil
+
+            shutil.copytree(legacy, base)
     else:
         base = Path.cwd()
 

@@ -1,4 +1,4 @@
-"""Central logging setup — all errors go to racingbook.log for support."""
+"""Central logging setup — all errors go to gridnotes.log for support."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from pathlib import Path
 
 from .db import get_data_dir_path
 
-_LOG_FILE_NAME = "racingbook.log"
+_LOG_FILE_NAME = "gridnotes.log"
 _MAX_BYTES = 2 * 1024 * 1024  # 2 MB per file
 _BACKUP_COUNT = 3
 
@@ -71,16 +71,17 @@ def _install_qt_message_handler() -> None:
 def setup_logging() -> Path:
     """
     Configure file logging for the whole app.
-    Returns the path to racingbook.log (for showing users where to look).
+    Returns the path to gridnotes.log (for showing users where to look).
     """
     log_path = get_log_path()
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Start each app run with a fresh log file.
     try:
-        for p in log_path.parent.glob(f"{_LOG_FILE_NAME}*"):
-            if p.is_file():
-                p.unlink(missing_ok=True)
+        for pattern in (_LOG_FILE_NAME, "racingbook.log"):
+            for p in log_path.parent.glob(f"{pattern}*"):
+                if p.is_file():
+                    p.unlink(missing_ok=True)
     except Exception:
         # If we can't clear logs (locked/permissions), continue and append/rotate normally.
         pass
@@ -120,7 +121,7 @@ def setup_logging() -> Path:
 
     boot = logging.getLogger("racing_book")
     boot.info("=" * 60)
-    boot.info("Racing Book starting")
+    boot.info("GridNotes starting")
     boot.info("Log file: %s", log_path)
     boot.info("Platform: %s", sys.platform)
     boot.info("Python: %s", sys.version.replace("\n", " "))

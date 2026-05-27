@@ -1,10 +1,10 @@
-; Inno Setup script for Racing Book (Windows installer)
+; Inno Setup script for GridNotes (Windows installer)
 ; Run automatically via scripts\build_installer.ps1 when Inno Setup 6 is installed.
 
-#define MyAppName "Racing Book"
+#define MyAppName "GridNotes"
 #define MyAppVersion "1.0.0"
-#define MyAppPublisher "Racing Book"
-#define MyAppExeName "Racing Book.exe"
+#define MyAppPublisher "GridNotes"
+#define MyAppExeName "GridNotes.exe"
 
 [Setup]
 AppId={{A7C4E2B1-9F3D-4A6C-8E5B-1D2F3A4B5C6D}
@@ -15,7 +15,7 @@ DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=..\dist
-OutputBaseFilename=RacingBook-Setup
+OutputBaseFilename=GridNotes-Setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -29,7 +29,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "..\dist\Racing Book\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\dist\GridNotes\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
