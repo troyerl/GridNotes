@@ -200,6 +200,13 @@ QLabel#statLabel {
     padding: 8px 0 2px 0;
 }
 
+QLabel#statInlineLabel {
+    font-size: 13px;
+    font-weight: 600;
+    color: #b8c0cc;
+    padding: 0;
+}
+
 QLabel#seriesValue {
     font-size: 13px;
     font-weight: 500;

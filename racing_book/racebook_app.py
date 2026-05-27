@@ -9,7 +9,6 @@ from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QFileDialog,
-    QFormLayout,
     QFrame,
     QGridLayout,
     QGroupBox,
@@ -832,6 +831,9 @@ class RaceBookApp(QMainWindow):
         live_session_row.setSpacing(8)
         self.chk_current_race_only = QCheckBox("Current session only")
         self.chk_current_race_only.setChecked(False)
+        self.chk_current_race_only.setToolTip(
+            "Show only drivers in this iRacing session who already have saved race history"
+        )
         self.chk_current_race_only.stateChanged.connect(self.apply_driver_filters)
         live_session_row.addWidget(self.chk_current_race_only)
         self.live_session_note = QLabel(MSG_SESSION_NOT_CONNECTED)
@@ -947,19 +949,9 @@ class RaceBookApp(QMainWindow):
         detail_layout.addWidget(series_value)
         self._detail_fields["series"] = series_value
 
-        stats_form = QFormLayout()
-        stats_form.setSpacing(2)
-        stats_form.setContentsMargins(0, 6, 0, 0)
-        stats_form.setVerticalSpacing(2)
-        stats_form.setHorizontalSpacing(12)
-        stats_form.setLabelAlignment(
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
-        )
-        stats_form.setFormAlignment(
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
-        )
-        stats_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
-        stats_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
+        stats_block = QVBoxLayout()
+        stats_block.setSpacing(4)
+        stats_block.setContentsMargins(0, 6, 0, 0)
         for key, title in [
             ("avg_finish", "Avg finish"),
             ("avg_incidents", "Avg incidents"),
@@ -970,21 +962,29 @@ class RaceBookApp(QMainWindow):
             ("dnfs", "DNFs"),
             ("dnf_breakdown", "DNF breakdown"),
         ]:
+            row = QHBoxLayout()
+            row.setSpacing(8)
+            label = QLabel(f"{title}:")
+            label.setObjectName("statInlineLabel")
+            label.setAlignment(
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+            )
             if key == "dnf_breakdown":
                 value: QLabel = WrappingLabel("—")
             else:
                 value = QLabel("—")
-                value.setWordWrap(True)
-                value.setSizePolicy(
-                    QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
-                )
                 value.setAlignment(
-                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
                 )
             value.setObjectName("statValue")
-            stats_form.addRow(title, value)
+            value.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
+            )
+            row.addWidget(label, 0)
+            row.addWidget(value, 1)
+            stats_block.addLayout(row)
             self._detail_fields[key] = value
-        detail_layout.addLayout(stats_form)
+        detail_layout.addLayout(stats_block)
 
         self.driver_detail_scroll.setWidget(self.driver_detail_frame)
         configure_scroll_area(self.driver_detail_scroll, page_step=96)
@@ -1068,7 +1068,16 @@ class RaceBookApp(QMainWindow):
                     cust_id = int(cust_item.text()) if cust_item else None
                 except Exception:
                     cust_id = None
-                if cust_id is None or cust_id not in self.active_cust_ids:
+                races_item = self.table.item(row, COL_RACES)
+                try:
+                    race_count = int(races_item.text()) if races_item else 0
+                except (TypeError, ValueError):
+                    race_count = 0
+                if (
+                    cust_id is None
+                    or cust_id not in self.active_cust_ids
+                    or race_count <= 0
+                ):
                     hidden = True
             self.table.setRowHidden(row, hidden)
 
@@ -1146,20 +1155,11 @@ class RaceBookApp(QMainWindow):
         self._set_status(STATUS_CONNECTED, status)
         self._update_live_session_filter(active=True, hint="")
 
-        self.active_cust_ids = {d.get("cust_id") for d in active_drivers if d.get("cust_id") is not None}
-
-        conn = self._db_conn
-        cursor = conn.cursor()
-        for d in active_drivers:
-            cursor.execute(
-                """
-                INSERT INTO drivers (cust_id, driver_name)
-                VALUES (?, ?)
-                ON CONFLICT(cust_id) DO UPDATE SET driver_name=excluded.driver_name
-                """,
-                (d["cust_id"], d["name"]),
-            )
-        conn.commit()
+        self.active_cust_ids = {
+            int(d["cust_id"])
+            for d in active_drivers
+            if d.get("cust_id") is not None
+        }
         self.apply_driver_filters()
 
     def refresh_ui_table(self):
