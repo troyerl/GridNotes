@@ -1,13 +1,17 @@
 import json
-import html
 import sqlite3
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtWidgets import (
+    QAbstractItemView,
     QFileDialog,
+    QFormLayout,
+    QFrame,
+    QGridLayout,
+    QGroupBox,
     QHeaderView,
     QHBoxLayout,
     QCheckBox,
@@ -16,6 +20,7 @@ from PyQt6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
@@ -26,6 +31,7 @@ from PyQt6.QtWidgets import (
 
 from .db import connect_db, get_setting, init_db, set_setting
 from .iracing_worker import IRacingWorker
+from .theme import STATUS_CONNECTED, STATUS_OFFLINE, STATUS_WAITING
 
 # iRacing reason_out_id (0 = finished on track; excluded from DNF stats)
 REASON_OUT_RUNNING = 0
@@ -49,13 +55,25 @@ REASON_OUT_TEXT_TO_ID = {
     "disqualified": REASON_OUT_DISQUALIFIED,
 }
 
-ROW_BG_LIKED = QColor(210, 255, 210)
-ROW_BG_DISLIKED = QColor(255, 210, 210)
-ROW_FG_FOR_HIGHLIGHT = QColor(0, 0, 0)
+ROW_BG_LIKED = QColor(42, 72, 52)
+ROW_BG_DISLIKED = QColor(72, 42, 42)
+ROW_FG_FOR_HIGHLIGHT = QColor(232, 234, 237)
 
-COL_CUST_ID = 10
-COL_NOTE = 11
+COL_NAME = 0
+COL_RACES = 1
+COL_AVG_INC = 2
+COL_AVG_FINISH = 3
+COL_AVG_POS = 4
+COL_DNFS = 5
+COL_LAST_SR = 6
+COL_LAST_IR = 7
+COL_SERIES = 8
+COL_DNF_BREAKDOWN = 9
+COL_NOTE = 10
+COL_CUST_ID = 11
 NOTE_INDICATOR = "+"
+
+MSG_SESSION_NOT_CONNECTED = "Not connected to iRacing yet — start iRacing and join a session to enable."
 
 _TABLE_DATA_SQL = """
     SELECT
@@ -112,8 +130,71 @@ _TABLE_DATA_SQL = """
         GROUP BY cust_id
     ) dnf ON d.cust_id = dnf.cust_id
     GROUP BY d.cust_id
-    ORDER BY total_races DESC, d.driver_name ASC
+    ORDER BY d.driver_name ASC
 """
+
+_DRIVER_DETAIL_SQL = """
+    SELECT
+        d.driver_name,
+        d.last_seen_at,
+        d.last_series,
+        ROUND(AVG(r.incidents), 1),
+        ROUND(AVG(r.finish_position), 1),
+        COUNT(r.id),
+        d.last_irating,
+        d.last_safety,
+        ROUND(
+            AVG(
+                CASE
+                    WHEN r.starting_position IS NOT NULL AND r.finish_position IS NOT NULL
+                    THEN (r.starting_position - r.finish_position)
+                END
+            ),
+            1
+        ),
+        COALESCE(dnf.dnf_total, 0),
+        COALESCE(dnf.disc, 0),
+        COALESCE(dnf.eject, 0),
+        COALESCE(dnf.quit_, 0),
+        COALESCE(dnf.dq, 0),
+        COALESCE(dnf.other, 0)
+    FROM drivers d
+    LEFT JOIN race_results r ON d.cust_id = r.cust_id
+    LEFT JOIN (
+        SELECT
+            cust_id,
+            COUNT(*) AS dnf_total,
+            SUM(CASE WHEN rid = 1 THEN 1 ELSE 0 END) AS disc,
+            SUM(CASE WHEN rid = 2 THEN 1 ELSE 0 END) AS eject,
+            SUM(CASE WHEN rid = 3 THEN 1 ELSE 0 END) AS quit_,
+            SUM(CASE WHEN rid = 4 THEN 1 ELSE 0 END) AS dq,
+            SUM(CASE WHEN rid NOT IN (1, 2, 3, 4) THEN 1 ELSE 0 END) AS other
+        FROM (
+            SELECT
+                cust_id,
+                CASE
+                    WHEN reason_out_id IN (1, 2, 3, 4) THEN reason_out_id
+                    WHEN LOWER(TRIM(COALESCE(reason_out, ''))) = 'disconnected' THEN 1
+                    WHEN LOWER(TRIM(COALESCE(reason_out, ''))) = 'ejected' THEN 2
+                    WHEN LOWER(TRIM(COALESCE(reason_out, ''))) = 'quit' THEN 3
+                    WHEN LOWER(TRIM(COALESCE(reason_out, ''))) = 'disqualified' THEN 4
+                    ELSE NULL
+                END AS rid
+            FROM race_results
+        )
+        WHERE rid IS NOT NULL
+        GROUP BY cust_id
+    ) dnf ON d.cust_id = dnf.cust_id
+    WHERE d.cust_id = ?
+    GROUP BY d.cust_id
+"""
+
+
+def _display_val(value) -> str:
+    if value is None:
+        return "—"
+    text = str(value).strip()
+    return text if text and text.lower() != "none" else "—"
 
 
 def _normalize_reason_out_id(reason_out_id, reason_out) -> int | None:
@@ -442,8 +523,9 @@ def _import_race_entries(
 class RaceBookApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("iRacing Driver Book & Race Logger")
-        self.setMinimumSize(1000, 600)
+        self.setWindowTitle("Racing Book")
+        self.setMinimumSize(1280, 760)
+        self.resize(1440, 860)
 
         self.current_subsession_id = 0
         self.selected_cust_id = None
@@ -455,122 +537,374 @@ class RaceBookApp(QMainWindow):
         self.init_ui()
         self.start_sdk_worker()
 
+    def _polish_property(self, widget: QWidget, name: str, value) -> None:
+        widget.setProperty(name, value)
+        widget.style().unpolish(widget)
+        widget.style().polish(widget)
+
+    def _set_status(self, status: str, message: str) -> None:
+        self.status_label.setText(message)
+        self._polish_property(self.status_label, "status", status)
+
+    def _configure_driver_table(self) -> None:
+        self.table.setObjectName("driverTable")
+
+        body_font = QFont()
+        body_font.setPointSize(12)
+        self.table.setFont(body_font)
+
+        header_font = QFont(body_font)
+        header_font.setPointSize(11)
+        header_font.setBold(True)
+        header = self.table.horizontalHeader()
+        header.setFont(header_font)
+        header.setCursor(Qt.CursorShape.PointingHandCursor)
+        header.setToolTip("Click a column header to sort")
+        header.setMinimumSectionSize(64)
+        header.setDefaultSectionSize(100)
+        header.setStretchLastSection(False)
+
+        self.table.verticalHeader().setDefaultSectionSize(38)
+        self.table.setWordWrap(False)
+        self.table.setTextElideMode(Qt.TextElideMode.ElideRight)
+        self.table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+
+        for col in (
+            COL_RACES,
+            COL_AVG_INC,
+            COL_AVG_FINISH,
+            COL_AVG_POS,
+            COL_DNFS,
+            COL_LAST_SR,
+            COL_LAST_IR,
+            COL_NOTE,
+            COL_DNF_BREAKDOWN,
+        ):
+            header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(COL_NAME, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(COL_SERIES, QHeaderView.ResizeMode.Stretch)
+
+        self.table.setColumnHidden(COL_CUST_ID, True)
+        self.table.setColumnWidth(COL_NAME, 200)
+        self.table.setColumnWidth(COL_SERIES, 180)
+
+        for col in range(self.table.columnCount()):
+            header_item = self.table.horizontalHeaderItem(col)
+            if header_item is not None:
+                label = header_item.text()
+                header_item.setToolTip(f"Click to sort by {label}")
+
+    def _update_live_session_filter(self, *, active: bool, hint: str) -> None:
+        self.chk_current_race_only.setVisible(active)
+        self.chk_current_race_only.setEnabled(active)
+        self.live_session_note.setVisible(not active)
+        self.live_session_note.setText(hint)
+        if not active:
+            self.chk_current_race_only.setChecked(False)
+
+    def _set_detail_field(self, key: str, value) -> None:
+        label = self._detail_fields.get(key)
+        if label is not None:
+            label.setText(_display_val(value))
+
+    def _clear_driver_details(self) -> None:
+        self.driver_name_label.clear()
+        self.driver_meta_label.clear()
+        for label in self._detail_fields.values():
+            label.setText("—")
+
+    def _fetch_driver_detail_row(self, cust_id: int) -> tuple | None:
+        cursor = self._db_conn.cursor()
+        cursor.execute(_DRIVER_DETAIL_SQL, (cust_id,))
+        return cursor.fetchone()
+
+    def _populate_driver_details(self, cust_id: int) -> None:
+        row = self._fetch_driver_detail_row(cust_id)
+        if not row:
+            return
+
+        (
+            name,
+            last_seen_at,
+            last_series,
+            avg_inc,
+            avg_fin,
+            total_races,
+            last_ir,
+            last_sr,
+            avg_pos_delta,
+            dnf_total,
+            disc,
+            eject,
+            quit_,
+            dq,
+            other,
+        ) = row
+
+        last_seen_fmt = _format_last_seen_et_mmddyyyy_hm(last_seen_at)
+        breakdown = _format_dnf_breakdown(disc, eject, quit_, dq, other)
+
+        self.driver_name_label.setText(name or "Unknown driver")
+        self.driver_meta_label.setText(
+            f"ID {cust_id}  ·  Last raced {last_seen_fmt} ET"
+        )
+        self._set_detail_field("series", last_series)
+        self._set_detail_field("avg_finish", avg_fin)
+        self._set_detail_field("avg_incidents", avg_inc)
+        self._set_detail_field("races", total_races)
+        self._set_detail_field("last_irating", last_ir)
+        self._set_detail_field("last_sr", last_sr)
+        self._set_detail_field("avg_pos_delta", avg_pos_delta)
+        self._set_detail_field("dnfs", dnf_total)
+        self._set_detail_field("dnf_breakdown", breakdown if breakdown else None)
+
+    def _set_driver_panel_enabled(self, enabled: bool) -> None:
+        self.empty_state_label.setVisible(not enabled)
+        self.driver_detail_scroll.setVisible(enabled)
+        self.notes_edit.setEnabled(enabled)
+        self.btn_pref_like.setEnabled(enabled)
+        self.btn_pref_dislike.setEnabled(enabled)
+        self.btn_pref_clear.setEnabled(enabled)
+        self.btn_save_notes.setEnabled(enabled)
+
     def init_ui(self):
+        root = QWidget()
+        root_layout = QVBoxLayout(root)
+        root_layout.setContentsMargins(16, 14, 16, 14)
+        root_layout.setSpacing(12)
+        self.setCentralWidget(root)
+
+        header = QHBoxLayout()
+        title_block = QVBoxLayout()
+        title_block.setSpacing(2)
+        app_title = QLabel("Racing Book")
+        app_title.setObjectName("appTitle")
+        app_subtitle = QLabel("Driver scouting notes & race history")
+        app_subtitle.setObjectName("appSubtitle")
+        title_block.addWidget(app_title)
+        title_block.addWidget(app_subtitle)
+        header.addLayout(title_block)
+        header.addStretch()
+        self.status_label = QLabel("Waiting for iRacing…")
+        self.status_label.setObjectName("statusBadge")
+        self._set_status(STATUS_WAITING, "Waiting for iRacing…")
+        header.addWidget(self.status_label, alignment=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        root_layout.addLayout(header)
+
         main_splitter = QSplitter(Qt.Orientation.Horizontal)
-        self.setCentralWidget(main_splitter)
+        root_layout.addWidget(main_splitter, stretch=1)
 
-        # LEFT: Controls & Driver List
-        left_widget = QWidget()
-        left_layout = QVBoxLayout(left_widget)
+        # --- Left: drivers ---
+        left_panel = QFrame()
+        left_panel.setObjectName("panel")
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(14, 14, 14, 14)
+        left_layout.setSpacing(10)
 
-        self.status_label = QLabel("Status: Waiting for iRacing connection...")
-        self.status_label.setStyleSheet("font-weight: bold; color: #ff9900;")
-        left_layout.addWidget(self.status_label)
+        controls_group = QGroupBox("Controls")
+        controls_layout = QGridLayout(controls_group)
+        controls_layout.setHorizontalSpacing(10)
+        controls_layout.setVerticalSpacing(8)
 
-        btn_layout = QHBoxLayout()
-        self.btn_import = QPushButton("Import Old Race JSON")
+        self.btn_import = QPushButton("Import race JSON…")
+        self.btn_import.setObjectName("primaryBtn")
+        self.btn_import.setToolTip("Import iRacing event_result JSON or custom race logs")
         self.btn_import.clicked.connect(self.import_json_data)
-        btn_layout.addWidget(self.btn_import)
+        controls_layout.addWidget(self.btn_import, 0, 0)
 
-        self.chk_current_race_only = QCheckBox("Show current race only")
-        self.chk_current_race_only.setEnabled(False)  # enabled only when SDK connected
+        self.btn_reset_db = QPushButton("Reset all data")
+        self.btn_reset_db.setObjectName("dangerBtn")
+        self.btn_reset_db.setToolTip("Permanently delete all drivers, notes, and race results")
+        self.btn_reset_db.clicked.connect(self.reset_database)
+        controls_layout.addWidget(self.btn_reset_db, 0, 1)
+
+        live_session_row = QHBoxLayout()
+        live_session_row.setSpacing(8)
+        self.chk_current_race_only = QCheckBox("Current session only")
         self.chk_current_race_only.setChecked(False)
         self.chk_current_race_only.stateChanged.connect(self.apply_driver_filters)
-        btn_layout.addWidget(self.chk_current_race_only)
-
-        self.btn_reset_db = QPushButton("Reset Database")
-        self.btn_reset_db.clicked.connect(self.reset_database)
-        btn_layout.addWidget(self.btn_reset_db)
-
-        left_layout.addLayout(btn_layout)
+        live_session_row.addWidget(self.chk_current_race_only)
+        self.live_session_note = QLabel(MSG_SESSION_NOT_CONNECTED)
+        self.live_session_note.setObjectName("sectionHint")
+        self.live_session_note.setWordWrap(True)
+        live_session_row.addWidget(self.live_session_note, stretch=1)
+        controls_layout.addLayout(live_session_row, 0, 2, 1, 2)
 
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Search driver name…")
+        self.search_input.setPlaceholderText("Search by name…")
+        self.search_input.setClearButtonEnabled(True)
         self.search_input.textChanged.connect(self.apply_driver_filters)
-        left_layout.addWidget(self.search_input)
+        controls_layout.addWidget(self.search_input, 1, 0, 1, 2)
 
-        ignore_layout = QHBoxLayout()
         self.ignore_name_input = QLineEdit()
-        self.ignore_name_input.setPlaceholderText("Ignore name (e.g. Logan Troyer)")
+        self.ignore_name_input.setPlaceholderText("Hide your name (optional)")
         self.ignore_name_input.setText(get_setting("ignore_driver_name", "") or "")
         self.ignore_name_input.textChanged.connect(self.apply_driver_filters)
-        ignore_layout.addWidget(self.ignore_name_input)
+        controls_layout.addWidget(self.ignore_name_input, 1, 2)
 
         self.btn_save_ignore = QPushButton("Save")
+        self.btn_save_ignore.setToolTip("Save the hidden name to settings")
         self.btn_save_ignore.clicked.connect(self.save_ignore_name)
-        ignore_layout.addWidget(self.btn_save_ignore)
-        left_layout.addLayout(ignore_layout)
+        controls_layout.addWidget(self.btn_save_ignore, 1, 3)
+
+        left_layout.addWidget(controls_group)
+
+        drivers_label = QLabel("Drivers — click a row for notes  ·  scroll horizontally for all columns")
+        drivers_label.setObjectName("sectionHint")
+        left_layout.addWidget(drivers_label)
 
         self.table = QTableWidget()
         self.table.setColumnCount(12)
         self.table.setHorizontalHeaderLabels(
             [
                 "Driver Name",
+                "Races",
                 "Avg Incidents",
                 "Avg Finish",
-                "Races Tracked",
-                "Last iRating",
-                "Last SR",
-                "Last Series",
                 "Avg +/- Pos",
                 "DNFs",
+                "Last SR",
+                "Last iRating",
+                "Last Series",
                 "DNF Breakdown",
-                "Customer ID",
                 "Note",
+                "ID",
             ]
-        )
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.table.horizontalHeader().setSectionResizeMode(
-            COL_NOTE, QHeaderView.ResizeMode.ResizeToContents
         )
         self.table.horizontalHeader().setSortIndicatorShown(True)
         self.table.setSortingEnabled(True)
+        self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setShowGrid(False)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setToolTip("Click a row to open scouting notes")
         self.table.itemSelectionChanged.connect(self.on_driver_selected)
-        left_layout.addWidget(self.table)
+        self._configure_driver_table()
+        left_layout.addWidget(self.table, stretch=1)
 
-        main_splitter.addWidget(left_widget)
+        main_splitter.addWidget(left_panel)
 
-        # RIGHT: Notes
-        right_widget = QWidget()
-        right_layout = QVBoxLayout(right_widget)
+        # --- Right: driver detail ---
+        right_panel = QFrame()
+        right_panel.setObjectName("panel")
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(14, 14, 14, 14)
+        right_layout.setSpacing(8)
 
-        right_layout.addWidget(QLabel("### Driver Intel & Scouting Notes"))
-        self.driver_title_label = QLabel("Select a driver to view/edit notes.")
-        self.driver_title_label.setStyleSheet("font-size: 14px; font-weight: bold;")
-        right_layout.addWidget(self.driver_title_label)
+        detail_title = QLabel("Driver details")
+        detail_title.setObjectName("appTitle")
+        detail_title.setStyleSheet("font-size: 16px;")
+        right_layout.addWidget(detail_title)
 
+        self.empty_state_label = QLabel(
+            "Select a driver from the table to view stats, write scouting notes, "
+            "and mark whether you liked racing with them."
+        )
+        self.empty_state_label.setObjectName("emptyState")
+        self.empty_state_label.setWordWrap(True)
+        right_layout.addWidget(self.empty_state_label)
+
+        self.driver_detail_scroll = QScrollArea()
+        self.driver_detail_scroll.setObjectName("driverDetailScroll")
+        self.driver_detail_scroll.setWidgetResizable(True)
+        self.driver_detail_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.driver_detail_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+
+        self.driver_detail_frame = QFrame()
+        self.driver_detail_frame.setStyleSheet("background: transparent;")
+        detail_layout = QVBoxLayout(self.driver_detail_frame)
+        detail_layout.setContentsMargins(0, 0, 0, 0)
+        detail_layout.setSpacing(4)
+
+        self.driver_name_label = QLabel()
+        self.driver_name_label.setObjectName("driverName")
+        self.driver_name_label.setWordWrap(True)
+        detail_layout.addWidget(self.driver_name_label)
+
+        self.driver_meta_label = QLabel()
+        self.driver_meta_label.setObjectName("driverMeta")
+        self.driver_meta_label.setWordWrap(True)
+        detail_layout.addWidget(self.driver_meta_label)
+
+        stats_form = QFormLayout()
+        stats_form.setSpacing(2)
+        stats_form.setContentsMargins(0, 6, 0, 0)
+        stats_form.setVerticalSpacing(2)
+        stats_form.setHorizontalSpacing(12)
+        stats_form.setLabelAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )
+        stats_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        self._detail_fields: dict[str, QLabel] = {}
+        for key, title in [
+            ("series", "Series"),
+            ("avg_finish", "Avg finish"),
+            ("avg_incidents", "Avg incidents"),
+            ("races", "Races tracked"),
+            ("last_irating", "Last iRating"),
+            ("last_sr", "Last SR"),
+            ("avg_pos_delta", "Avg +/- pos"),
+            ("dnfs", "DNFs"),
+            ("dnf_breakdown", "DNF breakdown"),
+        ]:
+            value = QLabel("—")
+            value.setObjectName("statValue")
+            value.setWordWrap(True)
+            stats_form.addRow(title, value)
+            self._detail_fields[key] = value
+        detail_layout.addLayout(stats_form)
+
+        self.driver_detail_scroll.setWidget(self.driver_detail_frame)
+        self.driver_detail_scroll.setVisible(False)
+        right_layout.addWidget(self.driver_detail_scroll)
+
+        notes_group = QGroupBox("Scouting notes")
+        notes_layout = QVBoxLayout(notes_group)
         self.notes_edit = QTextEdit()
         self.notes_edit.setPlaceholderText(
-            "Type behavioral traits here... (e.g., 'Aggressive on restarts', 'Clean racer, gives space', 'Prone to self-spinning under pressure')"
+            "e.g. Aggressive on restarts, gives room on restarts, weak under pressure…"
         )
-        right_layout.addWidget(self.notes_edit)
+        self.notes_edit.setMinimumHeight(140)
+        notes_layout.addWidget(self.notes_edit)
+        right_layout.addWidget(notes_group, stretch=1)
 
-        pref_layout = QHBoxLayout()
-        pref_layout.addWidget(QLabel("Racing preference:"))
-
+        pref_group = QGroupBox("How was racing with them?")
+        pref_layout = QHBoxLayout(pref_group)
         self.btn_pref_like = QPushButton("Liked")
+        self.btn_pref_like.setObjectName("prefLike")
         self.btn_pref_like.setCheckable(True)
+        self.btn_pref_like.setToolTip("Highlight row green in the driver list")
         self.btn_pref_like.clicked.connect(lambda: self.set_race_preference(1))
         pref_layout.addWidget(self.btn_pref_like)
-
         self.btn_pref_dislike = QPushButton("Didn't like")
+        self.btn_pref_dislike.setObjectName("prefDislike")
         self.btn_pref_dislike.setCheckable(True)
+        self.btn_pref_dislike.setToolTip("Highlight row red in the driver list")
         self.btn_pref_dislike.clicked.connect(lambda: self.set_race_preference(-1))
         pref_layout.addWidget(self.btn_pref_dislike)
-
         self.btn_pref_clear = QPushButton("Clear")
+        self.btn_pref_clear.setToolTip("Remove like/dislike highlight")
         self.btn_pref_clear.clicked.connect(lambda: self.set_race_preference(None))
         pref_layout.addWidget(self.btn_pref_clear)
+        right_layout.addWidget(pref_group)
 
-        right_layout.addLayout(pref_layout)
-
-        self.btn_save_notes = QPushButton("Save Driver Notes")
+        self.btn_save_notes = QPushButton("Save notes")
+        self.btn_save_notes.setObjectName("primaryBtn")
         self.btn_save_notes.clicked.connect(self.save_driver_notes)
         right_layout.addWidget(self.btn_save_notes)
 
-        main_splitter.addWidget(right_widget)
+        main_splitter.addWidget(right_panel)
+        right_panel.setMinimumWidth(300)
+        right_panel.setMaximumWidth(440)
+        main_splitter.setStretchFactor(0, 5)
+        main_splitter.setStretchFactor(1, 2)
+        main_splitter.setSizes([1000, 340])
 
+        self._update_live_session_filter(active=False, hint=MSG_SESSION_NOT_CONNECTED)
+        self._set_driver_panel_enabled(False)
         self.refresh_ui_table()
         self.apply_driver_filters()
 
@@ -588,7 +922,7 @@ class RaceBookApp(QMainWindow):
         )
 
         for row in range(self.table.rowCount()):
-            name_item = self.table.item(row, 0)
+            name_item = self.table.item(row, COL_NAME)
             name = (name_item.text() if name_item else "").strip()
             name_lc = name.lower()
 
@@ -628,11 +962,10 @@ class RaceBookApp(QMainWindow):
         self.current_subsession_id = 0
         self.selected_cust_id = None
         self.active_cust_ids = set()
-        if hasattr(self, "chk_current_race_only"):
-            self.chk_current_race_only.setChecked(False)
-            self.chk_current_race_only.setEnabled(False)
-        self.notes_edit.setText("")
-        self.driver_title_label.setText("Select a driver to view/edit notes.")
+        self._update_live_session_filter(active=False, hint=MSG_SESSION_NOT_CONNECTED)
+        self.notes_edit.clear()
+        self._clear_driver_details()
+        self._set_driver_panel_enabled(False)
         self.table.clearSelection()
         self.refresh_ui_table()
 
@@ -641,26 +974,23 @@ class RaceBookApp(QMainWindow):
     def start_sdk_worker(self):
         worker = IRacingWorker()
         if not getattr(worker, "available", False):
-            self.status_label.setText("Status: Offline mode (iRacing SDK not available).")
-            self.status_label.setStyleSheet("font-weight: bold; color: #666666;")
-            if hasattr(self, "chk_current_race_only"):
-                self.chk_current_race_only.setChecked(False)
-                self.chk_current_race_only.setEnabled(False)
+            self._set_status(STATUS_OFFLINE, "Offline — import JSON or install iRacing SDK")
+            self._update_live_session_filter(active=False, hint=MSG_SESSION_NOT_CONNECTED)
             self.worker = None
             return
 
         self.worker = worker
         self.worker.drivers_updated.connect(self.handle_sdk_update)
         self.worker.start()
+        self._update_live_session_filter(active=False, hint=MSG_SESSION_NOT_CONNECTED)
 
     def handle_sdk_update(self, active_drivers, subsession_id):
         self.current_subsession_id = subsession_id
-        self.status_label.setText(
-            f"Status: Connected to live Session #{subsession_id} ({len(active_drivers)} drivers found)"
+        self._set_status(
+            STATUS_CONNECTED,
+            f"Live — session #{subsession_id} · {len(active_drivers)} drivers",
         )
-        self.status_label.setStyleSheet("font-weight: bold; color: #00aa00;")
-        if hasattr(self, "chk_current_race_only"):
-            self.chk_current_race_only.setEnabled(True)
+        self._update_live_session_filter(active=True, hint="")
 
         self.active_cust_ids = {d.get("cust_id") for d in active_drivers if d.get("cust_id") is not None}
 
@@ -691,13 +1021,18 @@ class RaceBookApp(QMainWindow):
             self.table.setRowCount(len(rows))
             for row_idx, row_data in enumerate(rows):
                 display_row, cust_id, pref = self._build_display_row(row_data)
-                self._render_table_row(row_idx, display_row)
+                self._render_table_row(row_idx, display_row, cust_id)
                 self._apply_preference_row_style(row_idx, len(display_row), pref)
         finally:
             self.table.setUpdatesEnabled(True)
 
         if was_sorting:
             self.table.setSortingEnabled(True)
+        self.table.sortByColumn(COL_NAME, Qt.SortOrder.AscendingOrder)
+        self.table.horizontalHeader().setSortIndicator(COL_NAME, Qt.SortOrder.AscendingOrder)
+        self.table.resizeColumnsToContents()
+        self.table.setColumnWidth(COL_NAME, max(self.table.columnWidth(COL_NAME), 180))
+        self.table.setColumnWidth(COL_SERIES, max(self.table.columnWidth(COL_SERIES), 160))
         self.apply_driver_filters()
 
     def _fetch_table_data(self) -> list[tuple]:
@@ -732,17 +1067,17 @@ class RaceBookApp(QMainWindow):
         return (
             [
                 name,
+                total_races,
                 avg_inc,
                 avg_fin,
-                total_races,
-                last_ir,
-                last_sr,
-                last_series,
                 avg_pos_delta,
                 dnf_total,
+                last_sr,
+                last_ir,
+                last_series,
                 breakdown,
-                cid,
                 has_note,
+                cid,
             ],
             cid,
             pref,
@@ -768,12 +1103,14 @@ class RaceBookApp(QMainWindow):
             item.setToolTip("Has scouting notes")
         return item
 
-    def _render_table_row(self, row_idx: int, display_row: list) -> None:
+    def _render_table_row(self, row_idx: int, display_row: list, cust_id: int) -> None:
         for col_idx, value in enumerate(display_row):
             if col_idx == COL_NOTE:
                 item = self._make_note_item(bool(value))
             else:
                 item = self._make_table_item(value)
+            if col_idx == COL_NAME:
+                item.setData(Qt.ItemDataRole.UserRole, cust_id)
             self.table.setItem(row_idx, col_idx, item)
 
     def _apply_preference_row_style(self, row_idx: int, col_count: int, pref: int | None) -> None:
@@ -793,39 +1130,29 @@ class RaceBookApp(QMainWindow):
     def on_driver_selected(self):
         selected_ranges = self.table.selectedRanges()
         if not selected_ranges:
+            self.selected_cust_id = None
+            self._set_driver_panel_enabled(False)
             return
 
         row = selected_ranges[0].topRow()
-        cust_id_item = self.table.item(row, COL_CUST_ID)
-        if not cust_id_item:
+        name_item = self.table.item(row, COL_NAME)
+        if not name_item:
             return
 
-        self.selected_cust_id = int(cust_id_item.text())
-        driver_name = self.table.item(row, 0).text()
+        cust_id = name_item.data(Qt.ItemDataRole.UserRole)
+        if cust_id is None:
+            cust_id_item = self.table.item(row, COL_CUST_ID)
+            if not cust_id_item:
+                return
+            cust_id = int(cust_id_item.text())
 
-        def cell_text(col: int) -> str:
-            item = self.table.item(row, col)
-            if not item:
-                return "N/A"
-            txt = item.text().strip()
-            return txt if txt else "N/A"
-
-        last_seen_at, notes, pref = self._fetch_driver_notes_meta(self.selected_cust_id)
+        self.selected_cust_id = int(cust_id)
+        _, notes, pref = self._fetch_driver_notes_meta(self.selected_cust_id)
 
         self._update_preference_buttons(pref)
-        last_seen_fmt = _format_last_seen_et_mmddyyyy_hm(last_seen_at)
-
-        series_value = cell_text(6)
-        self.driver_title_label.setText(
-            self._build_notes_header_html(
-                driver_name=driver_name,
-                cust_id=self.selected_cust_id,
-                last_seen_fmt=last_seen_fmt,
-                series_value=series_value,
-                cell_text=cell_text,
-            )
-        )
+        self._populate_driver_details(self.selected_cust_id)
         self.notes_edit.setText(notes or "")
+        self._set_driver_panel_enabled(True)
 
     def _fetch_driver_notes_meta(self, cust_id: int) -> tuple[str | None, str, int | None]:
         cursor = self._db_conn.cursor()
@@ -843,77 +1170,11 @@ class RaceBookApp(QMainWindow):
         pref = _sqlite_row_to_int(row[2])
         return last_seen_at, notes, pref
 
-    def _build_notes_header_html(
-        self,
-        driver_name: str,
-        cust_id: int,
-        last_seen_fmt: str,
-        series_value: str,
-        cell_text,
-    ) -> str:
-        driver_line = (
-            f"<b>{html.escape(driver_name)}</b> (ID: {cust_id})"
-            f" — Last raced: {html.escape(last_seen_fmt)} ET"
-        )
-        series_line = (
-            f"<b>Series:</b> {html.escape(series_value)}"
-            if series_value != "N/A"
-            else "<b>Series:</b> N/A"
-        )
-
-        cols = [2, 3, 4, 5, 7, 8, 9, COL_CUST_ID]
-        kvs: list[tuple[str, str]] = []
-        for col_idx in cols:
-            header = self.table.horizontalHeaderItem(col_idx)
-            label = header.text() if header else f"Col {col_idx}"
-            kvs.append((label, cell_text(col_idx)))
-
-        split_at = (len(kvs) + 1) // 2
-        left = kvs[:split_at]
-        right = kvs[split_at:]
-
-        rows_html: list[str] = []
-        for i in range(max(len(left), len(right))):
-            l = left[i] if i < len(left) else ("", "")
-            r = right[i] if i < len(right) else ("", "")
-            left_txt = f"<b>{html.escape(l[0])}:</b> {html.escape(l[1])}" if l[0] else ""
-            right_txt = f"<b>{html.escape(r[0])}:</b> {html.escape(r[1])}" if r[0] else ""
-            rows_html.append(
-                "<tr>"
-                f"<td style='padding-right:18px; white-space:nowrap;'>{left_txt}</td>"
-                f"<td style='white-space:nowrap;'>{right_txt}</td>"
-                "</tr>"
-            )
-
-        return (
-            driver_line
-            + "<br/>"
-            + series_line
-            + "<br/>"
-            + "<table style='border-collapse:collapse;'>"
-            + "".join(rows_html)
-            + "</table>"
-        )
-
     def _update_preference_buttons(self, pref: int | None):
-        # Visually select the matching preference button.
         self.btn_pref_like.setChecked(pref == 1)
         self.btn_pref_dislike.setChecked(pref == -1)
-
-        # Filled styling so selection is obvious even with OS themes.
-        if pref == 1:
-            self.btn_pref_like.setStyleSheet(
-                "font-weight: bold; background-color: #6EEB83; color: #000000; border-radius: 10px; padding: 6px 10px;"
-            )
-            self.btn_pref_dislike.setStyleSheet("")
-        elif pref == -1:
-            self.btn_pref_dislike.setStyleSheet(
-                "font-weight: bold; background-color: #FF6B6B; color: #000000; border-radius: 10px; padding: 6px 10px;"
-            )
-            self.btn_pref_like.setStyleSheet("")
-        else:
-            self.btn_pref_like.setStyleSheet("")
-            self.btn_pref_dislike.setStyleSheet("")
+        self._polish_property(self.btn_pref_like, "selected", pref == 1)
+        self._polish_property(self.btn_pref_dislike, "selected", pref == -1)
 
     def _row_for_cust_id(self, cust_id: int) -> int | None:
         for row in range(self.table.rowCount()):

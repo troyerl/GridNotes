@@ -5,6 +5,7 @@ from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication
 
 from racing_book.racebook_app import RaceBookApp
+from racing_book.theme import APP_STYLESHEET
 
 
 def _app_icon_path() -> Path | None:
@@ -25,6 +26,7 @@ def _load_app_icon() -> QIcon | None:
 
 def main() -> int:
     app = QApplication(sys.argv)
+    app.setStyleSheet(APP_STYLESHEET)
 
     icon = _load_app_icon()
     if icon is not None:

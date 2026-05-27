@@ -1,5 +1,6 @@
 # PyInstaller spec for Racing Book (Windows primary; macOS bundle optional)
 
+import os
 import sys
 
 block_cipher = None
@@ -14,6 +15,7 @@ a = Analysis(
         "racing_book.db",
         "racing_book.iracing_worker",
         "racing_book.racebook_app",
+        "racing_book.theme",
     ],
     hookspath=[],
     hooksconfig={},
@@ -64,7 +66,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon="icon.png",
+    icon="icon.png" if sys.platform == "win32" else None,
 )
 
 coll = COLLECT(
@@ -79,10 +81,12 @@ coll = COLLECT(
 )
 
 if sys.platform == "darwin":
+    # macOS .app bundle needs .icns; icon.png is still bundled via datas for the window icon.
+    _bundle_icon = "icon.icns" if os.path.isfile("icon.icns") else None
     app = BUNDLE(
         coll,
         name="Racing Book.app",
-        icon="icon.png",
+        icon=_bundle_icon,
         bundle_identifier="com.racingbook.app",
         info_plist={
             "CFBundleName": "Racing Book",
