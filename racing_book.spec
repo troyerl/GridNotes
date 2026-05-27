@@ -8,7 +8,7 @@ a = Analysis(
     ["main.py"],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[("icon.png", ".")],
     hiddenimports=[
         "racing_book",
         "racing_book.db",
@@ -64,6 +64,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon="icon.png",
 )
 
 coll = COLLECT(
@@ -81,7 +82,7 @@ if sys.platform == "darwin":
     app = BUNDLE(
         coll,
         name="Racing Book.app",
-        icon=None,
+        icon="icon.png",
         bundle_identifier="com.racingbook.app",
         info_plist={
             "CFBundleName": "Racing Book",
