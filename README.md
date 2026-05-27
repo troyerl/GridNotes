@@ -56,3 +56,12 @@ Driver history and settings are stored in:
 
 - When running from source, the database stays in the project folder as `driver_history.db`
 - When running the bundled app, data lives in `%APPDATA%\RacingBook\` so updates do not wipe history
+
+## Troubleshooting log (for support)
+
+If something goes wrong, check the log file (errors, SDK connection, imports):
+
+- **Installed app:** `%APPDATA%\RacingBook\racingbook.log`
+- **Run from source:** `racingbook.log` in the project folder
+
+Older logs are kept as `racingbook.log.1`, `racingbook.log.2`, etc. (rotates at 2 MB).

@@ -1,4 +1,5 @@
 import json
+import logging
 import sqlite3
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -32,6 +33,8 @@ from PyQt6.QtWidgets import (
 from .db import connect_db, get_setting, init_db, set_setting
 from .iracing_worker import IRacingWorker
 from .theme import STATUS_CONNECTED, STATUS_OFFLINE, STATUS_WAITING
+
+logger = logging.getLogger(__name__)
 
 # iRacing reason_out_id (0 = finished on track; excluded from DNF stats)
 REASON_OUT_RUNNING = 0
@@ -972,13 +975,18 @@ class RaceBookApp(QMainWindow):
         QMessageBox.information(self, "Database Reset", "Database cleared successfully.")
 
     def start_sdk_worker(self):
+        logger.info("Starting iRacing SDK worker…")
+
         worker = IRacingWorker()
         if not getattr(worker, "available", False):
-            self._set_status(STATUS_OFFLINE, "Offline — import JSON (live SDK needs Windows + pyirsdk)")
+            reason = getattr(worker, "unavailable_reason", "") or "pyirsdk unavailable"
+            logger.warning("SDK worker not available: %s", reason)
+            self._set_status(STATUS_OFFLINE, f"Offline — {reason}")
             self._update_live_session_filter(active=False, hint=MSG_SESSION_NOT_CONNECTED)
             self.worker = None
             return
 
+        logger.info("SDK worker available; starting background thread")
         self.worker = worker
         self.worker.connection_changed.connect(self.handle_sdk_connection)
         self.worker.drivers_updated.connect(self.handle_sdk_update)
@@ -1309,9 +1317,17 @@ class RaceBookApp(QMainWindow):
                 del data, races
 
             except Exception as e:
+                logger.exception("Import failed for %s", file_path)
                 errors.append(f"{file_path}: {e}")
 
         conn.commit()
+        logger.info(
+            "Import finished: files=%s races=%s results=%s errors=%s",
+            total_files,
+            total_races_imported,
+            total_results_imported,
+            len(errors),
+        )
 
         self.refresh_ui_table()
 
@@ -1342,6 +1358,7 @@ class RaceBookApp(QMainWindow):
         )
 
     def closeEvent(self, event):
+        logger.info("Application closing")
         if self.worker is not None:
             self.worker.stop()
         if hasattr(self, "_db_conn"):
