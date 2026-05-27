@@ -301,7 +301,7 @@ def _parse_iracing_event_result(data: dict) -> tuple[list[dict], str | None, str
     if not isinstance(payload, dict):
         return ([], None, None)
 
-    sub_id = payload.get("subsession_id", 0)
+    sub_id = _sqlite_row_to_int(payload.get("subsession_id")) or 0
     series_name = payload.get("series_name") or payload.get("season_name")
     race_timestamp = payload.get("end_time") or payload.get("start_time")
 
@@ -423,19 +423,23 @@ def _import_race_entries(
     series_name: str | None,
     race_timestamp: str | None,
     license_text_fallback: str | None,
-) -> tuple[int, int]:
+) -> tuple[int, int, int]:
     races_imported = 0
     results_imported = 0
+    results_skipped = 0
 
     for entry in races:
         if not isinstance(entry, dict):
             continue
-        sub_id = entry.get("subsession_id", 0)
+        sub_id = _sqlite_row_to_int(entry.get("subsession_id"))
+        if sub_id is None:
+            sub_id = _sqlite_row_to_int(entry.get("session_id"))
+        sub_id = sub_id or 0
         results = entry.get("results", [])
         if not isinstance(results, list):
             continue
 
-        any_result = False
+        race_had_new_result = False
         for driver in results:
             if not isinstance(driver, dict):
                 continue
@@ -477,7 +481,7 @@ def _import_race_entries(
 
             cursor.execute(
                 """
-                INSERT INTO race_results (
+                INSERT OR IGNORE INTO race_results (
                     cust_id,
                     subsession_id,
                     finish_position,
@@ -502,6 +506,9 @@ def _import_race_entries(
                     reason_out_id,
                 ),
             )
+            if cursor.rowcount == 0:
+                results_skipped += 1
+                continue
 
             _maybe_update_last_seen(
                 cursor,
@@ -514,13 +521,13 @@ def _import_race_entries(
                 start_pos,
             )
 
-            any_result = True
+            race_had_new_result = True
             results_imported += 1
 
-        if any_result:
+        if race_had_new_result:
             races_imported += 1
 
-    return (races_imported, results_imported)
+    return (races_imported, results_imported, results_skipped)
 
 
 class RaceBookApp(QMainWindow):
@@ -1281,6 +1288,7 @@ class RaceBookApp(QMainWindow):
         total_files = 0
         total_races_imported = 0
         total_results_imported = 0
+        total_results_skipped = 0
         errors: list[str] = []
 
         conn = self._db_conn
@@ -1300,7 +1308,7 @@ class RaceBookApp(QMainWindow):
                     cat = data["data"].get("license_category")
                     license_text_fallback = str(cat) if cat else None
 
-                races_imported, results_imported = _import_race_entries(
+                races_imported, results_imported, results_skipped = _import_race_entries(
                     cursor,
                     races,
                     series_name,
@@ -1310,8 +1318,9 @@ class RaceBookApp(QMainWindow):
 
                 total_races_imported += races_imported
                 total_results_imported += results_imported
+                total_results_skipped += results_skipped
 
-                if results_imported == 0:
+                if results_imported == 0 and results_skipped == 0:
                     errors.append(f"{file_path}: no race results found/imported")
 
                 del data, races
@@ -1322,14 +1331,25 @@ class RaceBookApp(QMainWindow):
 
         conn.commit()
         logger.info(
-            "Import finished: files=%s races=%s results=%s errors=%s",
+            "Import finished: files=%s races=%s results=%s skipped=%s errors=%s",
             total_files,
             total_races_imported,
             total_results_imported,
+            total_results_skipped,
             len(errors),
         )
 
         self.refresh_ui_table()
+
+        if total_results_imported == 0 and total_results_skipped > 0:
+            QMessageBox.information(
+                self,
+                "Import — Already Up to Date",
+                f"All {total_results_skipped} driver result(s) in the selected file(s) were "
+                "already imported (matched by subsession ID).\n\n"
+                "Stats and notes were not changed.",
+            )
+            return
 
         if total_results_imported == 0:
             QMessageBox.warning(
@@ -1340,13 +1360,19 @@ class RaceBookApp(QMainWindow):
                 "Supported:\n"
                 "- iRacing 'event_result' JSON (imports Race session), or\n"
                 "- custom {'races': [...]} format.\n\n"
+                "Each result is stored once per driver per subsession ID; re-importing the same "
+                "session does not duplicate stats.\n\n"
                 + ("\n\nDetails:\n" + "\n".join(errors[:10]) if errors else ""),
             )
             return
 
         detail = ""
+        if total_results_skipped:
+            detail = (
+                f"\n\nSkipped {total_results_skipped} result(s) already on file for that subsession."
+            )
         if errors:
-            detail = "\n\nSome files had issues:\n" + "\n".join(errors[:10])
+            detail += "\n\nSome files had issues:\n" + "\n".join(errors[:10])
             if len(errors) > 10:
                 detail += f"\n... and {len(errors) - 10} more."
 

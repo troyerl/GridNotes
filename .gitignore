@@ -5,3 +5,4 @@ build/
 dist/
 *.spec.bak
 .DS_Store
+gridnotes.log

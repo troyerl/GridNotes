@@ -78,6 +78,42 @@ def _migrate_schema(cursor: sqlite3.Cursor) -> None:
     _ensure_column(cursor, "race_results", "reason_out", "TEXT")
     _ensure_column(cursor, "race_results", "reason_out_id", "INTEGER")
 
+    _ensure_subsession_dedup_index(cursor)
+
+
+def _dedupe_race_results_by_subsession(cursor: sqlite3.Cursor) -> None:
+    """Keep one row per driver per subsession before adding the unique index."""
+    cursor.execute(
+        """
+        DELETE FROM race_results
+        WHERE subsession_id IS NOT NULL
+          AND subsession_id != 0
+          AND id NOT IN (
+              SELECT MIN(id)
+              FROM race_results
+              WHERE subsession_id IS NOT NULL
+                AND subsession_id != 0
+              GROUP BY cust_id, subsession_id
+          )
+        """
+    )
+
+
+def _ensure_subsession_dedup_index(cursor: sqlite3.Cursor) -> None:
+    cursor.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='index' AND name='idx_race_results_cust_subsession'"
+    )
+    if cursor.fetchone():
+        return
+    _dedupe_race_results_by_subsession(cursor)
+    cursor.execute(
+        """
+        CREATE UNIQUE INDEX idx_race_results_cust_subsession
+        ON race_results (cust_id, subsession_id)
+        WHERE subsession_id != 0
+        """
+    )
+
 
 def init_db(db_name: str = DB_NAME) -> None:
     conn = connect_db(db_name)
