@@ -72,13 +72,60 @@ def _migrate_schema(cursor: sqlite3.Cursor) -> None:
     _ensure_column(cursor, "drivers", "last_starting_pos", "INTEGER")
     _ensure_column(cursor, "drivers", "last_seen_at", "TEXT")  # ISO timestamp (end_time/start_time)
     _ensure_column(cursor, "drivers", "race_preference", "INTEGER")  # 1=liked, -1=disliked, NULL=unset
+    _ensure_column(cursor, "drivers", "tags", "TEXT")  # comma-separated tags
 
     # per-race fields
     _ensure_column(cursor, "race_results", "starting_position", "INTEGER")
     _ensure_column(cursor, "race_results", "reason_out", "TEXT")
     _ensure_column(cursor, "race_results", "reason_out_id", "INTEGER")
+    _ensure_column(cursor, "race_results", "series_name", "TEXT")
+
+    # Backfill older imports (pre-series_name) with best available info.
+    # Not perfect, but better than leaving historical data unfilterable.
+    try:
+        cursor.execute(
+            """
+            UPDATE race_results
+            SET series_name = (
+                SELECT d.last_series
+                FROM drivers d
+                WHERE d.cust_id = race_results.cust_id
+            )
+            WHERE TRIM(COALESCE(series_name, '')) = ''
+              AND EXISTS (
+                  SELECT 1
+                  FROM drivers d
+                  WHERE d.cust_id = race_results.cust_id
+                    AND TRIM(COALESCE(d.last_series, '')) != ''
+              )
+            """
+        )
+    except Exception:
+        pass
+
+    # Backfill older imports where reason_out_id wasn't set but reason_out text exists.
+    # This avoids expensive LOWER/TRIM logic during aggregation queries.
+    try:
+        cursor.execute(
+            """
+            UPDATE race_results
+            SET reason_out_id =
+                CASE
+                    WHEN LOWER(TRIM(COALESCE(reason_out, ''))) = 'disconnected' THEN 1
+                    WHEN LOWER(TRIM(COALESCE(reason_out, ''))) = 'ejected' THEN 2
+                    WHEN LOWER(TRIM(COALESCE(reason_out, ''))) = 'quit' THEN 3
+                    WHEN LOWER(TRIM(COALESCE(reason_out, ''))) = 'disqualified' THEN 4
+                    ELSE reason_out_id
+                END
+            WHERE reason_out_id IS NULL
+              AND TRIM(COALESCE(reason_out, '')) != ''
+            """
+        )
+    except Exception:
+        pass
 
     _ensure_subsession_dedup_index(cursor)
+    _ensure_perf_indexes(cursor)
 
 
 def _dedupe_race_results_by_subsession(cursor: sqlite3.Cursor) -> None:
@@ -113,6 +160,25 @@ def _ensure_subsession_dedup_index(cursor: sqlite3.Cursor) -> None:
         WHERE subsession_id != 0
         """
     )
+
+
+def _ensure_perf_indexes(cursor: sqlite3.Cursor) -> None:
+    # Speed up stats filtering + aggregation queries.
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_race_results_cust_id ON race_results (cust_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_race_results_series_name ON race_results (series_name)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_race_results_license_class ON race_results (license_class)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_race_results_reason_out_id ON race_results (reason_out_id)")
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_race_results_cust_reason ON race_results (cust_id, reason_out_id)"
+    )
+    # Expression index for the license prefix filter (R/D/C/B/A/P)
+    try:
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_race_results_license_prefix "
+            "ON race_results (UPPER(SUBSTR(COALESCE(license_class, ''), 1, 1)))"
+        )
+    except Exception:
+        pass
 
 
 def init_db(db_name: str = DB_NAME) -> None:

@@ -5,7 +5,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from PyQt6.QtCore import QEvent, Qt
-from PyQt6.QtGui import QColor, QFont
+from PyQt6.QtGui import QColor, QFont, QTextCursor
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QFileDialog,
@@ -67,8 +67,10 @@ REASON_OUT_TEXT_TO_ID = {
 ROW_BG_LIKED = QColor(42, 72, 52)
 ROW_BG_DISLIKED = QColor(72, 42, 42)
 ROW_BG_HOVER = QColor(45, 52, 64)
+ROW_BG_RISKY = QColor(72, 62, 32)
 ROW_FG_FOR_HIGHLIGHT = QColor(232, 234, 237)
 PREF_DATA_ROLE = Qt.ItemDataRole.UserRole + 1
+RISK_DATA_ROLE = Qt.ItemDataRole.UserRole + 2
 
 COL_NAME = 0
 COL_RACES = 1
@@ -86,119 +88,115 @@ NOTE_INDICATOR = "+"
 
 MSG_SESSION_NOT_CONNECTED = "Not connected to iRacing yet — start iRacing and join a session to enable."
 
-_TABLE_DATA_SQL = """
-    SELECT
-        d.driver_name,
-        ROUND(AVG(r.incidents), 1) AS avg_inc,
-        ROUND(AVG(r.finish_position), 1) AS avg_fin,
-        COUNT(r.id) AS total_races,
-        d.last_irating,
-        d.last_safety,
-        d.last_series,
-        ROUND(
-            AVG(
-                CASE
-                    WHEN r.starting_position IS NOT NULL AND r.finish_position IS NOT NULL
-                    THEN (r.starting_position - r.finish_position)
-                END
-            ),
-            1
-        ) AS avg_pos_delta,
-        d.cust_id,
-        d.race_preference,
-        COALESCE(dnf.dnf_total, 0),
-        COALESCE(dnf.disc, 0),
-        COALESCE(dnf.eject, 0),
-        COALESCE(dnf.quit_, 0),
-        COALESCE(dnf.dq, 0),
-        COALESCE(dnf.other, 0),
-        CASE WHEN TRIM(COALESCE(d.notes, '')) != '' THEN 1 ELSE 0 END AS has_notes
-    FROM drivers d
-    LEFT JOIN race_results r ON d.cust_id = r.cust_id
-    LEFT JOIN (
-        SELECT
-            cust_id,
-            COUNT(*) AS dnf_total,
-            SUM(CASE WHEN rid = 1 THEN 1 ELSE 0 END) AS disc,
-            SUM(CASE WHEN rid = 2 THEN 1 ELSE 0 END) AS eject,
-            SUM(CASE WHEN rid = 3 THEN 1 ELSE 0 END) AS quit_,
-            SUM(CASE WHEN rid = 4 THEN 1 ELSE 0 END) AS dq,
-            SUM(CASE WHEN rid NOT IN (1, 2, 3, 4) THEN 1 ELSE 0 END) AS other
-        FROM (
+def _table_data_sql() -> str:
+    return """
+        WITH agg AS (
             SELECT
                 cust_id,
-                CASE
-                    WHEN reason_out_id IN (1, 2, 3, 4) THEN reason_out_id
-                    WHEN LOWER(TRIM(COALESCE(reason_out, ''))) = 'disconnected' THEN 1
-                    WHEN LOWER(TRIM(COALESCE(reason_out, ''))) = 'ejected' THEN 2
-                    WHEN LOWER(TRIM(COALESCE(reason_out, ''))) = 'quit' THEN 3
-                    WHEN LOWER(TRIM(COALESCE(reason_out, ''))) = 'disqualified' THEN 4
-                    ELSE NULL
-                END AS rid
+                COUNT(id) AS total_races,
+                ROUND(AVG(incidents), 1) AS avg_inc,
+                ROUND(AVG(finish_position), 1) AS avg_fin,
+                ROUND(
+                    AVG(
+                        CASE
+                            WHEN starting_position IS NOT NULL AND finish_position IS NOT NULL
+                            THEN (starting_position - finish_position)
+                        END
+                    ),
+                    1
+                ) AS avg_pos_delta,
+                SUM(CASE WHEN reason_out_id IN (1, 2, 3, 4) THEN 1 ELSE 0 END) AS dnf_total,
+                SUM(CASE WHEN reason_out_id = 1 THEN 1 ELSE 0 END) AS disc,
+                SUM(CASE WHEN reason_out_id = 2 THEN 1 ELSE 0 END) AS eject,
+                SUM(CASE WHEN reason_out_id = 3 THEN 1 ELSE 0 END) AS quit_,
+                SUM(CASE WHEN reason_out_id = 4 THEN 1 ELSE 0 END) AS dq,
+                SUM(
+                    CASE
+                        WHEN reason_out_id IS NOT NULL AND reason_out_id NOT IN (0, 1, 2, 3, 4)
+                        THEN 1
+                        ELSE 0
+                    END
+                ) AS other
             FROM race_results
+            GROUP BY cust_id
         )
-        WHERE rid IS NOT NULL
-        GROUP BY cust_id
-    ) dnf ON d.cust_id = dnf.cust_id
-    GROUP BY d.cust_id
-    ORDER BY d.driver_name ASC
-"""
+        SELECT
+            d.driver_name,
+            a.avg_inc,
+            a.avg_fin,
+            COALESCE(a.total_races, 0) AS total_races,
+            d.last_irating,
+            d.last_safety,
+            d.last_series,
+            a.avg_pos_delta,
+            d.cust_id,
+            d.race_preference,
+            COALESCE(a.dnf_total, 0),
+            COALESCE(a.disc, 0),
+            COALESCE(a.eject, 0),
+            COALESCE(a.quit_, 0),
+            COALESCE(a.dq, 0),
+            COALESCE(a.other, 0),
+            CASE WHEN TRIM(COALESCE(d.notes, '')) != '' THEN 1 ELSE 0 END AS has_notes
+        FROM drivers d
+        LEFT JOIN agg a ON d.cust_id = a.cust_id
+        ORDER BY d.driver_name ASC
+    """
 
-_DRIVER_DETAIL_SQL = """
-    SELECT
-        d.driver_name,
-        d.last_seen_at,
-        d.last_series,
-        ROUND(AVG(r.incidents), 1),
-        ROUND(AVG(r.finish_position), 1),
-        COUNT(r.id),
-        d.last_irating,
-        d.last_safety,
-        ROUND(
-            AVG(
-                CASE
-                    WHEN r.starting_position IS NOT NULL AND r.finish_position IS NOT NULL
-                    THEN (r.starting_position - r.finish_position)
-                END
-            ),
-            1
-        ),
-        COALESCE(dnf.dnf_total, 0),
-        COALESCE(dnf.disc, 0),
-        COALESCE(dnf.eject, 0),
-        COALESCE(dnf.quit_, 0),
-        COALESCE(dnf.dq, 0),
-        COALESCE(dnf.other, 0)
-    FROM drivers d
-    LEFT JOIN race_results r ON d.cust_id = r.cust_id
-    LEFT JOIN (
-        SELECT
-            cust_id,
-            COUNT(*) AS dnf_total,
-            SUM(CASE WHEN rid = 1 THEN 1 ELSE 0 END) AS disc,
-            SUM(CASE WHEN rid = 2 THEN 1 ELSE 0 END) AS eject,
-            SUM(CASE WHEN rid = 3 THEN 1 ELSE 0 END) AS quit_,
-            SUM(CASE WHEN rid = 4 THEN 1 ELSE 0 END) AS dq,
-            SUM(CASE WHEN rid NOT IN (1, 2, 3, 4) THEN 1 ELSE 0 END) AS other
-        FROM (
+
+def _driver_detail_sql() -> str:
+    return """
+        WITH agg AS (
             SELECT
                 cust_id,
-                CASE
-                    WHEN reason_out_id IN (1, 2, 3, 4) THEN reason_out_id
-                    WHEN LOWER(TRIM(COALESCE(reason_out, ''))) = 'disconnected' THEN 1
-                    WHEN LOWER(TRIM(COALESCE(reason_out, ''))) = 'ejected' THEN 2
-                    WHEN LOWER(TRIM(COALESCE(reason_out, ''))) = 'quit' THEN 3
-                    WHEN LOWER(TRIM(COALESCE(reason_out, ''))) = 'disqualified' THEN 4
-                    ELSE NULL
-                END AS rid
+                COUNT(id) AS total_races,
+                ROUND(AVG(incidents), 1) AS avg_inc,
+                ROUND(AVG(finish_position), 1) AS avg_fin,
+                ROUND(
+                    AVG(
+                        CASE
+                            WHEN starting_position IS NOT NULL AND finish_position IS NOT NULL
+                            THEN (starting_position - finish_position)
+                        END
+                    ),
+                    1
+                ) AS avg_pos_delta,
+                SUM(CASE WHEN reason_out_id IN (1, 2, 3, 4) THEN 1 ELSE 0 END) AS dnf_total,
+                SUM(CASE WHEN reason_out_id = 1 THEN 1 ELSE 0 END) AS disc,
+                SUM(CASE WHEN reason_out_id = 2 THEN 1 ELSE 0 END) AS eject,
+                SUM(CASE WHEN reason_out_id = 3 THEN 1 ELSE 0 END) AS quit_,
+                SUM(CASE WHEN reason_out_id = 4 THEN 1 ELSE 0 END) AS dq,
+                SUM(
+                    CASE
+                        WHEN reason_out_id IS NOT NULL AND reason_out_id NOT IN (0, 1, 2, 3, 4)
+                        THEN 1
+                        ELSE 0
+                    END
+                ) AS other
             FROM race_results
+            WHERE cust_id = ?
+            GROUP BY cust_id
         )
-        WHERE rid IS NOT NULL
-        GROUP BY cust_id
-    ) dnf ON d.cust_id = dnf.cust_id
-    WHERE d.cust_id = ?
-    GROUP BY d.cust_id
-"""
+        SELECT
+            d.driver_name,
+            d.last_seen_at,
+            d.last_series,
+            a.avg_inc,
+            a.avg_fin,
+            COALESCE(a.total_races, 0) AS total_races,
+            d.last_irating,
+            d.last_safety,
+            a.avg_pos_delta,
+            COALESCE(a.dnf_total, 0),
+            COALESCE(a.disc, 0),
+            COALESCE(a.eject, 0),
+            COALESCE(a.quit_, 0),
+            COALESCE(a.dq, 0),
+            COALESCE(a.other, 0)
+        FROM drivers d
+        LEFT JOIN agg a ON d.cust_id = a.cust_id
+        WHERE d.cust_id = ?
+    """
 
 
 class WrappingLabel(QLabel):
@@ -518,6 +516,7 @@ def _import_race_entries(
                 INSERT OR IGNORE INTO race_results (
                     cust_id,
                     subsession_id,
+                    series_name,
                     finish_position,
                     incidents,
                     irating_change,
@@ -526,11 +525,12 @@ def _import_race_entries(
                     reason_out,
                     reason_out_id
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     cust_id,
                     sub_id,
+                    series_name,
                     finish,
                     driver.get("incidents", 0),
                     ir_change,
@@ -576,6 +576,7 @@ class RaceBookApp(QMainWindow):
         self.worker = None
         self.active_cust_ids: set[int] = set()
         self._hover_row: int | None = None
+        self._did_initial_column_resize = False
 
         init_db()
         self._db_conn = connect_db()
@@ -670,8 +671,13 @@ class RaceBookApp(QMainWindow):
         pref = self._pref_for_row(row_idx)
         if pref in (1, -1):
             self._apply_preference_row_style(row_idx, self.table.columnCount(), pref)
-        else:
-            self._clear_row_style(row_idx)
+            return
+
+        self._clear_row_style(row_idx)
+        name_item = self.table.item(row_idx, COL_NAME)
+        risky = bool(name_item.data(RISK_DATA_ROLE)) if name_item is not None else False
+        if risky:
+            self._apply_risky_row_style(row_idx, self.table.columnCount(), "")
 
     def _apply_row_hover(self, row_idx: int) -> None:
         selected = self.table.selectionModel().selectedRows()
@@ -724,7 +730,8 @@ class RaceBookApp(QMainWindow):
 
     def _fetch_driver_detail_row(self, cust_id: int) -> tuple | None:
         cursor = self._db_conn.cursor()
-        cursor.execute(_DRIVER_DETAIL_SQL, (cust_id,))
+        # _driver_detail_sql uses cust_id twice (agg CTE + final WHERE)
+        cursor.execute(_driver_detail_sql(), (cust_id, cust_id))
         return cursor.fetchone()
 
     def _populate_driver_details(self, cust_id: int) -> None:
@@ -993,6 +1000,7 @@ class RaceBookApp(QMainWindow):
 
         notes_group = QGroupBox("Scouting notes")
         notes_layout = QVBoxLayout(notes_group)
+        notes_layout.setSpacing(12)
         self.notes_edit = QTextEdit()
         self.notes_edit.setPlaceholderText(
             "e.g. Aggressive on restarts, gives room on restarts, weak under pressure…"
@@ -1000,6 +1008,36 @@ class RaceBookApp(QMainWindow):
         self.notes_edit.setMinimumHeight(140)
         configure_widget_scrollbars(self.notes_edit, single_step=20, page_step=100)
         notes_layout.addWidget(self.notes_edit)
+
+        templates_label = QLabel("Quick note templates")
+        templates_label.setObjectName("sectionHint")
+        notes_layout.addWidget(templates_label)
+
+        templates_grid = QGridLayout()
+        templates_grid.setHorizontalSpacing(12)
+        templates_grid.setVerticalSpacing(14)
+        templates_grid.setContentsMargins(0, 4, 0, 0)
+        template_list = [
+            ("+ Clean", "Clean racer"),
+            ("+ Divebombs", "Divebombs / late sends"),
+            ("+ Blocks", "Blocks aggressively"),
+            ("+ Good restarts", "Good on restarts"),
+            ("+ Unpredictable", "Unpredictable lines / braking"),
+        ]
+        for i, (label, text) in enumerate(template_list):
+            btn = QPushButton(label)
+            btn.setObjectName("chipBtn")
+            btn.setToolTip("Append to notes")
+            btn.setMinimumHeight(32)
+            btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            btn.clicked.connect(lambda _=False, t=text: self._append_note_template(t))
+            templates_grid.addWidget(btn, i // 2, i % 2)
+        for r in range((len(template_list) + 1) // 2):
+            templates_grid.setRowMinimumHeight(r, 40)
+        templates_grid.setColumnStretch(0, 1)
+        templates_grid.setColumnStretch(1, 1)
+        notes_layout.addLayout(templates_grid)
+
         right_layout.addWidget(notes_group, stretch=1)
 
         pref_group = QGroupBox("How was racing with them?")
@@ -1175,9 +1213,11 @@ class RaceBookApp(QMainWindow):
             self.table.clearContents()
             self.table.setRowCount(len(rows))
             for row_idx, row_data in enumerate(rows):
-                display_row, cust_id, pref = self._build_display_row(row_data)
-                self._render_table_row(row_idx, display_row, cust_id, pref)
+                display_row, cust_id, pref, risky, risky_tip = self._build_display_row(row_data)
+                self._render_table_row(row_idx, display_row, cust_id, pref, risky=risky)
                 self._apply_preference_row_style(row_idx, len(display_row), pref)
+                if pref is None and risky:
+                    self._apply_risky_row_style(row_idx, len(display_row), risky_tip)
         finally:
             self.table.setUpdatesEnabled(True)
 
@@ -1185,17 +1225,21 @@ class RaceBookApp(QMainWindow):
             self.table.setSortingEnabled(True)
         self.table.sortByColumn(COL_NAME, Qt.SortOrder.AscendingOrder)
         self.table.horizontalHeader().setSortIndicator(COL_NAME, Qt.SortOrder.AscendingOrder)
-        self.table.resizeColumnsToContents()
+        # resizeColumnsToContents() is extremely expensive with many rows and can freeze the UI.
+        # Header resize modes handle most sizing; do a single resize pass only on first draw.
+        if not self._did_initial_column_resize:
+            self.table.resizeColumnsToContents()
+            self._did_initial_column_resize = True
         self.table.setColumnWidth(COL_NAME, max(self.table.columnWidth(COL_NAME), 180))
         self.table.setColumnWidth(COL_SERIES, max(self.table.columnWidth(COL_SERIES), 160))
         self.apply_driver_filters()
 
     def _fetch_table_data(self) -> list[tuple]:
         cursor = self._db_conn.cursor()
-        cursor.execute(_TABLE_DATA_SQL)
+        cursor.execute(_table_data_sql())
         return cursor.fetchall()
 
-    def _build_display_row(self, row_data: tuple) -> tuple[list, int, int | None]:
+    def _build_display_row(self, row_data: tuple) -> tuple[list, int, int | None, bool, str]:
         (
             name,
             avg_inc,
@@ -1219,6 +1263,51 @@ class RaceBookApp(QMainWindow):
         pref = _sqlite_row_to_int(race_preference)
         breakdown = _format_dnf_breakdown(disc, eject, quit_, dq, other) or "—"
         has_note = bool(has_notes)
+
+        # Risk scoring (simple heuristics; tuned to be conservative)
+        score = 0
+        reasons: list[str] = []
+
+        try:
+            inc_val = float(avg_inc) if avg_inc is not None else None
+        except Exception:
+            inc_val = None
+        try:
+            races_val = int(total_races) if total_races is not None else 0
+        except Exception:
+            races_val = 0
+        try:
+            dnf_val = int(dnf_total) if dnf_total is not None else 0
+        except Exception:
+            dnf_val = 0
+        try:
+            pos_val = float(avg_pos_delta) if avg_pos_delta is not None else None
+        except Exception:
+            pos_val = None
+
+        if inc_val is not None and inc_val >= 6.0 and races_val >= 3:
+            score += 2
+            reasons.append(f"high incidents ({inc_val:.1f})")
+        elif inc_val is not None and inc_val >= 4.5 and races_val >= 5:
+            score += 1
+            reasons.append(f"incidents ({inc_val:.1f})")
+
+        dnf_rate = (dnf_val / races_val) if races_val > 0 else 0.0
+        if races_val >= 5 and dnf_rate >= 0.25:
+            score += 2
+            reasons.append(f"DNFs ({dnf_val}/{races_val})")
+        elif races_val >= 8 and dnf_rate >= 0.15:
+            score += 1
+            reasons.append(f"DNFs ({dnf_val}/{races_val})")
+
+        if pos_val is not None and pos_val <= -3.0 and races_val >= 3:
+            score += 1
+            reasons.append(f"negative +/- pos ({pos_val:.1f})")
+
+        risky = score >= 3
+        risky_tooltip = ""
+        if risky:
+            risky_tooltip = "Risky driver: " + ", ".join(reasons) if reasons else "Risky driver"
         return (
             [
                 name,
@@ -1236,6 +1325,8 @@ class RaceBookApp(QMainWindow):
             ],
             cid,
             pref,
+            risky,
+            risky_tooltip,
         )
 
     def _make_table_item(self, value) -> QTableWidgetItem:
@@ -1259,7 +1350,12 @@ class RaceBookApp(QMainWindow):
         return item
 
     def _render_table_row(
-        self, row_idx: int, display_row: list, cust_id: int, pref: int | None = None
+        self,
+        row_idx: int,
+        display_row: list,
+        cust_id: int,
+        pref: int | None = None,
+        risky: bool = False,
     ) -> None:
         for col_idx, value in enumerate(display_row):
             if col_idx == COL_NOTE:
@@ -1269,6 +1365,7 @@ class RaceBookApp(QMainWindow):
             if col_idx == COL_NAME:
                 item.setData(Qt.ItemDataRole.UserRole, cust_id)
                 item.setData(PREF_DATA_ROLE, pref)
+                item.setData(RISK_DATA_ROLE, 1 if risky else 0)
             self.table.setItem(row_idx, col_idx, item)
 
     def _apply_preference_row_style(self, row_idx: int, col_count: int, pref: int | None) -> None:
@@ -1284,6 +1381,16 @@ class RaceBookApp(QMainWindow):
             if it is not None:
                 it.setBackground(bg)
                 it.setForeground(ROW_FG_FOR_HIGHLIGHT)
+
+    def _apply_risky_row_style(self, row_idx: int, col_count: int, tooltip: str) -> None:
+        for col_idx in range(col_count):
+            it = self.table.item(row_idx, col_idx)
+            if it is None:
+                continue
+            it.setBackground(ROW_BG_RISKY)
+            if tooltip:
+                existing = it.toolTip() or ""
+                it.setToolTip(tooltip if not existing else f"{existing}\n\n{tooltip}")
 
     def on_driver_selected(self):
         selected_ranges = self.table.selectedRanges()
@@ -1364,6 +1471,19 @@ class RaceBookApp(QMainWindow):
                 continue
             item.setData(Qt.ItemDataRole.BackgroundRole, None)
             item.setData(Qt.ItemDataRole.ForegroundRole, None)
+
+    def _append_note_template(self, text: str) -> None:
+        existing = self.notes_edit.toPlainText()
+        addition = text.strip()
+        if not addition:
+            return
+        if existing.strip():
+            new_text = existing.rstrip() + "\n" + addition
+        else:
+            new_text = addition
+        self.notes_edit.setPlainText(new_text)
+        self.notes_edit.moveCursor(QTextCursor.MoveOperation.End)
+        self.notes_edit.setFocus()
 
     def save_driver_notes(self):
         if not self.selected_cust_id:

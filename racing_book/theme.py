@@ -114,6 +114,25 @@ QPushButton:hover {
     border-color: #4d5868;
 }
 
+/* "Chip" buttons used for tags/templates */
+QPushButton#chipBtn {
+    padding: 2px 8px;
+    min-height: 26px;
+    border-radius: 14px;
+    background-color: #2a3038;
+    border: 1px solid #424b5a;
+    font-weight: 600;
+}
+
+QPushButton#chipBtn:hover {
+    background-color: #353d4a;
+    border-color: #556377;
+}
+
+QPushButton#chipBtn:pressed {
+    background-color: #252b34;
+}
+
 QPushButton:pressed {
     background-color: #252b34;
 }
@@ -248,9 +267,10 @@ QTableWidget#driverTable::item {
     padding: 8px 10px;
 }
 
-/* Row hover is applied in code across the full row; disable per-cell hover */
-QTableWidget#driverTable::item:hover {
-    background-color: transparent;
+/* Row hover is applied in code across the full row */
+QTableWidget::item:focus,
+QTableView::item:focus {
+    outline: none;
 }
 
 QTableWidget::item:selected {
