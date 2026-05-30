@@ -400,6 +400,156 @@ QScrollBar::right-arrow:horizontal {
     height: 10px;
     background: transparent;
 }
+
+/* --- Live Mode --- */
+QWidget#liveSessionRoot {
+    background-color: #080a0c;
+}
+
+QFrame#liveSessionHeader {
+    background-color: #0f1218;
+    border-bottom: 1px solid #2a3038;
+}
+
+QLabel#liveSessionTitle {
+    font-size: 22px;
+    font-weight: 800;
+    color: #ffffff;
+}
+
+QLabel#liveSessionMeta {
+    font-size: 14px;
+    color: #9aa3b2;
+    padding-left: 12px;
+}
+
+QLabel#liveOfflineHint {
+    font-size: 16px;
+    color: #9aa3b2;
+    padding: 48px 32px;
+}
+
+QScrollArea#liveSessionScroll {
+    background: transparent;
+    border: none;
+}
+
+QWidget#liveCardsContainer {
+    background: transparent;
+}
+
+QFrame#liveDriverCard {
+    background-color: #12161c;
+    border: 1px solid #2a3038;
+    border-radius: 10px;
+}
+
+QFrame#liveDriverCard[risk="high"] {
+    border-left: 5px solid #f5c26b;
+    background-color: #1a1408;
+}
+
+QFrame#liveDriverCard[risk="moderate"] {
+    border-left: 5px solid #c9a227;
+}
+
+QFrame#liveDriverCard[pref="like"] {
+    background-color: #0f1a14;
+    border-color: #2d5a3d;
+}
+
+QFrame#liveDriverCard[pref="dislike"] {
+    background-color: #1a0f0f;
+    border-color: #5a2d2d;
+}
+
+QLabel#liveDriverName {
+    font-size: 26px;
+    font-weight: 800;
+    color: #ffffff;
+}
+
+QLabel#liveVerdict {
+    font-size: 15px;
+    font-weight: 600;
+    color: #f5c26b;
+}
+
+QLabel#liveStatTitle {
+    font-size: 11px;
+    font-weight: 600;
+    color: #7a8494;
+    text-transform: uppercase;
+}
+
+QLabel#liveStatValue {
+    font-size: 20px;
+    font-weight: 700;
+    color: #e8eaed;
+}
+
+QLabel#liveScoreValue {
+    font-size: 32px;
+    font-weight: 800;
+    color: #ffffff;
+    min-width: 56px;
+}
+
+QLabel#liveTierLabel {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+}
+
+QPushButton#liveModeBtn[active="true"] {
+    background-color: #3d3420;
+    border-color: #c9a227;
+    color: #f5c26b;
+    font-weight: 700;
+}
+
+/* --- Safety Index panel --- */
+QLabel#safetyScoreValue {
+    font-size: 28px;
+    font-weight: 800;
+    color: #ffffff;
+}
+
+QLabel#safetyTierBadge {
+    font-size: 13px;
+    font-weight: 700;
+}
+
+QLabel#safetyProfile {
+    font-size: 14px;
+    font-weight: 600;
+    color: #f5c26b;
+    padding: 2px 0 4px 0;
+}
+
+QLabel#safetyComponentLabel {
+    font-size: 12px;
+    font-weight: 600;
+    color: #9aa3b2;
+    min-width: 72px;
+}
+
+QLabel#safetyComponentValue {
+    font-size: 11px;
+    color: #b8c0cc;
+    min-width: 100px;
+}
+
+QProgressBar#safetyComponentBar {
+    border: 1px solid #3d4654;
+    border-radius: 3px;
+    background: #1a1e24;
+}
+
+QProgressBar#safetyComponentBar::chunk {
+    background-color: #4a8af4;
+    border-radius: 2px;
+}
 """
 
 STATUS_CONNECTED = "connected"

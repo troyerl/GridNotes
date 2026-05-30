@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSplitter,
+    QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
@@ -32,6 +33,9 @@ from PyQt6.QtWidgets import (
 
 from .db import connect_db, get_setting, init_db, set_setting
 from .iracing_worker import IRacingWorker
+from .live_session import LiveSessionView
+from .safety_index import compute_safety_index, safety_tooltip
+from .safety_widgets import SafetyIndexPanel
 from .theme import (
     STATUS_CONNECTED,
     STATUS_OFFLINE,
@@ -575,8 +579,11 @@ class RaceBookApp(QMainWindow):
         self.selected_cust_id = None
         self.worker = None
         self.active_cust_ids: set[int] = set()
+        self.active_driver_names: dict[int, str] = {}
         self._hover_row: int | None = None
         self._did_initial_column_resize = False
+        self._live_mode_active = get_setting("live_mode", "0") == "1"
+        self._sdk_connected = False
 
         init_db()
         self._db_conn = connect_db()
@@ -712,6 +719,108 @@ class RaceBookApp(QMainWindow):
         if not active:
             self.chk_current_race_only.setChecked(False)
 
+    def _toggle_live_mode(self) -> None:
+        self._set_live_mode(self.btn_live_mode.isChecked())
+
+    def _set_live_mode(self, active: bool, *, persist: bool = True) -> None:
+        self._live_mode_active = active
+        if hasattr(self, "btn_live_mode"):
+            self.btn_live_mode.blockSignals(True)
+            self.btn_live_mode.setChecked(active)
+            self.btn_live_mode.blockSignals(False)
+            self._polish_property(self.btn_live_mode, "active", active)
+        if hasattr(self, "view_stack"):
+            self.view_stack.setCurrentIndex(1 if active else 0)
+        if persist:
+            set_setting("live_mode", "1" if active else "0")
+        if active:
+            self._refresh_live_session_view()
+
+    def _build_live_session_entries(self) -> list[dict]:
+        if not self.active_cust_ids:
+            return []
+
+        db_by_id: dict[int, dict] = {}
+        for row_data in self._fetch_table_data():
+            (
+                name,
+                avg_inc,
+                _avg_fin,
+                total_races,
+                last_ir,
+                last_sr,
+                _last_series,
+                avg_pos_delta,
+                cust_id,
+                race_preference,
+                dnf_total,
+                _disc,
+                _eject,
+                _quit,
+                _dq,
+                _other,
+                has_notes,
+            ) = row_data
+            cid = int(cust_id)
+            db_by_id[cid] = {
+                "cust_id": cid,
+                "name": name,
+                "avg_inc": avg_inc,
+                "total_races": total_races,
+                "dnf_total": dnf_total,
+                "avg_pos_delta": avg_pos_delta,
+                "last_sr": last_sr,
+                "last_ir": last_ir,
+                "has_note": bool(has_notes),
+                "pref": _sqlite_row_to_int(race_preference),
+            }
+
+        entries: list[dict] = []
+        for cid in self.active_cust_ids:
+            if cid in db_by_id:
+                entry = dict(db_by_id[cid])
+            else:
+                entry = {
+                    "cust_id": cid,
+                    "name": self.active_driver_names.get(cid, f"Driver {cid}"),
+                    "avg_inc": None,
+                    "total_races": 0,
+                    "dnf_total": 0,
+                    "avg_pos_delta": None,
+                    "last_sr": None,
+                    "last_ir": None,
+                    "has_note": False,
+                    "pref": None,
+                }
+            safety = compute_safety_index(
+                avg_inc=entry.get("avg_inc"),
+                total_races=entry.get("total_races"),
+                dnf_total=entry.get("dnf_total"),
+                avg_pos_delta=entry.get("avg_pos_delta"),
+            )
+            entry["_sort_score"] = safety.score if safety.tier != "unknown" else -1
+            entries.append(entry)
+
+        entries.sort(key=lambda e: (-e["_sort_score"], e.get("name") or ""))
+        return entries
+
+    def _refresh_live_session_view(self) -> None:
+        if not hasattr(self, "live_session_view"):
+            return
+        connected = self._sdk_connected
+        driver_count = len(self.active_cust_ids)
+        self.live_session_view.set_session_info(
+            connected=connected,
+            subsession_id=self.current_subsession_id,
+            driver_count=driver_count,
+        )
+        if connected:
+            self.live_session_view.rebuild(self._build_live_session_entries())
+
+    def _on_live_driver_clicked(self, cust_id: int) -> None:
+        self._set_live_mode(False)
+        self._select_driver_row_by_cust_id(cust_id)
+
     def _set_detail_field(self, key: str, value) -> None:
         label = self._detail_fields.get(key)
         if label is None:
@@ -727,6 +836,15 @@ class RaceBookApp(QMainWindow):
         self.driver_meta_label.clear()
         for label in self._detail_fields.values():
             label.setText("—")
+        if hasattr(self, "safety_index_panel"):
+            self.safety_index_panel.update_safety(
+                compute_safety_index(
+                    avg_inc=None,
+                    total_races=0,
+                    dnf_total=0,
+                    avg_pos_delta=None,
+                )
+            )
 
     def _fetch_driver_detail_row(self, cust_id: int) -> tuple | None:
         cursor = self._db_conn.cursor()
@@ -774,6 +892,14 @@ class RaceBookApp(QMainWindow):
         self._set_detail_field("dnfs", dnf_total)
         self._set_detail_field("dnf_breakdown", breakdown if breakdown else None)
 
+        safety = compute_safety_index(
+            avg_inc=avg_inc,
+            total_races=total_races,
+            dnf_total=dnf_total,
+            avg_pos_delta=avg_pos_delta,
+        )
+        self.safety_index_panel.update_safety(safety)
+
     def _set_driver_panel_enabled(self, enabled: bool) -> None:
         self.empty_state_label.setVisible(not enabled)
         self.driver_detail_scroll.setVisible(enabled)
@@ -804,11 +930,27 @@ class RaceBookApp(QMainWindow):
         self.status_label = QLabel("Waiting for iRacing…")
         self.status_label.setObjectName("statusBadge")
         self._set_status(STATUS_WAITING, "Waiting for iRacing…")
+        self.btn_live_mode = QPushButton("Live Mode")
+        self.btn_live_mode.setObjectName("liveModeBtn")
+        self.btn_live_mode.setCheckable(True)
+        self.btn_live_mode.setToolTip(
+            "Switch to high-contrast live session view (large fonts for in-race scouting)"
+        )
+        self.btn_live_mode.clicked.connect(self._toggle_live_mode)
+        header.addWidget(self.btn_live_mode, alignment=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         header.addWidget(self.status_label, alignment=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         root_layout.addLayout(header)
 
+        self.view_stack = QStackedWidget()
+        root_layout.addWidget(self.view_stack, stretch=1)
+
+        database_panel = QWidget()
+        database_layout = QVBoxLayout(database_panel)
+        database_layout.setContentsMargins(0, 0, 0, 0)
+        database_layout.setSpacing(0)
+
         main_splitter = QSplitter(Qt.Orientation.Horizontal)
-        root_layout.addWidget(main_splitter, stretch=1)
+        database_layout.addWidget(main_splitter)
 
         # --- Left: drivers ---
         left_panel = QFrame()
@@ -947,6 +1089,9 @@ class RaceBookApp(QMainWindow):
         self.driver_meta_label.setWordWrap(True)
         detail_layout.addWidget(self.driver_meta_label)
 
+        self.safety_index_panel = SafetyIndexPanel()
+        detail_layout.addWidget(self.safety_index_panel)
+
         series_title = QLabel("Series")
         series_title.setObjectName("statLabel")
         detail_layout.addWidget(series_title)
@@ -1072,6 +1217,14 @@ class RaceBookApp(QMainWindow):
         main_splitter.setStretchFactor(1, 2)
         main_splitter.setSizes([1000, 340])
 
+        self.view_stack.addWidget(database_panel)
+
+        self.live_session_view = LiveSessionView()
+        self.live_session_view.driver_clicked.connect(self._on_live_driver_clicked)
+        self.view_stack.addWidget(self.live_session_view)
+
+        self._set_live_mode(self._live_mode_active, persist=False)
+
         self._update_live_session_filter(active=False, hint=MSG_SESSION_NOT_CONNECTED)
         self._set_driver_panel_enabled(False)
         self.refresh_ui_table()
@@ -1140,6 +1293,7 @@ class RaceBookApp(QMainWindow):
         self.current_subsession_id = 0
         self.selected_cust_id = None
         self.active_cust_ids = set()
+        self.active_driver_names = {}
         self._update_live_session_filter(active=False, hint=MSG_SESSION_NOT_CONNECTED)
         self.notes_edit.clear()
         self._clear_driver_details()
@@ -1169,19 +1323,23 @@ class RaceBookApp(QMainWindow):
         self._update_live_session_filter(active=False, hint=MSG_SESSION_NOT_CONNECTED)
 
     def handle_sdk_connection(self, connected: bool, subsession_id: int) -> None:
+        self._sdk_connected = connected
         if connected:
             label = f"Live — session #{subsession_id}" if subsession_id else "Live — connected to iRacing"
             self._set_status(STATUS_CONNECTED, label)
             self._update_live_session_filter(active=True, hint="")
             self.current_subsession_id = subsession_id
+            self._refresh_live_session_view()
             return
 
         self.current_subsession_id = 0
         self.active_cust_ids = set()
+        self.active_driver_names = {}
         self._set_status(STATUS_WAITING, "Waiting for iRacing…")
         self._update_live_session_filter(active=False, hint=MSG_SESSION_NOT_CONNECTED)
         if hasattr(self, "chk_current_race_only"):
             self.chk_current_race_only.setChecked(False)
+        self._refresh_live_session_view()
 
     def handle_sdk_update(self, active_drivers, subsession_id):
         self.current_subsession_id = subsession_id
@@ -1198,7 +1356,13 @@ class RaceBookApp(QMainWindow):
             for d in active_drivers
             if d.get("cust_id") is not None
         }
+        self.active_driver_names = {
+            int(d["cust_id"]): str(d.get("name") or f"Driver {d['cust_id']}")
+            for d in active_drivers
+            if d.get("cust_id") is not None
+        }
         self.apply_driver_filters()
+        self._refresh_live_session_view()
 
     def refresh_ui_table(self):
         rows = self._fetch_table_data()
@@ -1233,6 +1397,7 @@ class RaceBookApp(QMainWindow):
         self.table.setColumnWidth(COL_NAME, max(self.table.columnWidth(COL_NAME), 180))
         self.table.setColumnWidth(COL_SERIES, max(self.table.columnWidth(COL_SERIES), 160))
         self.apply_driver_filters()
+        self._refresh_live_session_view()
 
     def _fetch_table_data(self) -> list[tuple]:
         cursor = self._db_conn.cursor()
@@ -1264,50 +1429,14 @@ class RaceBookApp(QMainWindow):
         breakdown = _format_dnf_breakdown(disc, eject, quit_, dq, other) or "—"
         has_note = bool(has_notes)
 
-        # Risk scoring (simple heuristics; tuned to be conservative)
-        score = 0
-        reasons: list[str] = []
-
-        try:
-            inc_val = float(avg_inc) if avg_inc is not None else None
-        except Exception:
-            inc_val = None
-        try:
-            races_val = int(total_races) if total_races is not None else 0
-        except Exception:
-            races_val = 0
-        try:
-            dnf_val = int(dnf_total) if dnf_total is not None else 0
-        except Exception:
-            dnf_val = 0
-        try:
-            pos_val = float(avg_pos_delta) if avg_pos_delta is not None else None
-        except Exception:
-            pos_val = None
-
-        if inc_val is not None and inc_val >= 6.0 and races_val >= 3:
-            score += 2
-            reasons.append(f"high incidents ({inc_val:.1f})")
-        elif inc_val is not None and inc_val >= 4.5 and races_val >= 5:
-            score += 1
-            reasons.append(f"incidents ({inc_val:.1f})")
-
-        dnf_rate = (dnf_val / races_val) if races_val > 0 else 0.0
-        if races_val >= 5 and dnf_rate >= 0.25:
-            score += 2
-            reasons.append(f"DNFs ({dnf_val}/{races_val})")
-        elif races_val >= 8 and dnf_rate >= 0.15:
-            score += 1
-            reasons.append(f"DNFs ({dnf_val}/{races_val})")
-
-        if pos_val is not None and pos_val <= -3.0 and races_val >= 3:
-            score += 1
-            reasons.append(f"negative +/- pos ({pos_val:.1f})")
-
-        risky = score >= 3
-        risky_tooltip = ""
-        if risky:
-            risky_tooltip = "Risky driver: " + ", ".join(reasons) if reasons else "Risky driver"
+        safety = compute_safety_index(
+            avg_inc=avg_inc,
+            total_races=total_races,
+            dnf_total=dnf_total,
+            avg_pos_delta=avg_pos_delta,
+        )
+        risky = safety.risky
+        risky_tooltip = safety_tooltip(safety) if risky else ""
         return (
             [
                 name,

@@ -1,0 +1,174 @@
+"""Safety Index breakdown widgets for the driver details panel."""
+
+from __future__ import annotations
+
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import (
+    QFrame,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QProgressBar,
+    QVBoxLayout,
+    QWidget,
+)
+
+from .safety_index import MIN_RACES_FOR_SCORE, SafetyIndex
+
+
+def _bar_color(tier: str) -> str:
+    if tier == "low":
+        return "#4a9a62"
+    if tier == "moderate":
+        return "#c9a227"
+    return "#c45c5c"
+
+
+def _tier_label(tier: str) -> str:
+    return {
+        "low": "LOW",
+        "moderate": "MODERATE",
+        "high": "HIGH",
+        "unknown": "—",
+    }.get(tier, "—")
+
+
+class SafetyIndexPanel(QGroupBox):
+    """Visual breakdown of Grid Safety Index in the details panel."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__("Grid Safety Index", parent)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(8)
+
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        header.setSpacing(8)
+        self.score_label = QLabel("—")
+        self.score_label.setObjectName("safetyScoreValue")
+        self.tier_label = QLabel("")
+        self.tier_label.setObjectName("safetyTierBadge")
+        header.addWidget(self.score_label)
+        header.addWidget(self.tier_label)
+        header.addStretch()
+        layout.addLayout(header)
+
+        self.overall_bar = QProgressBar()
+        self.overall_bar.setObjectName("safetyOverallBar")
+        self.overall_bar.setRange(0, 100)
+        self.overall_bar.setTextVisible(True)
+        self.overall_bar.setFormat("%v / 100")
+        self.overall_bar.setFixedHeight(22)
+        layout.addWidget(self.overall_bar)
+
+        self.profile_label = QLabel("—")
+        self.profile_label.setObjectName("safetyProfile")
+        self.profile_label.setWordWrap(True)
+        layout.addWidget(self.profile_label)
+
+        components = QFrame()
+        components.setObjectName("safetyComponents")
+        grid = QGridLayout(components)
+        grid.setContentsMargins(0, 6, 0, 0)
+        grid.setHorizontalSpacing(10)
+        grid.setVerticalSpacing(6)
+
+        self._component_bars: dict[str, QProgressBar] = {}
+        self._component_values: dict[str, QLabel] = {}
+
+        for row, (key, title) in enumerate(
+            [
+                ("incidents", "Incidents"),
+                ("dnf", "DNF rate"),
+                ("pos", "Pos loss"),
+            ]
+        ):
+            name_lbl = QLabel(title)
+            name_lbl.setObjectName("safetyComponentLabel")
+            grid.addWidget(name_lbl, row, 0)
+
+            bar = QProgressBar()
+            bar.setObjectName("safetyComponentBar")
+            bar.setRange(0, 100)
+            bar.setTextVisible(False)
+            bar.setFixedHeight(14)
+            grid.addWidget(bar, row, 1)
+
+            val_lbl = QLabel("—")
+            val_lbl.setObjectName("safetyComponentValue")
+            val_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            grid.addWidget(val_lbl, row, 2)
+
+            self._component_bars[key] = bar
+            self._component_values[key] = val_lbl
+
+        grid.setColumnStretch(1, 1)
+        layout.addWidget(components)
+
+        self.reasons_label = QLabel("")
+        self.reasons_label.setObjectName("sectionHint")
+        self.reasons_label.setWordWrap(True)
+        layout.addWidget(self.reasons_label)
+
+    def update_safety(self, safety: SafetyIndex) -> None:
+        color = _bar_color(safety.tier)
+
+        if safety.tier == "unknown":
+            self.score_label.setText("—")
+            self.tier_label.setText("")
+            self.overall_bar.setValue(0)
+            self.overall_bar.setFormat(f"Need {MIN_RACES_FOR_SCORE}+ races")
+            self.profile_label.setText(safety.profile)
+            for bar in self._component_bars.values():
+                bar.setValue(0)
+            self._component_values["incidents"].setText("—")
+            self._component_values["dnf"].setText("—")
+            self._component_values["pos"].setText("—")
+            self.reasons_label.setText("")
+            return
+
+        self.score_label.setText(f"{safety.score:.0f}")
+        self.score_label.setStyleSheet(f"color: {color};")
+        self.tier_label.setText(_tier_label(safety.tier))
+        self.tier_label.setStyleSheet(
+            f"color: {color}; font-weight: 700; padding-left: 8px;"
+        )
+
+        self.overall_bar.setValue(int(round(safety.score)))
+        self.overall_bar.setFormat("%v / 100")
+        chunk = (
+            f"QProgressBar#safetyOverallBar::chunk {{ background-color: {color}; border-radius: 4px; }}"
+        )
+        self.overall_bar.setStyleSheet(
+            f"QProgressBar#safetyOverallBar {{ border: 1px solid #3d4654; border-radius: 4px; "
+            f"background: #1a1e24; text-align: center; color: #e8eaed; }} {chunk}"
+        )
+
+        self.profile_label.setText(safety.profile)
+
+        inc_pct = int(round(safety.incidents_norm * 100))
+        dnf_pct = int(round(safety.dnf_norm * 100))
+        pos_pct = int(round(safety.pos_norm * 100))
+
+        self._component_bars["incidents"].setValue(inc_pct)
+        self._component_bars["dnf"].setValue(dnf_pct)
+        self._component_bars["pos"].setValue(pos_pct)
+
+        inc_text = f"{safety.avg_inc:.1f}/race" if safety.avg_inc is not None else "—"
+        self._component_values["incidents"].setText(f"{inc_text} ({inc_pct}%)")
+
+        dnf_text = f"{safety.dnf_rate * 100:.0f}%"
+        self._component_values["dnf"].setText(f"{dnf_text} ({dnf_pct}%)")
+
+        if safety.avg_pos_delta is not None:
+            pos_text = f"{safety.avg_pos_delta:+.1f}"
+        else:
+            pos_text = "—"
+        self._component_values["pos"].setText(f"{pos_text} ({pos_pct}%)")
+
+        if safety.reasons:
+            self.reasons_label.setText(" · ".join(safety.reasons))
+        else:
+            self.reasons_label.setText("No major risk factors")
