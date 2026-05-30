@@ -2,7 +2,7 @@ import json
 import logging
 
 from PyQt6.QtCore import QEvent, Qt
-from PyQt6.QtGui import QColor, QFont, QTextCursor
+from PyQt6.QtGui import QFont, QTextCursor
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QFileDialog,
@@ -42,11 +42,12 @@ from .driver_table import (
     PREF_DATA_ROLE,
     RESIZE_TO_CONTENTS_COLUMNS,
     RISK_DATA_ROLE,
+    configure_driver_table_widget,
     make_note_item,
     make_safety_item,
     make_table_item,
-    configure_driver_table_widget,
-    reapply_safety_cell_style,
+    refresh_driver_table_row,
+    set_driver_table_hover_row,
 )
 from .iracing_worker import IRacingWorker
 from .iracing_import import import_race_entries, parse_races_from_json, sync_live_session_drivers
@@ -67,12 +68,6 @@ from .ui_widgets import WrappingLabel
 from .utils import display_val, sqlite_row_to_int
 
 logger = logging.getLogger(__name__)
-
-ROW_BG_LIKED = QColor(42, 72, 52)
-ROW_BG_DISLIKED = QColor(72, 42, 42)
-ROW_BG_HOVER = QColor(45, 52, 64)
-ROW_BG_RISKY = QColor(72, 62, 32)
-ROW_FG_FOR_HIGHLIGHT = QColor(232, 234, 237)
 
 MSG_SESSION_NOT_CONNECTED = (
     "Not connected to iRacing yet — start iRacing and join a session to enable."
@@ -177,31 +172,20 @@ class RaceBookApp(QMainWindow):
         return sqlite_row_to_int(name_item.data(PREF_DATA_ROLE))
 
     def _restore_row_background(self, row_idx: int) -> None:
-        pref = self._pref_for_row(row_idx)
-        if pref in (1, -1):
-            self._apply_preference_row_style(row_idx, self.table.columnCount(), pref)
-            return
-
-        self._clear_row_style(row_idx)
-        name_item = self.table.item(row_idx, COL_NAME)
-        risky = bool(name_item.data(RISK_DATA_ROLE)) if name_item is not None else False
-        if risky:
-            self._apply_risky_row_style(row_idx, self.table.columnCount(), "")
-        reapply_safety_cell_style(self.table, row_idx)
+        refresh_driver_table_row(self.table, row_idx)
 
     def _apply_row_hover(self, row_idx: int) -> None:
         selected = self.table.selectionModel().selectedRows()
         if selected and selected[0].row() == row_idx:
             return
-        for col_idx in range(self.table.columnCount()):
-            item = self.table.item(row_idx, col_idx)
-            if item is not None:
-                item.setBackground(ROW_BG_HOVER)
+        if self._pref_for_row(row_idx) in (1, -1):
+            return
+        set_driver_table_hover_row(self.table, row_idx)
 
     def _clear_table_row_hover(self) -> None:
         if self._hover_row is None:
             return
-        self._restore_row_background(self._hover_row)
+        set_driver_table_hover_row(self.table, None)
         self._hover_row = None
 
     def _on_table_row_entered(self, index) -> None:
@@ -449,6 +433,7 @@ class RaceBookApp(QMainWindow):
         self.table.verticalHeader().setVisible(False)
         self.table.setToolTip("Click a row to open scouting notes")
         self.table.itemSelectionChanged.connect(self.on_driver_selected)
+        self.table.itemSelectionChanged.connect(lambda: self.table.viewport().update())
         self._configure_driver_table()
         left_layout.addWidget(self.table, stretch=1)
 
@@ -807,11 +792,11 @@ class RaceBookApp(QMainWindow):
             for row_idx, row_data in enumerate(rows):
                 display_row, cust_id, pref, risky, risky_tip, safety = self._build_display_row(row_data)
                 self._render_table_row(row_idx, display_row, cust_id, pref, risky=risky, safety=safety)
-                self._apply_preference_row_style(row_idx, len(display_row), pref)
-                if pref is None and risky:
-                    self._apply_risky_row_style(row_idx, len(display_row), risky_tip)
+                if risky:
+                    self._apply_risky_row_style(row_idx, risky_tip)
         finally:
             self.table.setUpdatesEnabled(True)
+            self.table.viewport().update()
 
         if was_sorting:
             self.table.setSortingEnabled(True)
@@ -882,35 +867,15 @@ class RaceBookApp(QMainWindow):
                 item.setData(RISK_DATA_ROLE, 1 if risky else 0)
             self.table.setItem(row_idx, col_idx, item)
 
-    def _apply_preference_row_style(self, row_idx: int, col_count: int, pref: int | None) -> None:
-        if pref == 1:
-            bg = ROW_BG_LIKED
-        elif pref == -1:
-            bg = ROW_BG_DISLIKED
-        else:
+    def _apply_risky_row_style(self, row_idx: int, tooltip: str) -> None:
+        if not tooltip:
             return
-
-        for col_idx in range(col_count):
-            if col_idx == COL_SAFETY:
-                continue
-            it = self.table.item(row_idx, col_idx)
-            if it is not None:
-                it.setBackground(bg)
-                it.setForeground(ROW_FG_FOR_HIGHLIGHT)
-        reapply_safety_cell_style(self.table, row_idx)
-
-    def _apply_risky_row_style(self, row_idx: int, col_count: int, tooltip: str) -> None:
-        for col_idx in range(col_count):
-            if col_idx == COL_SAFETY:
-                continue
+        for col_idx in range(self.table.columnCount()):
             it = self.table.item(row_idx, col_idx)
             if it is None:
                 continue
-            it.setBackground(ROW_BG_RISKY)
-            if tooltip:
-                existing = it.toolTip() or ""
-                it.setToolTip(tooltip if not existing else f"{existing}\n\n{tooltip}")
-        reapply_safety_cell_style(self.table, row_idx)
+            existing = it.toolTip() or ""
+            it.setToolTip(tooltip if not existing else f"{existing}\n\n{tooltip}")
 
     def on_driver_selected(self):
         selected_ranges = self.table.selectedRanges()
@@ -985,12 +950,7 @@ class RaceBookApp(QMainWindow):
         self.table.setItem(row_idx, COL_NOTE, make_note_item(has_note))
 
     def _clear_row_style(self, row_idx: int) -> None:
-        for col_idx in range(self.table.columnCount()):
-            item = self.table.item(row_idx, col_idx)
-            if item is None:
-                continue
-            item.setData(Qt.ItemDataRole.BackgroundRole, None)
-            item.setData(Qt.ItemDataRole.ForegroundRole, None)
+        refresh_driver_table_row(self.table, row_idx)
 
     def _append_note_template(self, text: str) -> None:
         existing = self.notes_edit.toPlainText()
@@ -1041,10 +1001,7 @@ class RaceBookApp(QMainWindow):
             name_item = self.table.item(row_idx, COL_NAME)
             if name_item is not None:
                 name_item.setData(PREF_DATA_ROLE, pref)
-            if pref is None:
-                self._restore_row_background(row_idx)
-            else:
-                self._apply_preference_row_style(row_idx, self.table.columnCount(), pref)
+            refresh_driver_table_row(self.table, row_idx)
 
     def import_json_data(self):
         file_paths, _ = QFileDialog.getOpenFileNames(

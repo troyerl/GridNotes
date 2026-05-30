@@ -253,7 +253,6 @@ QScrollArea#driverDetailScroll > QWidget > QWidget {
 QTableWidget#driverTable {
     font-size: 14px;
     background-color: #1a1e24;
-    alternate-background-color: #1e232b;
     color: #e8eaed;
     border: 1px solid #3d4654;
     border-radius: 6px;
@@ -285,8 +284,6 @@ QTableView::item:selected:focus {
 }
 
 QTableWidget::item:selected {
-    background-color: #2d4a7a;
-    color: #ffffff;
     border: none;
 }
 

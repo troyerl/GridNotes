@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QBrush, QColor
 from PyQt6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem, QTableWidget, QTableWidgetItem
 
 from .safety_index import (
@@ -12,6 +12,7 @@ from .safety_index import (
     tier_qcolor,
     unknown_history_message,
 )
+from .utils import sqlite_row_to_int
 
 PREF_DATA_ROLE = Qt.ItemDataRole.UserRole + 1
 RISK_DATA_ROLE = Qt.ItemDataRole.UserRole + 2
@@ -63,24 +64,118 @@ RESIZE_TO_CONTENTS_COLUMNS = (
     COL_DNF_BREAKDOWN,
 )
 
+ROW_BG_LIKED = QColor(42, 72, 52)
+ROW_BG_DISLIKED = QColor(72, 42, 42)
+ROW_BG_HOVER = QColor(45, 52, 64)
+ROW_BG_RISKY = QColor(72, 62, 32)
+ROW_BG_ALTERNATE = QColor(30, 35, 43)
+ROW_BG_BASE = QColor(26, 30, 36)
+ROW_FG_HIGHLIGHT = QColor(232, 234, 237)
+SELECTED_ROW_BG = QColor(45, 74, 122)
+SELECTED_ROW_FG = QColor(255, 255, 255)
 
-class NoCellFocusDelegate(QStyledItemDelegate):
-    """Suppress the per-cell focus border; row selection styling is enough."""
+TABLE_HOVER_ROW_PROPERTY = "hover_row"
+
+
+def _brush_color(value) -> QColor | None:
+    if value is None:
+        return None
+    if isinstance(value, QColor):
+        return value if value.isValid() else None
+    if isinstance(value, QBrush):
+        color = value.color()
+        return color if color.isValid() else None
+    return None
+
+
+class DriverTableDelegate(QStyledItemDelegate):
+    """Paint row backgrounds from preference/risk/hover/selection data."""
+
+    def __init__(self, table: QTableWidget) -> None:
+        super().__init__(table)
+        self._table = table
+
+    def _name_index(self, index):
+        return index.siblingAtColumn(COL_NAME)
+
+    def _row_pref(self, index) -> int | None:
+        pref = sqlite_row_to_int(self._name_index(index).data(PREF_DATA_ROLE))
+        return pref if pref in (1, -1) else None
+
+    def _row_risky(self, index) -> bool:
+        return bool(self._name_index(index).data(RISK_DATA_ROLE))
+
+    def _hover_row(self) -> int | None:
+        value = self._table.property(TABLE_HOVER_ROW_PROPERTY)
+        try:
+            row = int(value)
+        except (TypeError, ValueError):
+            return None
+        return row if row >= 0 else None
+
+    def _row_colors(self, option, index) -> tuple[QColor, QColor | None]:
+        pref = self._row_pref(index)
+        if pref == 1:
+            return ROW_BG_LIKED, ROW_FG_HIGHLIGHT
+        if pref == -1:
+            return ROW_BG_DISLIKED, ROW_FG_HIGHLIGHT
+        if self._row_risky(index):
+            return ROW_BG_RISKY, None
+
+        hover_row = self._hover_row()
+        if hover_row is not None and index.row() == hover_row:
+            return ROW_BG_HOVER, None
+
+        if option.state & QStyle.StateFlag.State_Selected:
+            return SELECTED_ROW_BG, SELECTED_ROW_FG
+
+        if index.row() % 2 == 1:
+            return ROW_BG_ALTERNATE, None
+        return ROW_BG_BASE, None
 
     def paint(self, painter, option, index):
         opt = QStyleOptionViewItem(option)
         opt.state &= ~QStyle.StateFlag.State_HasFocus
+
+        bg_color, default_fg = self._row_colors(opt, index)
+
+        painter.save()
+        painter.fillRect(opt.rect, bg_color)
+
+        opt.state &= ~QStyle.StateFlag.State_Selected
+        opt.backgroundBrush = QBrush(Qt.BrushStyle.NoBrush)
+
+        custom_fg = _brush_color(index.data(Qt.ItemDataRole.ForegroundRole))
+        if custom_fg is not None:
+            opt.palette.setColor(opt.palette.ColorRole.Text, custom_fg)
+        elif default_fg is not None:
+            opt.palette.setColor(opt.palette.ColorRole.Text, default_fg)
+
         super().paint(painter, opt, index)
+        painter.restore()
 
 
 def configure_driver_table_widget(table: QTableWidget) -> None:
     """Shared table behavior: row-only selection look (no cell focus ring)."""
-    table.setItemDelegate(NoCellFocusDelegate(table))
+    table.setItemDelegate(DriverTableDelegate(table))
     table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
     table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
     table.setShowGrid(False)
-    table.setAlternatingRowColors(True)
+    table.setAlternatingRowColors(False)
     table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+    table.setProperty(TABLE_HOVER_ROW_PROPERTY, -1)
+
+
+def set_driver_table_hover_row(table: QTableWidget, row_idx: int | None) -> None:
+    table.setProperty(TABLE_HOVER_ROW_PROPERTY, -1 if row_idx is None else row_idx)
+    table.viewport().update()
+
+
+def refresh_driver_table_row(table: QTableWidget, row_idx: int) -> None:
+    if row_idx < 0 or row_idx >= table.rowCount():
+        return
+    reapply_safety_cell_style(table, row_idx)
+    table.viewport().update()
 
 
 def make_table_item(value) -> QTableWidgetItem:
