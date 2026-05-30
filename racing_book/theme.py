@@ -550,6 +550,47 @@ QProgressBar#safetyComponentBar::chunk {
     background-color: #4a8af4;
     border-radius: 2px;
 }
+
+QTabWidget#mainTabs::pane {
+    border: 1px solid #323a46;
+    border-radius: 8px;
+    background-color: #1a1e24;
+    top: -1px;
+}
+
+QTabWidget#mainTabs > QTabBar::tab {
+    background-color: #232831;
+    color: #9aa3b2;
+    border: 1px solid #323a46;
+    border-bottom: none;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    padding: 10px 20px;
+    margin-right: 4px;
+    font-weight: 600;
+    min-width: 80px;
+}
+
+QTabWidget#mainTabs > QTabBar::tab:selected {
+    background-color: #1a1e24;
+    color: #ffffff;
+    border-bottom: 1px solid #1a1e24;
+}
+
+QTabWidget#mainTabs > QTabBar::tab:hover:!selected {
+    background-color: #2a3038;
+    color: #e8eaed;
+}
+
+QComboBox#settingsCombo {
+    min-height: 32px;
+    padding: 6px 10px;
+}
+
+QComboBox#settingsCombo::drop-down {
+    border: none;
+    width: 24px;
+}
 """
 
 STATUS_CONNECTED = "connected"

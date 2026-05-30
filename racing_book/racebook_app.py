@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QSplitter,
     QStackedWidget,
+    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
@@ -31,11 +32,13 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from .data_retention import DEFAULT_RETENTION, SETTING_KEY, purge_expired_race_results
 from .db import connect_db, get_setting, init_db, set_setting
 from .iracing_worker import IRacingWorker
 from .live_session import LiveSessionView
 from .safety_index import compute_safety_index, safety_tooltip
 from .safety_widgets import SafetyIndexPanel
+from .settings_tab import SettingsTab
 from .theme import (
     STATUS_CONNECTED,
     STATUS_OFFLINE,
@@ -527,9 +530,10 @@ def _import_race_entries(
                     license_class,
                     starting_position,
                     reason_out,
-                    reason_out_id
+                    reason_out_id,
+                    race_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     cust_id,
@@ -542,6 +546,7 @@ def _import_race_entries(
                     start_pos,
                     reason_out,
                     reason_out_id,
+                    race_timestamp,
                 ),
             )
             if cursor.rowcount == 0:
@@ -587,6 +592,7 @@ class RaceBookApp(QMainWindow):
 
         init_db()
         self._db_conn = connect_db()
+        self._run_data_retention_purge()
         self.init_ui()
         self.start_sdk_worker()
 
@@ -798,10 +804,23 @@ class RaceBookApp(QMainWindow):
                 dnf_total=entry.get("dnf_total"),
                 avg_pos_delta=entry.get("avg_pos_delta"),
             )
-            entry["_sort_score"] = safety.score if safety.tier != "unknown" else -1
+            races = entry.get("total_races") or 0
+            entry["has_history"] = races > 0
+            if safety.tier != "unknown":
+                entry["_sort_score"] = safety.score
+            elif races > 0:
+                entry["_sort_score"] = 0
+            else:
+                entry["_sort_score"] = -1
             entries.append(entry)
 
-        entries.sort(key=lambda e: (-e["_sort_score"], e.get("name") or ""))
+        entries.sort(
+            key=lambda e: (
+                0 if e.get("has_history") else 1,
+                -e["_sort_score"],
+                e.get("name") or "",
+            )
+        )
         return entries
 
     def _refresh_live_session_view(self) -> None:
@@ -941,8 +960,22 @@ class RaceBookApp(QMainWindow):
         header.addWidget(self.status_label, alignment=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         root_layout.addLayout(header)
 
+        self.main_tabs = QTabWidget()
+        self.main_tabs.setObjectName("mainTabs")
+        root_layout.addWidget(self.main_tabs, stretch=1)
+
+        drivers_tab = QWidget()
+        drivers_tab_layout = QVBoxLayout(drivers_tab)
+        drivers_tab_layout.setContentsMargins(0, 0, 0, 0)
+        drivers_tab_layout.setSpacing(0)
+
         self.view_stack = QStackedWidget()
-        root_layout.addWidget(self.view_stack, stretch=1)
+        drivers_tab_layout.addWidget(self.view_stack)
+        self.main_tabs.addTab(drivers_tab, "Drivers")
+
+        self.settings_tab = SettingsTab()
+        self.settings_tab.settings_saved.connect(self._on_settings_saved)
+        self.main_tabs.addTab(self.settings_tab, "Settings")
 
         database_panel = QWidget()
         database_layout = QVBoxLayout(database_panel)
@@ -1233,6 +1266,29 @@ class RaceBookApp(QMainWindow):
     def save_ignore_name(self):
         set_setting("ignore_driver_name", (self.ignore_name_input.text() or "").strip() or None)
         self.apply_driver_filters()
+
+    def _run_data_retention_purge(self, *, show_status: bool = False) -> int:
+        retention = get_setting(SETTING_KEY, DEFAULT_RETENTION) or DEFAULT_RETENTION
+        deleted = purge_expired_race_results(self._db_conn, retention)
+        if deleted:
+            self._db_conn.commit()
+            if self.selected_cust_id is not None:
+                self._populate_driver_details(self.selected_cust_id)
+            if hasattr(self, "table"):
+                self.refresh_ui_table()
+        if show_status and hasattr(self, "settings_tab"):
+            self.settings_tab.show_purge_result(deleted)
+        return deleted
+
+    def _on_settings_saved(self) -> None:
+        deleted = self._run_data_retention_purge(show_status=True)
+        if deleted and self.selected_cust_id is not None:
+            row = self._row_for_cust_id(self.selected_cust_id)
+            if row is None:
+                self.selected_cust_id = None
+                self._clear_driver_details()
+                self._set_driver_panel_enabled(False)
+                self.table.clearSelection()
 
     def apply_driver_filters(self, *_):
         q = (self.search_input.text() or "").strip().lower()
@@ -1707,6 +1763,7 @@ class RaceBookApp(QMainWindow):
                 errors.append(f"{file_path}: {e}")
 
         conn.commit()
+        self._run_data_retention_purge()
         logger.info(
             "Import finished: files=%s races=%s results=%s skipped=%s errors=%s",
             total_files,
