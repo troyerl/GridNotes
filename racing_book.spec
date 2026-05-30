@@ -9,6 +9,13 @@ _datas = [("icon.png", ".")]
 if os.path.isfile("icon.ico"):
     _datas.append(("icon.ico", "."))
 
+try:
+    from PyInstaller.utils.hooks import collect_data_files
+
+    _datas += collect_data_files("tzdata")
+except Exception:
+    pass
+
 _win_icon = None
 if sys.platform == "win32":
     if os.path.isfile("icon.ico"):
@@ -24,10 +31,18 @@ a = Analysis(
     hiddenimports=[
         "racing_book",
         "racing_book.db",
+        "racing_book.data_retention",
         "racing_book.iracing_worker",
+        "racing_book.live_session",
+        "racing_book.safety_index",
+        "racing_book.safety_widgets",
+        "racing_book.settings_tab",
+        "racing_book.timestamps",
         "irsdk",
         "racing_book.racebook_app",
         "racing_book.theme",
+        "tzdata",
+        "zoneinfo",
     ],
     hookspath=[],
     hooksconfig={},

@@ -2,11 +2,42 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
+from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 
-_ET = ZoneInfo("America/New_York")
-_UTC = ZoneInfo("UTC")
+_UTC = timezone.utc
+
+
+@lru_cache(maxsize=1)
+def _eastern_tz():
+    """US Eastern timezone; works in dev and PyInstaller builds with bundled tzdata."""
+    try:
+        from zoneinfo import ZoneInfo
+
+        return ZoneInfo("America/New_York")
+    except Exception:
+        pass
+
+    # PyInstaller: zoneinfo may need explicit TZPATH to bundled tzdata files.
+    try:
+        import os
+        import sys
+        from zoneinfo import ZoneInfo
+
+        if getattr(sys, "frozen", False):
+            base = getattr(sys, "_MEIPASS", "")
+            for subpath in ("tzdata/zoneinfo", "zoneinfo"):
+                tz_root = os.path.join(base, subpath)
+                if os.path.isdir(tz_root):
+                    existing = os.environ.get("TZPATH", "")
+                    paths = [p for p in (existing, tz_root) if p]
+                    os.environ["TZPATH"] = os.pathsep.join(paths)
+                    return ZoneInfo("America/New_York")
+    except Exception:
+        pass
+
+    # Last resort: fixed EST (no DST). Better than crashing the app.
+    return timezone(timedelta(hours=-5))
 
 
 def parse_race_timestamp(value) -> datetime | None:
@@ -15,7 +46,7 @@ def parse_race_timestamp(value) -> datetime | None:
         return None
     if isinstance(value, (int, float)):
         try:
-            return datetime.fromtimestamp(value, tz=timezone.utc)
+            return datetime.fromtimestamp(value, tz=_UTC)
         except (OSError, OverflowError, ValueError):
             return None
     if not isinstance(value, str):
@@ -51,7 +82,7 @@ def format_last_seen_et(value) -> str:
         return "N/A"
 
     try:
-        et = dt.astimezone(_ET)
+        et = dt.astimezone(_eastern_tz())
     except Exception:
         return "N/A"
 
