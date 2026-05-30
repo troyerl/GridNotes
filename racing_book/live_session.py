@@ -27,6 +27,20 @@ def _score_color(tier: str) -> str:
     return "#9aa3b2"
 
 
+def _tier_display(tier: str) -> str:
+    return {
+        "low": "Low risk",
+        "moderate": "Moderate risk",
+        "high": "High risk",
+    }.get(tier, "")
+
+
+def _unknown_profile_message(total_races: int) -> str:
+    if total_races > 0:
+        return "Not enough history to determine risk"
+    return "No race history in book"
+
+
 class LiveDriverCard(QFrame):
     """Single driver card in Live Mode."""
 
@@ -76,10 +90,17 @@ class LiveDriverCard(QFrame):
         score_col = QVBoxLayout()
         score_col.setSpacing(2)
         score_col.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        score_title = QLabel("Safety Index")
+        score_title.setObjectName("liveStatTitle")
+        score_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        score_col.addWidget(score_title)
+
         self.score_label = QLabel("—")
         self.score_label.setObjectName("liveScoreValue")
         self.score_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         score_col.addWidget(self.score_label)
+
         self.tier_label = QLabel("")
         self.tier_label.setObjectName("liveTierLabel")
         self.tier_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -106,7 +127,7 @@ class LiveDriverCard(QFrame):
         self.name_label.setText(name or "Unknown")
 
         if safety.tier == "unknown":
-            self.profile_label.setText("No race history in book")
+            self.profile_label.setText(_unknown_profile_message(safety.total_races))
             self.score_label.setText("—")
             self.score_label.setStyleSheet("")
             self.tier_label.setText("")
@@ -116,7 +137,7 @@ class LiveDriverCard(QFrame):
             color = _score_color(safety.tier)
             self.score_label.setText(f"{safety.score:.0f}")
             self.score_label.setStyleSheet(f"color: {color};")
-            self.tier_label.setText(safety.tier.upper())
+            self.tier_label.setText(_tier_display(safety.tier))
             self.tier_label.setStyleSheet(f"color: {color}; font-size: 11px; font-weight: 700;")
             risk_prop = (
                 "high" if safety.risky else ("moderate" if safety.tier == "moderate" else "low")
