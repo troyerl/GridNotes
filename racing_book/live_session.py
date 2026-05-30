@@ -13,32 +13,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .safety_index import SafetyIndex, compute_safety_index
+from .safety_index import SafetyIndex, empty_safety, tier_color_hex, tier_label, unknown_history_message
 from .theme import configure_scroll_area
-
-
-def _score_color(tier: str) -> str:
-    if tier == "low":
-        return "#6ee7a8"
-    if tier == "moderate":
-        return "#f5c26b"
-    if tier == "high":
-        return "#f08080"
-    return "#9aa3b2"
-
-
-def _tier_display(tier: str) -> str:
-    return {
-        "low": "Low risk",
-        "moderate": "Moderate risk",
-        "high": "High risk",
-    }.get(tier, "")
-
-
-def _unknown_profile_message(total_races: int) -> str:
-    if total_races > 0:
-        return "Not enough history to determine risk"
-    return "No race history in book"
 
 
 class LiveDriverCard(QFrame):
@@ -127,17 +103,17 @@ class LiveDriverCard(QFrame):
         self.name_label.setText(name or "Unknown")
 
         if safety.tier == "unknown":
-            self.profile_label.setText(_unknown_profile_message(safety.total_races))
+            self.profile_label.setText(unknown_history_message(safety.total_races))
             self.score_label.setText("—")
             self.score_label.setStyleSheet("")
             self.tier_label.setText("")
             self.setProperty("risk", "unknown")
         else:
             self.profile_label.setText(safety.profile)
-            color = _score_color(safety.tier)
+            color = tier_color_hex(safety.tier)
             self.score_label.setText(f"{safety.score:.0f}")
             self.score_label.setStyleSheet(f"color: {color};")
-            self.tier_label.setText(_tier_display(safety.tier))
+            self.tier_label.setText(tier_label(safety.tier))
             self.tier_label.setStyleSheet(f"color: {color}; font-size: 11px; font-weight: 700;")
             risk_prop = (
                 "high" if safety.risky else ("moderate" if safety.tier == "moderate" else "low")
@@ -264,12 +240,9 @@ class LiveSessionView(QWidget):
             return
 
         for entry in entries:
-            safety = compute_safety_index(
-                avg_inc=entry.get("avg_inc"),
-                total_races=entry.get("total_races"),
-                dnf_total=entry.get("dnf_total"),
-                avg_pos_delta=entry.get("avg_pos_delta"),
-            )
+            safety = entry.get("safety")
+            if not isinstance(safety, SafetyIndex):
+                safety = empty_safety()
             card = LiveDriverCard()
             card.set_driver(
                 cust_id=entry["cust_id"],

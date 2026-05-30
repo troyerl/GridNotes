@@ -14,15 +14,11 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .safety_index import MIN_RACES_FOR_SCORE, SafetyIndex
+from .safety_index import MIN_RACES_FOR_SCORE, SafetyIndex, tier_color_hex
 
 
 def _bar_color(tier: str) -> str:
-    if tier == "low":
-        return "#4a9a62"
-    if tier == "moderate":
-        return "#c9a227"
-    return "#c45c5c"
+    return tier_color_hex(tier)
 
 
 def _tier_label(tier: str) -> str:

@@ -1,6 +1,5 @@
 import json
 import logging
-import sqlite3
 
 from PyQt6.QtCore import QEvent, Qt
 from PyQt6.QtGui import QColor, QFont, QTextCursor
@@ -24,7 +23,6 @@ from PyQt6.QtWidgets import (
     QStackedWidget,
     QTabWidget,
     QTableWidget,
-    QTableWidgetItem,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -32,9 +30,28 @@ from PyQt6.QtWidgets import (
 
 from .data_retention import DEFAULT_RETENTION, SETTING_KEY, purge_expired_race_results
 from .db import connect_db, get_setting, init_db, set_setting
+from .driver_models import DriverDetailRow, DriverTableRow, build_live_session_entries
+from .driver_table import (
+    COL_CUST_ID,
+    COL_NAME,
+    COL_NOTE,
+    COL_SAFETY,
+    COL_SERIES,
+    COLUMN_COUNT,
+    DRIVER_TABLE_HEADERS,
+    PREF_DATA_ROLE,
+    RESIZE_TO_CONTENTS_COLUMNS,
+    RISK_DATA_ROLE,
+    make_note_item,
+    make_safety_item,
+    make_table_item,
+    reapply_safety_cell_style,
+)
 from .iracing_worker import IRacingWorker
+from .iracing_import import import_race_entries, parse_races_from_json, sync_live_session_drivers
 from .live_session import LiveSessionView
-from .safety_index import compute_safety_index, safety_tooltip
+from .queries import driver_detail_sql, table_data_sql
+from .safety_index import SafetyIndex, empty_safety, safety_tooltip
 from .safety_widgets import SafetyIndexPanel
 from .settings_tab import SettingsTab
 from .timestamps import format_last_seen_et
@@ -45,519 +62,20 @@ from .theme import (
     configure_scroll_area,
     configure_widget_scrollbars,
 )
+from .ui_widgets import WrappingLabel
+from .utils import display_val, sqlite_row_to_int
 
 logger = logging.getLogger(__name__)
-
-# iRacing reason_out_id (0 = finished on track; excluded from DNF stats)
-REASON_OUT_RUNNING = 0
-REASON_OUT_DISCONNECTED = 1
-REASON_OUT_EJECTED = 2
-REASON_OUT_QUIT = 3
-REASON_OUT_DISQUALIFIED = 4
-
-REASON_OUT_SHORT = {
-    REASON_OUT_DISCONNECTED: "Disc",
-    REASON_OUT_EJECTED: "Eject",
-    REASON_OUT_QUIT: "Quit",
-    REASON_OUT_DISQUALIFIED: "DQ",
-}
-
-REASON_OUT_TEXT_TO_ID = {
-    "running": REASON_OUT_RUNNING,
-    "disconnected": REASON_OUT_DISCONNECTED,
-    "ejected": REASON_OUT_EJECTED,
-    "quit": REASON_OUT_QUIT,
-    "disqualified": REASON_OUT_DISQUALIFIED,
-}
 
 ROW_BG_LIKED = QColor(42, 72, 52)
 ROW_BG_DISLIKED = QColor(72, 42, 42)
 ROW_BG_HOVER = QColor(45, 52, 64)
 ROW_BG_RISKY = QColor(72, 62, 32)
 ROW_FG_FOR_HIGHLIGHT = QColor(232, 234, 237)
-PREF_DATA_ROLE = Qt.ItemDataRole.UserRole + 1
-RISK_DATA_ROLE = Qt.ItemDataRole.UserRole + 2
 
-COL_NAME = 0
-COL_RACES = 1
-COL_AVG_INC = 2
-COL_AVG_FINISH = 3
-COL_AVG_POS = 4
-COL_DNFS = 5
-COL_LAST_SR = 6
-COL_LAST_IR = 7
-COL_SERIES = 8
-COL_DNF_BREAKDOWN = 9
-COL_NOTE = 10
-COL_CUST_ID = 11
-NOTE_INDICATOR = "+"
-
-MSG_SESSION_NOT_CONNECTED = "Not connected to iRacing yet — start iRacing and join a session to enable."
-
-def _table_data_sql() -> str:
-    return """
-        WITH agg AS (
-            SELECT
-                cust_id,
-                COUNT(id) AS total_races,
-                ROUND(AVG(incidents), 1) AS avg_inc,
-                ROUND(AVG(finish_position), 1) AS avg_fin,
-                ROUND(
-                    AVG(
-                        CASE
-                            WHEN starting_position IS NOT NULL AND finish_position IS NOT NULL
-                            THEN (starting_position - finish_position)
-                        END
-                    ),
-                    1
-                ) AS avg_pos_delta,
-                SUM(CASE WHEN reason_out_id IN (1, 2, 3, 4) THEN 1 ELSE 0 END) AS dnf_total,
-                SUM(CASE WHEN reason_out_id = 1 THEN 1 ELSE 0 END) AS disc,
-                SUM(CASE WHEN reason_out_id = 2 THEN 1 ELSE 0 END) AS eject,
-                SUM(CASE WHEN reason_out_id = 3 THEN 1 ELSE 0 END) AS quit_,
-                SUM(CASE WHEN reason_out_id = 4 THEN 1 ELSE 0 END) AS dq,
-                SUM(
-                    CASE
-                        WHEN reason_out_id IS NOT NULL AND reason_out_id NOT IN (0, 1, 2, 3, 4)
-                        THEN 1
-                        ELSE 0
-                    END
-                ) AS other
-            FROM race_results
-            GROUP BY cust_id
-        )
-        SELECT
-            d.driver_name,
-            a.avg_inc,
-            a.avg_fin,
-            COALESCE(a.total_races, 0) AS total_races,
-            d.last_irating,
-            d.last_safety,
-            d.last_series,
-            a.avg_pos_delta,
-            d.cust_id,
-            d.race_preference,
-            COALESCE(a.dnf_total, 0),
-            COALESCE(a.disc, 0),
-            COALESCE(a.eject, 0),
-            COALESCE(a.quit_, 0),
-            COALESCE(a.dq, 0),
-            COALESCE(a.other, 0),
-            CASE WHEN TRIM(COALESCE(d.notes, '')) != '' THEN 1 ELSE 0 END AS has_notes
-        FROM drivers d
-        LEFT JOIN agg a ON d.cust_id = a.cust_id
-        ORDER BY d.driver_name ASC
-    """
-
-
-def _driver_detail_sql() -> str:
-    return """
-        WITH agg AS (
-            SELECT
-                cust_id,
-                COUNT(id) AS total_races,
-                ROUND(AVG(incidents), 1) AS avg_inc,
-                ROUND(AVG(finish_position), 1) AS avg_fin,
-                ROUND(
-                    AVG(
-                        CASE
-                            WHEN starting_position IS NOT NULL AND finish_position IS NOT NULL
-                            THEN (starting_position - finish_position)
-                        END
-                    ),
-                    1
-                ) AS avg_pos_delta,
-                SUM(CASE WHEN reason_out_id IN (1, 2, 3, 4) THEN 1 ELSE 0 END) AS dnf_total,
-                SUM(CASE WHEN reason_out_id = 1 THEN 1 ELSE 0 END) AS disc,
-                SUM(CASE WHEN reason_out_id = 2 THEN 1 ELSE 0 END) AS eject,
-                SUM(CASE WHEN reason_out_id = 3 THEN 1 ELSE 0 END) AS quit_,
-                SUM(CASE WHEN reason_out_id = 4 THEN 1 ELSE 0 END) AS dq,
-                SUM(
-                    CASE
-                        WHEN reason_out_id IS NOT NULL AND reason_out_id NOT IN (0, 1, 2, 3, 4)
-                        THEN 1
-                        ELSE 0
-                    END
-                ) AS other
-            FROM race_results
-            WHERE cust_id = ?
-            GROUP BY cust_id
-        )
-        SELECT
-            d.driver_name,
-            COALESCE(
-                NULLIF(TRIM(d.last_seen_at), ''),
-                (
-                    SELECT MAX(r.race_at)
-                    FROM race_results r
-                    WHERE r.cust_id = d.cust_id
-                      AND r.race_at IS NOT NULL
-                      AND TRIM(r.race_at) != ''
-                )
-            ) AS last_seen_at,
-            d.last_series,
-            a.avg_inc,
-            a.avg_fin,
-            COALESCE(a.total_races, 0) AS total_races,
-            d.last_irating,
-            d.last_safety,
-            a.avg_pos_delta,
-            COALESCE(a.dnf_total, 0),
-            COALESCE(a.disc, 0),
-            COALESCE(a.eject, 0),
-            COALESCE(a.quit_, 0),
-            COALESCE(a.dq, 0),
-            COALESCE(a.other, 0)
-        FROM drivers d
-        LEFT JOIN agg a ON d.cust_id = a.cust_id
-        WHERE d.cust_id = ?
-    """
-
-
-class WrappingLabel(QLabel):
-    """Label that wraps long text and reports correct height in scroll areas."""
-
-    def __init__(self, text: str = "—", parent: QWidget | None = None) -> None:
-        super().__init__(text, parent)
-        self.setWordWrap(True)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
-        self.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-
-    def hasHeightForWidth(self) -> bool:
-        return True
-
-    def heightForWidth(self, width: int) -> int:
-        if width <= 0:
-            return super().sizeHint().height()
-        bounds = self.fontMetrics().boundingRect(
-            0,
-            0,
-            width,
-            10_000,
-            int(Qt.TextFlag.TextWordWrap),
-            self.text(),
-        )
-        return bounds.height() + 6
-
-
-def _display_val(value) -> str:
-    if value is None:
-        return "—"
-    text = str(value).strip()
-    return text if text and text.lower() != "none" else "—"
-
-
-def _normalize_reason_out_id(reason_out_id, reason_out) -> int | None:
-    """Return 0 for Running, 1-4 for known DNF reasons, None if unknown/missing."""
-    if isinstance(reason_out_id, int) and reason_out_id in REASON_OUT_TEXT_TO_ID.values():
-        return reason_out_id
-    if isinstance(reason_out, str):
-        key = reason_out.strip().lower()
-        if key in REASON_OUT_TEXT_TO_ID:
-            return REASON_OUT_TEXT_TO_ID[key]
-    return None
-
-
-def _format_dnf_breakdown(disc: int, eject: int, quit_: int, dq: int, other: int) -> str:
-    parts = []
-    if disc:
-        parts.append(f"Disc:{disc}")
-    if eject:
-        parts.append(f"Eject:{eject}")
-    if quit_:
-        parts.append(f"Quit:{quit_}")
-    if dq:
-        parts.append(f"DQ:{dq}")
-    if other:
-        parts.append(f"Other:{other}")
-    return ", ".join(parts) if parts else ""
-
-
-def _license_group_from_level(level: int | None) -> str | None:
-    if not isinstance(level, int):
-        return None
-    # Based on iRacing license "level" groupings (matches your allowed_licenses ranges).
-    if level <= 4:
-        return "R"
-    if 5 <= level <= 8:
-        return "D"
-    if 9 <= level <= 12:
-        return "C"
-    if 13 <= level <= 16:
-        return "B"
-    if 17 <= level <= 20:
-        return "A"
-    if 21 <= level <= 24:
-        return "Pro"
-    if 25 <= level <= 28:
-        return "Pro/WC"
-    return None
-
-
-def _sr_from_sub_level(sub_level: int | None) -> float | None:
-    # In event_result payloads, sub-level is typically SR * 100 (e.g. 367 -> 3.67).
-    if not isinstance(sub_level, int):
-        return None
-    if sub_level < 0:
-        return None
-    return round(sub_level / 100.0, 2)
-
-
-def _sqlite_row_to_int(value) -> int | None:
-    try:
-        return int(value)
-    except Exception:
-        return None
-
-
-def _normalize_1_based(pos) -> int | None:
-    # iRacing event_result uses 0-based positions (0 == P1).
-    if isinstance(pos, int) and pos >= 0:
-        return pos + 1
-    return None
-
-
-def _parse_iracing_event_result(data: dict) -> tuple[list[dict], str | None, str | None]:
-    """
-    Parse iRacing `event_result` JSON into our internal `races` format:
-      [{"subsession_id": int, "results": list[dict]}]
-    Returns (races, series_name, race_timestamp).
-    """
-    payload = data.get("data")
-    if not isinstance(payload, dict):
-        return ([], None, None)
-
-    sub_id = _sqlite_row_to_int(payload.get("subsession_id")) or 0
-    series_name = payload.get("series_name") or payload.get("season_name")
-    race_timestamp = payload.get("end_time") or payload.get("start_time")
-
-    sessions = payload.get("session_results", [])
-    if not isinstance(sessions, list):
-        return ([], series_name, race_timestamp)
-
-    for s in sessions:
-        if not isinstance(s, dict):
-            continue
-        if s.get("simsession_type_name") == "Race" or s.get("simsession_type") == 6:
-            results = s.get("results", [])
-            return ([{"subsession_id": sub_id, "results": results}], series_name, race_timestamp)
-
-    return ([], series_name, race_timestamp)
-
-
-def _parse_races_from_json(data) -> tuple[list[dict], str | None, str | None]:
-    """
-    Supported formats:
-      1) {"races": [{"subsession_id":..., "results":[...]}]}
-      2) [{"subsession_id":..., "results":[...]}]
-      3) iRacing event_result payload:
-         {"type":"event_result","data":{...}}
-    Returns (races, series_name, race_timestamp).
-    """
-    if isinstance(data, dict) and data.get("type") == "event_result":
-        return _parse_iracing_event_result(data)
-
-    if isinstance(data, dict):
-        races = data.get("races", [])
-        return (races if isinstance(races, list) else [], None, None)
-
-    if isinstance(data, list):
-        return (data, None, None)
-
-    return ([], None, None)
-
-
-def _compute_last_license(driver: dict) -> str | None:
-    sr = _sr_from_sub_level(driver.get("new_sub_level"))
-    if sr is None:
-        sr = _sr_from_sub_level(driver.get("old_sub_level"))
-
-    lic_group = _license_group_from_level(driver.get("new_license_level"))
-    if lic_group is None:
-        lic_group = _license_group_from_level(driver.get("old_license_level"))
-
-    if lic_group and sr is not None:
-        return f"{lic_group} {sr:.2f}"
-    return None
-
-
-def _compute_irating_change(driver: dict) -> int:
-    ir_change = driver.get("irating_change")
-    if isinstance(ir_change, int):
-        return ir_change
-    old_ir = driver.get("oldi_rating")
-    new_ir = driver.get("newi_rating")
-    if isinstance(old_ir, int) and isinstance(new_ir, int):
-        return new_ir - old_ir
-    return 0
-
-
-def _compute_new_irating(driver: dict) -> int | None:
-    new_ir = driver.get("newi_rating")
-    if isinstance(new_ir, int):
-        return new_ir
-    old_ir = driver.get("oldi_rating")
-    return old_ir if isinstance(old_ir, int) else None
-
-
-def _compute_new_sr(driver: dict) -> float | None:
-    sr = _sr_from_sub_level(driver.get("new_sub_level"))
-    if sr is not None:
-        return sr
-    return _sr_from_sub_level(driver.get("old_sub_level"))
-
-
-def _maybe_update_last_seen(
-    cursor: sqlite3.Cursor,
-    cust_id: int,
-    race_timestamp: str | None,
-    new_ir: int | None,
-    new_sr: float | None,
-    last_license: str | None,
-    series_name: str | None,
-    start_pos: int | None,
-) -> None:
-    if not race_timestamp:
-        return
-
-    cursor.execute("SELECT last_seen_at FROM drivers WHERE cust_id = ?", (cust_id,))
-    row = cursor.fetchone()
-    existing_last_seen = row[0] if row and row[0] else None
-
-    # ISO strings compare lexicographically in chronological order (when normalized).
-    if existing_last_seen is not None and existing_last_seen >= race_timestamp:
-        return
-
-    cursor.execute(
-        """
-        UPDATE drivers
-        SET last_irating = COALESCE(?, last_irating),
-            last_safety = COALESCE(?, last_safety),
-            last_license = COALESCE(?, last_license),
-            last_series = COALESCE(?, last_series),
-            last_starting_pos = COALESCE(?, last_starting_pos),
-            last_seen_at = ?
-        WHERE cust_id = ?
-        """,
-        (new_ir, new_sr, last_license, series_name, start_pos, race_timestamp, cust_id),
-    )
-
-
-def _import_race_entries(
-    cursor: sqlite3.Cursor,
-    races: list[dict],
-    series_name: str | None,
-    race_timestamp: str | None,
-    license_text_fallback: str | None,
-) -> tuple[int, int, int]:
-    races_imported = 0
-    results_imported = 0
-    results_skipped = 0
-
-    for entry in races:
-        if not isinstance(entry, dict):
-            continue
-        sub_id = _sqlite_row_to_int(entry.get("subsession_id"))
-        if sub_id is None:
-            sub_id = _sqlite_row_to_int(entry.get("session_id"))
-        sub_id = sub_id or 0
-        results = entry.get("results", [])
-        if not isinstance(results, list):
-            continue
-
-        race_had_new_result = False
-        for driver in results:
-            if not isinstance(driver, dict):
-                continue
-
-            cust_id = _sqlite_row_to_int(driver.get("cust_id"))
-            if cust_id is None:
-                continue
-
-            name = driver.get("name", driver.get("display_name"))
-
-            cursor.execute(
-                """
-                INSERT INTO drivers (cust_id, driver_name)
-                VALUES (?, ?)
-                ON CONFLICT(cust_id) DO UPDATE SET driver_name=excluded.driver_name
-                """,
-                (cust_id, name),
-            )
-
-            finish = driver.get("finish", driver.get("finish_position"))
-            finish = _normalize_1_based(finish) if finish is not None else None
-
-            start_pos = _normalize_1_based(driver.get("starting_position"))
-
-            reason_out = driver.get("reason_out")
-            reason_out = reason_out.strip() if isinstance(reason_out, str) and reason_out.strip() else None
-            reason_out_id = _normalize_reason_out_id(driver.get("reason_out_id"), reason_out)
-            if reason_out_id == REASON_OUT_RUNNING:
-                reason_out = reason_out or "Running"
-
-            ir_change = _compute_irating_change(driver)
-            new_ir = _compute_new_irating(driver)
-            new_sr = _compute_new_sr(driver)
-            last_license = _compute_last_license(driver)
-
-            license_text = driver.get("license", "Unknown")
-            if license_text == "Unknown" and license_text_fallback:
-                license_text = license_text_fallback
-
-            cursor.execute(
-                """
-                INSERT OR IGNORE INTO race_results (
-                    cust_id,
-                    subsession_id,
-                    series_name,
-                    finish_position,
-                    incidents,
-                    irating_change,
-                    license_class,
-                    starting_position,
-                    reason_out,
-                    reason_out_id,
-                    race_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    cust_id,
-                    sub_id,
-                    series_name,
-                    finish,
-                    driver.get("incidents", 0),
-                    ir_change,
-                    license_text,
-                    start_pos,
-                    reason_out,
-                    reason_out_id,
-                    race_timestamp,
-                ),
-            )
-            if cursor.rowcount == 0:
-                results_skipped += 1
-                continue
-
-            _maybe_update_last_seen(
-                cursor,
-                cust_id,
-                race_timestamp,
-                new_ir,
-                new_sr,
-                last_license,
-                series_name,
-                start_pos,
-            )
-
-            race_had_new_result = True
-            results_imported += 1
-
-        if race_had_new_result:
-            races_imported += 1
-
-    return (races_imported, results_imported, results_skipped)
+MSG_SESSION_NOT_CONNECTED = (
+    "Not connected to iRacing yet — start iRacing and join a session to enable."
+)
 
 
 class RaceBookApp(QMainWindow):
@@ -626,17 +144,7 @@ class RaceBookApp(QMainWindow):
             always_show=True,
         )
 
-        for col in (
-            COL_RACES,
-            COL_AVG_INC,
-            COL_AVG_FINISH,
-            COL_AVG_POS,
-            COL_DNFS,
-            COL_LAST_SR,
-            COL_LAST_IR,
-            COL_NOTE,
-            COL_DNF_BREAKDOWN,
-        ):
+        for col in RESIZE_TO_CONTENTS_COLUMNS:
             header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(COL_NAME, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(COL_SERIES, QHeaderView.ResizeMode.Stretch)
@@ -665,7 +173,7 @@ class RaceBookApp(QMainWindow):
         name_item = self.table.item(row_idx, COL_NAME)
         if name_item is None:
             return None
-        return _sqlite_row_to_int(name_item.data(PREF_DATA_ROLE))
+        return sqlite_row_to_int(name_item.data(PREF_DATA_ROLE))
 
     def _restore_row_background(self, row_idx: int) -> None:
         pref = self._pref_for_row(row_idx)
@@ -678,6 +186,7 @@ class RaceBookApp(QMainWindow):
         risky = bool(name_item.data(RISK_DATA_ROLE)) if name_item is not None else False
         if risky:
             self._apply_risky_row_style(row_idx, self.table.columnCount(), "")
+        reapply_safety_cell_style(self.table, row_idx)
 
     def _apply_row_hover(self, row_idx: int) -> None:
         selected = self.table.selectionModel().selectedRows()
@@ -730,85 +239,12 @@ class RaceBookApp(QMainWindow):
             self._refresh_live_session_view()
 
     def _build_live_session_entries(self) -> list[dict]:
-        if not self.active_cust_ids:
-            return []
-
-        db_by_id: dict[int, dict] = {}
-        for row_data in self._fetch_table_data():
-            (
-                name,
-                avg_inc,
-                _avg_fin,
-                total_races,
-                last_ir,
-                last_sr,
-                _last_series,
-                avg_pos_delta,
-                cust_id,
-                race_preference,
-                dnf_total,
-                _disc,
-                _eject,
-                _quit,
-                _dq,
-                _other,
-                has_notes,
-            ) = row_data
-            cid = int(cust_id)
-            db_by_id[cid] = {
-                "cust_id": cid,
-                "name": name,
-                "avg_inc": avg_inc,
-                "total_races": total_races,
-                "dnf_total": dnf_total,
-                "avg_pos_delta": avg_pos_delta,
-                "last_sr": last_sr,
-                "last_ir": last_ir,
-                "has_note": bool(has_notes),
-                "pref": _sqlite_row_to_int(race_preference),
-            }
-
-        entries: list[dict] = []
-        for cid in self.active_cust_ids:
-            if cid in db_by_id:
-                entry = dict(db_by_id[cid])
-            else:
-                entry = {
-                    "cust_id": cid,
-                    "name": self.active_driver_names.get(cid, f"Driver {cid}"),
-                    "avg_inc": None,
-                    "total_races": 0,
-                    "dnf_total": 0,
-                    "avg_pos_delta": None,
-                    "last_sr": None,
-                    "last_ir": None,
-                    "has_note": False,
-                    "pref": None,
-                }
-            safety = compute_safety_index(
-                avg_inc=entry.get("avg_inc"),
-                total_races=entry.get("total_races"),
-                dnf_total=entry.get("dnf_total"),
-                avg_pos_delta=entry.get("avg_pos_delta"),
-            )
-            races = entry.get("total_races") or 0
-            entry["has_history"] = races > 0
-            if safety.tier != "unknown":
-                entry["_sort_score"] = safety.score
-            elif races > 0:
-                entry["_sort_score"] = 0
-            else:
-                entry["_sort_score"] = -1
-            entries.append(entry)
-
-        entries.sort(
-            key=lambda e: (
-                0 if e.get("has_history") else 1,
-                -e["_sort_score"],
-                e.get("name") or "",
-            )
+        rows = [DriverTableRow.from_sql_row(row) for row in self._fetch_table_data()]
+        return build_live_session_entries(
+            self.active_cust_ids,
+            self.active_driver_names,
+            rows,
         )
-        return entries
 
     def _refresh_live_session_view(self) -> None:
         if not hasattr(self, "live_session_view"):
@@ -831,7 +267,7 @@ class RaceBookApp(QMainWindow):
         label = self._detail_fields.get(key)
         if label is None:
             return
-        text = _display_val(value)
+        text = display_val(value)
         label.setText(text)
         if key in ("series", "dnf_breakdown"):
             label.setToolTip(text if text != "—" else "")
@@ -843,19 +279,12 @@ class RaceBookApp(QMainWindow):
         for label in self._detail_fields.values():
             label.setText("—")
         if hasattr(self, "safety_index_panel"):
-            self.safety_index_panel.update_safety(
-                compute_safety_index(
-                    avg_inc=None,
-                    total_races=0,
-                    dnf_total=0,
-                    avg_pos_delta=None,
-                )
-            )
+            self.safety_index_panel.update_safety(empty_safety())
 
     def _fetch_driver_detail_row(self, cust_id: int) -> tuple | None:
         cursor = self._db_conn.cursor()
-        # _driver_detail_sql uses cust_id twice (agg CTE + final WHERE)
-        cursor.execute(_driver_detail_sql(), (cust_id, cust_id))
+        # driver_detail_sql uses cust_id twice (agg CTE + final WHERE)
+        cursor.execute(driver_detail_sql(), (cust_id, cust_id))
         return cursor.fetchone()
 
     def _populate_driver_details(self, cust_id: int) -> None:
@@ -863,48 +292,24 @@ class RaceBookApp(QMainWindow):
         if not row:
             return
 
-        (
-            name,
-            last_seen_at,
-            last_series,
-            avg_inc,
-            avg_fin,
-            total_races,
-            last_ir,
-            last_sr,
-            avg_pos_delta,
-            dnf_total,
-            disc,
-            eject,
-            quit_,
-            dq,
-            other,
-        ) = row
+        detail = DriverDetailRow.from_sql_row(row)
+        last_seen_fmt = format_last_seen_et(detail.last_seen_at)
+        breakdown = detail.dnf_breakdown
 
-        last_seen_fmt = format_last_seen_et(last_seen_at)
-        breakdown = _format_dnf_breakdown(disc, eject, quit_, dq, other)
-
-        self.driver_name_label.setText(name or "Unknown driver")
+        self.driver_name_label.setText(detail.name or "Unknown driver")
         self.driver_meta_label.setText(
             f"ID {cust_id}  ·  Last raced {last_seen_fmt} ET"
         )
-        self._set_detail_field("series", last_series)
-        self._set_detail_field("avg_finish", avg_fin)
-        self._set_detail_field("avg_incidents", avg_inc)
-        self._set_detail_field("races", total_races)
-        self._set_detail_field("last_irating", last_ir)
-        self._set_detail_field("last_sr", last_sr)
-        self._set_detail_field("avg_pos_delta", avg_pos_delta)
-        self._set_detail_field("dnfs", dnf_total)
+        self._set_detail_field("series", detail.last_series)
+        self._set_detail_field("avg_finish", detail.avg_fin)
+        self._set_detail_field("avg_incidents", detail.avg_inc)
+        self._set_detail_field("races", detail.total_races)
+        self._set_detail_field("last_irating", detail.last_ir)
+        self._set_detail_field("last_sr", detail.last_sr)
+        self._set_detail_field("avg_pos_delta", detail.avg_pos_delta)
+        self._set_detail_field("dnfs", detail.dnf_total)
         self._set_detail_field("dnf_breakdown", breakdown if breakdown else None)
-
-        safety = compute_safety_index(
-            avg_inc=avg_inc,
-            total_races=total_races,
-            dnf_total=dnf_total,
-            avg_pos_delta=avg_pos_delta,
-        )
-        self.safety_index_panel.update_safety(safety)
+        self.safety_index_panel.update_safety(detail.safety)
 
     def _set_driver_panel_enabled(self, enabled: bool) -> None:
         self.empty_state_label.setVisible(not enabled)
@@ -1001,7 +406,7 @@ class RaceBookApp(QMainWindow):
         self.chk_current_race_only = QCheckBox("Current session only")
         self.chk_current_race_only.setChecked(False)
         self.chk_current_race_only.setToolTip(
-            "Show only drivers in this iRacing session who already have saved race history"
+            "Show only drivers in the current iRacing session (including before race results are imported)"
         )
         self.chk_current_race_only.stateChanged.connect(self.apply_driver_filters)
         live_session_row.addWidget(self.chk_current_race_only)
@@ -1035,23 +440,8 @@ class RaceBookApp(QMainWindow):
         left_layout.addWidget(drivers_label)
 
         self.table = QTableWidget()
-        self.table.setColumnCount(12)
-        self.table.setHorizontalHeaderLabels(
-            [
-                "Driver Name",
-                "Races",
-                "Avg Incidents",
-                "Avg Finish",
-                "Avg +/- Pos",
-                "DNFs",
-                "Last SR",
-                "Last iRating",
-                "Last Series",
-                "DNF Breakdown",
-                "Note",
-                "ID",
-            ]
-        )
+        self.table.setColumnCount(COLUMN_COUNT)
+        self.table.setHorizontalHeaderLabels(DRIVER_TABLE_HEADERS)
         self.table.horizontalHeader().setSortIndicatorShown(True)
         self.table.setSortingEnabled(True)
         self.table.setAlternatingRowColors(True)
@@ -1302,16 +692,7 @@ class RaceBookApp(QMainWindow):
                     cust_id = int(cust_item.text()) if cust_item else None
                 except Exception:
                     cust_id = None
-                races_item = self.table.item(row, COL_RACES)
-                try:
-                    race_count = int(races_item.text()) if races_item else 0
-                except (TypeError, ValueError):
-                    race_count = 0
-                if (
-                    cust_id is None
-                    or cust_id not in self.active_cust_ids
-                    or race_count <= 0
-                ):
+                if cust_id is None or cust_id not in self.active_cust_ids:
                     hidden = True
             self.table.setRowHidden(row, hidden)
 
@@ -1404,6 +785,11 @@ class RaceBookApp(QMainWindow):
             for d in active_drivers
             if d.get("cust_id") is not None
         }
+        cursor = self._db_conn.cursor()
+        added = sync_live_session_drivers(cursor, active_drivers)
+        if added:
+            self._db_conn.commit()
+            self.refresh_ui_table()
         self.apply_driver_filters()
         self._refresh_live_session_view()
 
@@ -1420,8 +806,8 @@ class RaceBookApp(QMainWindow):
             self.table.clearContents()
             self.table.setRowCount(len(rows))
             for row_idx, row_data in enumerate(rows):
-                display_row, cust_id, pref, risky, risky_tip = self._build_display_row(row_data)
-                self._render_table_row(row_idx, display_row, cust_id, pref, risky=risky)
+                display_row, cust_id, pref, risky, risky_tip, safety = self._build_display_row(row_data)
+                self._render_table_row(row_idx, display_row, cust_id, pref, risky=risky, safety=safety)
                 self._apply_preference_row_style(row_idx, len(display_row), pref)
                 if pref is None and risky:
                     self._apply_risky_row_style(row_idx, len(display_row), risky_tip)
@@ -1444,82 +830,36 @@ class RaceBookApp(QMainWindow):
 
     def _fetch_table_data(self) -> list[tuple]:
         cursor = self._db_conn.cursor()
-        cursor.execute(_table_data_sql())
+        cursor.execute(table_data_sql())
         return cursor.fetchall()
 
-    def _build_display_row(self, row_data: tuple) -> tuple[list, int, int | None, bool, str]:
-        (
-            name,
-            avg_inc,
-            avg_fin,
-            total_races,
-            last_ir,
-            last_sr,
-            last_series,
-            avg_pos_delta,
-            cust_id,
-            race_preference,
-            dnf_total,
-            disc,
-            eject,
-            quit_,
-            dq,
-            other,
-            has_notes,
-        ) = row_data
-        cid = int(cust_id)
-        pref = _sqlite_row_to_int(race_preference)
-        breakdown = _format_dnf_breakdown(disc, eject, quit_, dq, other) or "—"
-        has_note = bool(has_notes)
-
-        safety = compute_safety_index(
-            avg_inc=avg_inc,
-            total_races=total_races,
-            dnf_total=dnf_total,
-            avg_pos_delta=avg_pos_delta,
-        )
-        risky = safety.risky
-        risky_tooltip = safety_tooltip(safety) if risky else ""
+    def _build_display_row(self, row_data: tuple) -> tuple[list, int, int | None, bool, str, SafetyIndex]:
+        driver = DriverTableRow.from_sql_row(row_data)
+        safety = driver.safety
+        breakdown = driver.dnf_breakdown or "—"
+        risky_tooltip = safety_tooltip(safety) if safety.risky else ""
         return (
             [
-                name,
-                total_races,
-                avg_inc,
-                avg_fin,
-                avg_pos_delta,
-                dnf_total,
-                last_sr,
-                last_ir,
-                last_series,
+                driver.name,
+                driver.total_races,
+                safety.score if safety.tier != "unknown" else None,
+                driver.avg_inc,
+                driver.avg_fin,
+                driver.avg_pos_delta,
+                driver.dnf_total,
+                driver.last_sr,
+                driver.last_ir,
+                driver.last_series,
                 breakdown,
-                has_note,
-                cid,
+                driver.has_notes,
+                driver.cust_id,
             ],
-            cid,
-            pref,
-            risky,
+            driver.cust_id,
+            driver.race_preference,
+            safety.risky,
             risky_tooltip,
+            safety,
         )
-
-    def _make_table_item(self, value) -> QTableWidgetItem:
-        item = QTableWidgetItem()
-        if value is None:
-            item.setText("N/A")
-        else:
-            if isinstance(value, (int, float)):
-                item.setData(Qt.ItemDataRole.EditRole, value)
-            item.setText(str(value))
-        item.setFlags(item.flags() ^ Qt.ItemFlag.ItemIsEditable)
-        return item
-
-    def _make_note_item(self, has_note: bool) -> QTableWidgetItem:
-        item = QTableWidgetItem(NOTE_INDICATOR if has_note else "")
-        item.setFlags(item.flags() ^ Qt.ItemFlag.ItemIsEditable)
-        item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-        item.setData(Qt.ItemDataRole.UserRole, 1 if has_note else 0)
-        if has_note:
-            item.setToolTip("Has scouting notes")
-        return item
 
     def _render_table_row(
         self,
@@ -1528,12 +868,15 @@ class RaceBookApp(QMainWindow):
         cust_id: int,
         pref: int | None = None,
         risky: bool = False,
+        safety: SafetyIndex | None = None,
     ) -> None:
         for col_idx, value in enumerate(display_row):
-            if col_idx == COL_NOTE:
-                item = self._make_note_item(bool(value))
+            if col_idx == COL_SAFETY and safety is not None:
+                item = make_safety_item(safety)
+            elif col_idx == COL_NOTE:
+                item = make_note_item(bool(value))
             else:
-                item = self._make_table_item(value)
+                item = make_table_item(value)
             if col_idx == COL_NAME:
                 item.setData(Qt.ItemDataRole.UserRole, cust_id)
                 item.setData(PREF_DATA_ROLE, pref)
@@ -1549,13 +892,18 @@ class RaceBookApp(QMainWindow):
             return
 
         for col_idx in range(col_count):
+            if col_idx == COL_SAFETY:
+                continue
             it = self.table.item(row_idx, col_idx)
             if it is not None:
                 it.setBackground(bg)
                 it.setForeground(ROW_FG_FOR_HIGHLIGHT)
+        reapply_safety_cell_style(self.table, row_idx)
 
     def _apply_risky_row_style(self, row_idx: int, col_count: int, tooltip: str) -> None:
         for col_idx in range(col_count):
+            if col_idx == COL_SAFETY:
+                continue
             it = self.table.item(row_idx, col_idx)
             if it is None:
                 continue
@@ -1563,6 +911,7 @@ class RaceBookApp(QMainWindow):
             if tooltip:
                 existing = it.toolTip() or ""
                 it.setToolTip(tooltip if not existing else f"{existing}\n\n{tooltip}")
+        reapply_safety_cell_style(self.table, row_idx)
 
     def on_driver_selected(self):
         selected_ranges = self.table.selectedRanges()
@@ -1604,7 +953,7 @@ class RaceBookApp(QMainWindow):
 
         last_seen_at = row[0]
         notes = row[1] or ""
-        pref = _sqlite_row_to_int(row[2])
+        pref = sqlite_row_to_int(row[2])
         return last_seen_at, notes, pref
 
     def _update_preference_buttons(self, pref: int | None):
@@ -1634,7 +983,7 @@ class RaceBookApp(QMainWindow):
         row_idx = self._row_for_cust_id(cust_id)
         if row_idx is None:
             return
-        self.table.setItem(row_idx, COL_NOTE, self._make_note_item(has_note))
+        self.table.setItem(row_idx, COL_NOTE, make_note_item(has_note))
 
     def _clear_row_style(self, row_idx: int) -> None:
         for col_idx in range(self.table.columnCount()):
@@ -1694,7 +1043,7 @@ class RaceBookApp(QMainWindow):
             if name_item is not None:
                 name_item.setData(PREF_DATA_ROLE, pref)
             if pref is None:
-                self._clear_row_style(row_idx)
+                self._restore_row_background(row_idx)
             else:
                 self._apply_preference_row_style(row_idx, self.table.columnCount(), pref)
 
@@ -1708,6 +1057,7 @@ class RaceBookApp(QMainWindow):
         total_files = 0
         total_races_imported = 0
         total_results_imported = 0
+        total_results_updated = 0
         total_results_skipped = 0
         errors: list[str] = []
 
@@ -1722,13 +1072,13 @@ class RaceBookApp(QMainWindow):
                 with open(file_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
 
-                races, series_name, race_timestamp = _parse_races_from_json(data)
+                races, series_name, race_timestamp = parse_races_from_json(data)
                 license_text_fallback = None
                 if isinstance(data, dict) and isinstance(data.get("data"), dict):
                     cat = data["data"].get("license_category")
                     license_text_fallback = str(cat) if cat else None
 
-                races_imported, results_imported, results_skipped = _import_race_entries(
+                races_imported, results_imported, results_updated, results_skipped = import_race_entries(
                     cursor,
                     races,
                     series_name,
@@ -1738,9 +1088,10 @@ class RaceBookApp(QMainWindow):
 
                 total_races_imported += races_imported
                 total_results_imported += results_imported
+                total_results_updated += results_updated
                 total_results_skipped += results_skipped
 
-                if results_imported == 0 and results_skipped == 0:
+                if results_imported == 0 and results_updated == 0 and results_skipped == 0:
                     errors.append(f"{file_path}: no race results found/imported")
 
                 del data, races
@@ -1752,28 +1103,27 @@ class RaceBookApp(QMainWindow):
         conn.commit()
         self._run_data_retention_purge()
         logger.info(
-            "Import finished: files=%s races=%s results=%s skipped=%s errors=%s",
+            "Import finished: files=%s races=%s new=%s updated=%s skipped=%s errors=%s",
             total_files,
             total_races_imported,
             total_results_imported,
+            total_results_updated,
             total_results_skipped,
             len(errors),
         )
 
         self.refresh_ui_table()
 
-        if total_results_imported == 0 and total_results_skipped > 0:
+        if total_results_imported == 0 and total_results_updated == 0 and total_results_skipped > 0:
             QMessageBox.information(
                 self,
-                "Data Already Saved",
-                "This race session is already saved in your database.\n\n"
-                f"{total_results_skipped} driver result(s) were not imported again "
-                "(matched by subsession ID).\n\n"
-                "Your stats and scouting notes were not changed.",
+                "Import Completed",
+                f"No new or updated results — {total_results_skipped} row(s) skipped "
+                "(missing subsession ID or duplicate without subsession ID).",
             )
             return
 
-        if total_results_imported == 0:
+        if total_results_imported == 0 and total_results_updated == 0:
             QMessageBox.warning(
                 self,
                 "Import Completed (No Results Found)",
@@ -1782,17 +1132,18 @@ class RaceBookApp(QMainWindow):
                 "Supported:\n"
                 "- iRacing 'event_result' JSON (imports Race session), or\n"
                 "- custom {'races': [...]} format.\n\n"
-                "Each result is stored once per driver per subsession ID; re-importing the same "
-                "session does not duplicate stats.\n\n"
+                "Results with a subsession ID are updated if that session was already imported.\n\n"
                 + ("\n\nDetails:\n" + "\n".join(errors[:10]) if errors else ""),
             )
             return
 
         detail = ""
+        if total_results_updated:
+            detail += f"\n\nUpdated {total_results_updated} existing result(s) with new session data."
         if total_results_skipped:
-            detail = (
-                f"\n\n{total_results_skipped} driver result(s) were already saved and were not "
-                "imported again."
+            detail += (
+                f"\n\n{total_results_skipped} result(s) skipped "
+                "(no subsession ID or duplicate without subsession ID)."
             )
         if errors:
             detail += "\n\nSome files had issues:\n" + "\n".join(errors[:10])
@@ -1800,16 +1151,22 @@ class RaceBookApp(QMainWindow):
                 detail += f"\n... and {len(errors) - 10} more."
 
         title = "Import Complete"
-        if total_results_skipped and not total_results_imported:
-            title = "Data Already Saved"
-        elif total_results_skipped:
-            title = "Import Complete — Some Data Already Saved"
+        if total_results_updated and not total_results_imported:
+            title = "Import Complete — Session Updated"
+        elif total_results_updated:
+            title = "Import Complete — New & Updated"
+
+        parts = []
+        if total_results_imported:
+            parts.append(f"{total_results_imported} new")
+        if total_results_updated:
+            parts.append(f"{total_results_updated} updated")
+        summary = " and ".join(parts) + " driver result(s)" if parts else "0 driver result(s)"
 
         QMessageBox.information(
             self,
             title,
-            f"Imported {total_results_imported} new driver result(s) across "
-            f"{total_races_imported} race(s) from {total_files} file(s)."
+            f"Imported {summary} across {total_races_imported} race(s) from {total_files} file(s)."
             + detail,
         )
 

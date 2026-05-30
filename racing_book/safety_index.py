@@ -143,6 +143,16 @@ def compute_safety_index(
     )
 
 
+def empty_safety() -> SafetyIndex:
+    """Safety index for drivers with no usable history (cleared UI, unknown drivers)."""
+    return compute_safety_index(
+        avg_inc=None,
+        total_races=0,
+        dnf_total=0,
+        avg_pos_delta=None,
+    )
+
+
 def safety_tooltip(safety: SafetyIndex) -> str:
     if safety.tier == "unknown":
         return f"Safety Index: {safety.profile}"
@@ -151,3 +161,51 @@ def safety_tooltip(safety: SafetyIndex) -> str:
         *safety.reasons,
     ]
     return "\n".join(lines)
+
+
+TIER_COLORS_HEX = {
+    "low": "#6ee7a8",
+    "moderate": "#f5c26b",
+    "high": "#f08080",
+    "unknown": "#9aa3b2",
+}
+
+TIER_COLORS_RGB = {
+    "low": (110, 231, 168),
+    "moderate": (245, 194, 107),
+    "high": (240, 128, 128),
+    "unknown": (154, 163, 178),
+}
+
+TIER_LABELS = {
+    "low": "Low risk",
+    "moderate": "Moderate risk",
+    "high": "High risk",
+}
+
+
+def tier_color_hex(tier: str) -> str:
+    return TIER_COLORS_HEX.get(tier, TIER_COLORS_HEX["unknown"])
+
+
+def tier_qcolor(tier: str):
+    from PyQt6.QtGui import QColor
+
+    r, g, b = TIER_COLORS_RGB.get(tier, TIER_COLORS_RGB["unknown"])
+    return QColor(r, g, b)
+
+
+def tier_label(tier: str) -> str:
+    return TIER_LABELS.get(tier, "")
+
+
+def unknown_history_message(total_races: int, *, for_table: bool = False) -> str:
+    if total_races > 0:
+        return "Not enough races for Safety Index (need 3+)" if for_table else "Not enough history to determine risk"
+    return "No race history in book"
+
+
+def live_sort_score(safety: SafetyIndex, total_races: int) -> float:
+    if safety.tier != "unknown":
+        return safety.score
+    return 0.0 if total_races > 0 else -1.0
