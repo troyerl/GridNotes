@@ -36,6 +36,7 @@ a = Analysis(
         "racing_book.driver_table",
         "racing_book.iracing_import",
         "racing_book.iracing_worker",
+        "racing_book.import_worker",
         "racing_book.live_session",
         "racing_book.queries",
         "racing_book.racebook_app",

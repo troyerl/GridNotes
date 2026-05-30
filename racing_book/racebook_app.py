@@ -1,10 +1,10 @@
-import json
 import logging
 
 from PyQt6.QtCore import QEvent, Qt
 from PyQt6.QtGui import QFont, QTextCursor
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QFileDialog,
     QFrame,
     QGridLayout,
@@ -49,8 +49,9 @@ from .driver_table import (
     refresh_driver_table_row,
     set_driver_table_hover_row,
 )
+from .import_worker import ImportJobResult, ImportWorker
 from .iracing_worker import IRacingWorker
-from .iracing_import import import_race_entries, parse_races_from_json, sync_live_session_drivers
+from .iracing_import import sync_live_session_drivers
 from .live_session import LiveSessionView
 from .queries import driver_detail_sql, table_data_sql
 from .safety_index import SafetyIndex, empty_safety, safety_tooltip
@@ -84,6 +85,7 @@ class RaceBookApp(QMainWindow):
         self.current_subsession_id = 0
         self.selected_cust_id = None
         self.worker = None
+        self._import_worker: ImportWorker | None = None
         self.active_cust_ids: set[int] = set()
         self.active_driver_names: dict[int, str] = {}
         self._hover_row: int | None = None
@@ -628,14 +630,14 @@ class RaceBookApp(QMainWindow):
         set_setting("ignore_driver_name", (self.ignore_name_input.text() or "").strip() or None)
         self.apply_driver_filters()
 
-    def _run_data_retention_purge(self, *, show_status: bool = False) -> int:
+    def _run_data_retention_purge(self, *, show_status: bool = False, refresh: bool = True) -> int:
         retention = get_setting(SETTING_KEY, DEFAULT_RETENTION) or DEFAULT_RETENTION
         deleted = purge_expired_race_results(self._db_conn, retention)
         if deleted:
             self._db_conn.commit()
             if self.selected_cust_id is not None:
                 self._populate_driver_details(self.selected_cust_id)
-            if hasattr(self, "table"):
+            if refresh and hasattr(self, "table"):
                 self.refresh_ui_table()
         if show_status and hasattr(self, "settings_tab"):
             self.settings_tab.show_purge_result(deleted)
@@ -779,6 +781,8 @@ class RaceBookApp(QMainWindow):
 
     def refresh_ui_table(self):
         rows = self._fetch_table_data()
+        row_count = len(rows)
+        process_every = 50 if row_count > 200 else 0
 
         was_sorting = self.table.isSortingEnabled()
         if was_sorting:
@@ -788,22 +792,22 @@ class RaceBookApp(QMainWindow):
         self.table.setUpdatesEnabled(False)
         try:
             self.table.clearContents()
-            self.table.setRowCount(len(rows))
+            self.table.setRowCount(row_count)
             for row_idx, row_data in enumerate(rows):
                 display_row, cust_id, pref, risky, risky_tip, safety = self._build_display_row(row_data)
                 self._render_table_row(row_idx, display_row, cust_id, pref, risky=risky, safety=safety)
                 if risky:
                     self._apply_risky_row_style(row_idx, risky_tip)
+                if process_every and row_idx % process_every == 0:
+                    QApplication.processEvents()
         finally:
             self.table.setUpdatesEnabled(True)
             self.table.viewport().update()
 
         if was_sorting:
             self.table.setSortingEnabled(True)
-        self.table.sortByColumn(COL_NAME, Qt.SortOrder.AscendingOrder)
+        # Rows are loaded in name order from SQL; avoid an expensive re-sort pass.
         self.table.horizontalHeader().setSortIndicator(COL_NAME, Qt.SortOrder.AscendingOrder)
-        # resizeColumnsToContents() is extremely expensive with many rows and can freeze the UI.
-        # Header resize modes handle most sizing; do a single resize pass only on first draw.
         if not self._did_initial_column_resize:
             self.table.resizeColumnsToContents()
             self._did_initial_column_resize = True
@@ -1004,71 +1008,68 @@ class RaceBookApp(QMainWindow):
             refresh_driver_table_row(self.table, row_idx)
 
     def import_json_data(self):
+        if self._import_worker is not None and self._import_worker.isRunning():
+            QMessageBox.information(
+                self,
+                "Import In Progress",
+                "An import is already running. Please wait for it to finish.",
+            )
+            return
+
         file_paths, _ = QFileDialog.getOpenFileNames(
             self, "Open Historic Race Log(s)", "", "JSON Files (*.json)"
         )
         if not file_paths:
             return
 
-        total_files = 0
-        total_races_imported = 0
-        total_results_imported = 0
-        total_results_updated = 0
-        total_results_skipped = 0
-        errors: list[str] = []
+        self.btn_import.setEnabled(False)
+        self._set_status(STATUS_WAITING, "Importing race data…")
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
 
-        conn = self._db_conn
-        cursor = conn.cursor()
+        self._import_worker = ImportWorker(file_paths, self)
+        self._import_worker.finished.connect(self._on_import_finished)
+        self._import_worker.failed.connect(self._on_import_failed)
+        self._import_worker.start()
 
-        for file_path in file_paths:
-            if not file_path:
-                continue
-            total_files += 1
-            try:
-                with open(file_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
+    def _finish_import_ui(self) -> None:
+        QApplication.restoreOverrideCursor()
+        self.btn_import.setEnabled(True)
+        if self._sdk_connected:
+            self._set_status(STATUS_CONNECTED, "Connected to iRacing")
+        else:
+            self._set_status(STATUS_OFFLINE, "Not connected to iRacing")
 
-                races, series_name, race_timestamp = parse_races_from_json(data)
-                license_text_fallback = None
-                if isinstance(data, dict) and isinstance(data.get("data"), dict):
-                    cat = data["data"].get("license_category")
-                    license_text_fallback = str(cat) if cat else None
-
-                races_imported, results_imported, results_updated, results_skipped = import_race_entries(
-                    cursor,
-                    races,
-                    series_name,
-                    race_timestamp,
-                    license_text_fallback,
-                )
-
-                total_races_imported += races_imported
-                total_results_imported += results_imported
-                total_results_updated += results_updated
-                total_results_skipped += results_skipped
-
-                if results_imported == 0 and results_updated == 0 and results_skipped == 0:
-                    errors.append(f"{file_path}: no race results found/imported")
-
-                del data, races
-
-            except Exception as e:
-                logger.exception("Import failed for %s", file_path)
-                errors.append(f"{file_path}: {e}")
-
-        conn.commit()
-        self._run_data_retention_purge()
-        logger.info(
-            "Import finished: files=%s races=%s new=%s updated=%s skipped=%s errors=%s",
-            total_files,
-            total_races_imported,
-            total_results_imported,
-            total_results_updated,
-            total_results_skipped,
-            len(errors),
+    def _on_import_failed(self, message: str) -> None:
+        self._finish_import_ui()
+        QMessageBox.critical(
+            self,
+            "Import Failed",
+            f"The import could not be completed.\n\n{message}",
         )
 
+    def _on_import_finished(self, result: ImportJobResult) -> None:
+        self._finish_import_ui()
+
+        if result.retention_deleted and self.selected_cust_id is not None:
+            row = self._row_for_cust_id(self.selected_cust_id)
+            if row is None:
+                self.selected_cust_id = None
+                self._clear_driver_details()
+                self._set_driver_panel_enabled(False)
+                self.table.clearSelection()
+            else:
+                self._populate_driver_details(self.selected_cust_id)
+
         self.refresh_ui_table()
+        if hasattr(self, "settings_tab"):
+            self.settings_tab.refresh_storage_info()
+
+        total_files = result.total_files
+        total_races_imported = result.total_races_imported
+        total_results_imported = result.total_results_imported
+        total_results_updated = result.total_results_updated
+        total_results_skipped = result.total_results_skipped
+        errors = result.errors
 
         if total_results_imported == 0 and total_results_updated == 0 and total_results_skipped > 0:
             QMessageBox.information(
@@ -1128,6 +1129,8 @@ class RaceBookApp(QMainWindow):
 
     def closeEvent(self, event):
         logger.info("Application closing")
+        if self._import_worker is not None and self._import_worker.isRunning():
+            self._import_worker.wait(30000)
         if self.worker is not None:
             self.worker.stop()
         if hasattr(self, "_db_conn"):
