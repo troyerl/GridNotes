@@ -1,8 +1,6 @@
 import json
 import logging
 import sqlite3
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
 from PyQt6.QtCore import QEvent, Qt
 from PyQt6.QtGui import QColor, QFont, QTextCursor
@@ -39,6 +37,7 @@ from .live_session import LiveSessionView
 from .safety_index import compute_safety_index, safety_tooltip
 from .safety_widgets import SafetyIndexPanel
 from .settings_tab import SettingsTab
+from .timestamps import format_last_seen_et
 from .theme import (
     STATUS_CONNECTED,
     STATUS_OFFLINE,
@@ -186,7 +185,16 @@ def _driver_detail_sql() -> str:
         )
         SELECT
             d.driver_name,
-            d.last_seen_at,
+            COALESCE(
+                NULLIF(TRIM(d.last_seen_at), ''),
+                (
+                    SELECT MAX(r.race_at)
+                    FROM race_results r
+                    WHERE r.cust_id = d.cust_id
+                      AND r.race_at IS NOT NULL
+                      AND TRIM(r.race_at) != ''
+                )
+            ) AS last_seen_at,
             d.last_series,
             a.avg_inc,
             a.avg_fin,
@@ -293,27 +301,6 @@ def _sr_from_sub_level(sub_level: int | None) -> float | None:
     if sub_level < 0:
         return None
     return round(sub_level / 100.0, 2)
-
-
-def _format_last_seen_et_mmddyyyy_hm(last_seen_at: str | None) -> str:
-    """
-    Convert stored ISO timestamp (typically UTC like 2026-05-27T01:51:32Z)
-    to Eastern Time and format as MM/DD/YYYY h:mm AM/PM.
-    """
-    if not last_seen_at or not isinstance(last_seen_at, str):
-        return "N/A"
-    try:
-        s = last_seen_at.strip()
-        if s.endswith("Z"):
-            s = s[:-1] + "+00:00"
-        dt = datetime.fromisoformat(s)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=ZoneInfo("UTC"))
-        et = dt.astimezone(ZoneInfo("America/New_York"))
-        # Example: 05/26/2026 9:51 PM
-        return et.strftime("%m/%d/%Y %-I:%M %p")
-    except Exception:
-        return "N/A"
 
 
 def _sqlite_row_to_int(value) -> int | None:
@@ -894,7 +881,7 @@ class RaceBookApp(QMainWindow):
             other,
         ) = row
 
-        last_seen_fmt = _format_last_seen_et_mmddyyyy_hm(last_seen_at)
+        last_seen_fmt = format_last_seen_et(last_seen_at)
         breakdown = _format_dnf_breakdown(disc, eject, quit_, dq, other)
 
         self.driver_name_label.setText(name or "Unknown driver")

@@ -78,11 +78,15 @@ def _refresh_driver_last_seen(cursor: sqlite3.Cursor) -> None:
     cursor.execute(
         """
         UPDATE drivers
-        SET last_seen_at = (
-            SELECT MAX(r.race_at)
-            FROM race_results r
-            WHERE r.cust_id = drivers.cust_id
-              AND r.race_at IS NOT NULL
+        SET last_seen_at = COALESCE(
+            (
+                SELECT MAX(r.race_at)
+                FROM race_results r
+                WHERE r.cust_id = drivers.cust_id
+                  AND r.race_at IS NOT NULL
+                  AND TRIM(r.race_at) != ''
+            ),
+            last_seen_at
         )
         WHERE EXISTS (
             SELECT 1 FROM race_results r WHERE r.cust_id = drivers.cust_id

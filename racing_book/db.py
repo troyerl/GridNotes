@@ -82,7 +82,9 @@ def _migrate_schema(cursor: sqlite3.Cursor) -> None:
     _ensure_column(cursor, "race_results", "race_at", "TEXT")  # ISO race end/start time
 
     _backfill_race_at(cursor)
-    # Not perfect, but better than leaving historical data unfilterable.
+    _sync_driver_last_seen_from_results(cursor)
+
+    # Backfill older imports (pre-series_name) with best available info.
     try:
         cursor.execute(
             """
@@ -148,6 +150,43 @@ def _backfill_race_at(cursor: sqlite3.Cursor) -> None:
                     AND d.last_seen_at IS NOT NULL
                     AND TRIM(d.last_seen_at) != ''
               )
+            """
+        )
+    except Exception:
+        pass
+
+
+def _sync_driver_last_seen_from_results(cursor: sqlite3.Cursor) -> None:
+    """Repair last_seen_at from race result timestamps when missing or stale."""
+    try:
+        cursor.execute(
+            """
+            UPDATE drivers
+            SET last_seen_at = (
+                SELECT MAX(r.race_at)
+                FROM race_results r
+                WHERE r.cust_id = drivers.cust_id
+                  AND r.race_at IS NOT NULL
+                  AND TRIM(r.race_at) != ''
+            )
+            WHERE EXISTS (
+                SELECT 1
+                FROM race_results r
+                WHERE r.cust_id = drivers.cust_id
+                  AND r.race_at IS NOT NULL
+                  AND TRIM(r.race_at) != ''
+            )
+            AND (
+                last_seen_at IS NULL
+                OR TRIM(COALESCE(last_seen_at, '')) = ''
+                OR last_seen_at < (
+                    SELECT MAX(r.race_at)
+                    FROM race_results r
+                    WHERE r.cust_id = drivers.cust_id
+                      AND r.race_at IS NOT NULL
+                      AND TRIM(r.race_at) != ''
+                )
+            )
             """
         )
     except Exception:
