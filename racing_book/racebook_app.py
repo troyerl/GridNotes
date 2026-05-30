@@ -45,6 +45,7 @@ from .driver_table import (
     make_note_item,
     make_safety_item,
     make_table_item,
+    configure_driver_table_widget,
     reapply_safety_cell_style,
 )
 from .iracing_worker import IRacingWorker
@@ -444,9 +445,7 @@ class RaceBookApp(QMainWindow):
         self.table.setHorizontalHeaderLabels(DRIVER_TABLE_HEADERS)
         self.table.horizontalHeader().setSortIndicatorShown(True)
         self.table.setSortingEnabled(True)
-        self.table.setAlternatingRowColors(True)
-        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.table.setShowGrid(False)
+        configure_driver_table_widget(self.table)
         self.table.verticalHeader().setVisible(False)
         self.table.setToolTip("Click a row to open scouting notes")
         self.table.itemSelectionChanged.connect(self.on_driver_selected)

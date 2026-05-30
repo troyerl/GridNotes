@@ -81,7 +81,7 @@ QFrame#panel {
     border-radius: 10px;
 }
 
-QLineEdit, QTextEdit, QTableWidget {
+QLineEdit, QTextEdit {
     background-color: #1a1e24;
     color: #e8eaed;
     border: 1px solid #3d4654;
@@ -250,32 +250,44 @@ QScrollArea#driverDetailScroll > QWidget > QWidget {
     background: transparent;
 }
 
-QTableWidget {
-    gridline-color: #2e3642;
-    alternate-background-color: #1e232b;
-}
-
 QTableWidget#driverTable {
     font-size: 14px;
+    background-color: #1a1e24;
+    alternate-background-color: #1e232b;
+    color: #e8eaed;
+    border: 1px solid #3d4654;
+    border-radius: 6px;
+    padding: 0;
+    selection-background-color: #3d6ebf;
+    selection-color: #ffffff;
+    outline: none;
 }
 
 QTableWidget::item {
     padding: 4px 6px;
+    border: none;
+    outline: none;
 }
 
 QTableWidget#driverTable::item {
     padding: 8px 10px;
+    border: none;
+    outline: none;
 }
 
 /* Row hover is applied in code across the full row */
 QTableWidget::item:focus,
-QTableView::item:focus {
+QTableWidget::item:selected:focus,
+QTableView::item:focus,
+QTableView::item:selected:focus {
+    border: none;
     outline: none;
 }
 
 QTableWidget::item:selected {
     background-color: #2d4a7a;
     color: #ffffff;
+    border: none;
 }
 
 QHeaderView::section {

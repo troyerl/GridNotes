@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
-from PyQt6.QtWidgets import QTableWidget, QTableWidgetItem
+from PyQt6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem, QTableWidget, QTableWidgetItem
 
 from .safety_index import (
     SafetyIndex,
@@ -62,6 +62,25 @@ RESIZE_TO_CONTENTS_COLUMNS = (
     COL_NOTE,
     COL_DNF_BREAKDOWN,
 )
+
+
+class NoCellFocusDelegate(QStyledItemDelegate):
+    """Suppress the per-cell focus border; row selection styling is enough."""
+
+    def paint(self, painter, option, index):
+        opt = QStyleOptionViewItem(option)
+        opt.state &= ~QStyle.StateFlag.State_HasFocus
+        super().paint(painter, opt, index)
+
+
+def configure_driver_table_widget(table: QTableWidget) -> None:
+    """Shared table behavior: row-only selection look (no cell focus ring)."""
+    table.setItemDelegate(NoCellFocusDelegate(table))
+    table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+    table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+    table.setShowGrid(False)
+    table.setAlternatingRowColors(True)
+    table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
 
 def make_table_item(value) -> QTableWidgetItem:
