@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QShowEvent
 from PyQt6.QtWidgets import (
     QComboBox,
     QGroupBox,
@@ -13,7 +14,8 @@ from PyQt6.QtWidgets import (
 )
 
 from .data_retention import DEFAULT_RETENTION, RETENTION_OPTIONS, SETTING_KEY, retention_label
-from .db import get_data_dir_path, get_setting, set_setting
+from .db import get_data_dir_path, get_db_file_size, get_db_path, get_setting, set_setting
+from .utils import format_file_size
 
 
 class SettingsTab(QWidget):
@@ -79,16 +81,40 @@ class SettingsTab(QWidget):
         data_hint = QLabel("Local database and settings are stored at:")
         data_hint.setObjectName("sectionHint")
         data_layout.addWidget(data_hint)
-        path_label = QLabel(str(get_data_dir_path()))
-        path_label.setObjectName("statValue")
-        path_label.setWordWrap(True)
-        path_label.setTextInteractionFlags(
+        self.data_dir_label = QLabel(str(get_data_dir_path()))
+        self.data_dir_label.setObjectName("sectionHint")
+        self.data_dir_label.setWordWrap(True)
+        self.data_dir_label.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse
         )
-        data_layout.addWidget(path_label)
+        data_layout.addWidget(self.data_dir_label)
+
+        db_hint = QLabel("Database file:")
+        db_hint.setObjectName("statInlineLabel")
+        data_layout.addWidget(db_hint)
+        self.db_path_label = QLabel("")
+        self.db_path_label.setObjectName("statValue")
+        self.db_path_label.setWordWrap(True)
+        self.db_path_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        data_layout.addWidget(self.db_path_label)
+        self.refresh_storage_info()
         layout.addWidget(data_group)
 
         layout.addStretch()
+
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        self.refresh_storage_info()
+
+    def refresh_storage_info(self) -> None:
+        db_path = get_db_path()
+        size_bytes = get_db_file_size()
+        if size_bytes is None:
+            self.db_path_label.setText(f"{db_path}  ·  —")
+        else:
+            self.db_path_label.setText(f"{db_path}  ·  {format_file_size(size_bytes)}")
 
     def current_retention_value(self) -> str:
         value = self.retention_combo.currentData()
@@ -105,6 +131,7 @@ class SettingsTab(QWidget):
         self.settings_saved.emit()
 
     def show_purge_result(self, deleted: int) -> None:
+        self.refresh_storage_info()
         policy = retention_label(self.current_retention_value())
         if deleted:
             self.retention_status.setText(

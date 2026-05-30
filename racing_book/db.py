@@ -39,6 +39,14 @@ def get_db_path() -> str:
     return str(_get_data_dir() / "driver_history.db")
 
 
+def get_db_file_size() -> int | None:
+    path = _get_data_dir() / "driver_history.db"
+    try:
+        return path.stat().st_size
+    except OSError:
+        return None
+
+
 DB_NAME = get_db_path()
 
 
