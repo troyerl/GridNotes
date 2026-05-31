@@ -1,6 +1,6 @@
 import logging
 
-from PyQt6.QtCore import QEvent, Qt
+from PyQt6.QtCore import QEvent, Qt, QTimer
 from PyQt6.QtGui import QFont, QTextCursor
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -30,6 +30,7 @@ from PyQt6.QtWidgets import (
 
 from .data_retention import DEFAULT_RETENTION, SETTING_KEY, purge_expired_race_results
 from .db import connect_db, get_setting, init_db, set_setting
+from .driver_cleanup import count_zero_race_drivers, purge_zero_race_drivers
 from .driver_models import DriverDetailRow, DriverTableRow, build_live_session_entries
 from .driver_table import (
     COL_CUST_ID,
@@ -53,7 +54,8 @@ from .import_worker import ImportJobResult, ImportWorker
 from .iracing_worker import IRacingWorker
 from .iracing_import import sync_live_session_drivers
 from .live_session import LiveSessionView
-from .queries import driver_detail_sql, table_data_sql
+from .queries import driver_detail_sql, table_data_for_cust_ids_sql, table_data_sql
+from .session_kind import is_race_session, session_kind_label
 from .safety_index import SafetyIndex, empty_safety, safety_tooltip
 from .safety_widgets import SafetyIndexPanel
 from .settings_tab import SettingsTab
@@ -83,9 +85,15 @@ class RaceBookApp(QMainWindow):
         self.resize(1440, 860)
 
         self.current_subsession_id = 0
+        self.current_session_kind = ""
         self.selected_cust_id = None
         self.worker = None
         self._import_worker: ImportWorker | None = None
+        self._table_refresh_timer = QTimer(self)
+        self._table_refresh_timer.setSingleShot(True)
+        self._table_refresh_timer.setInterval(750)
+        self._table_refresh_timer.timeout.connect(self._refresh_ui_table_now)
+        self._last_table_fingerprint: tuple | None = None
         self.active_cust_ids: set[int] = set()
         self.active_driver_names: dict[int, str] = {}
         self._hover_row: int | None = None
@@ -226,7 +234,12 @@ class RaceBookApp(QMainWindow):
             self._refresh_live_session_view()
 
     def _build_live_session_entries(self) -> list[dict]:
-        rows = [DriverTableRow.from_sql_row(row) for row in self._fetch_table_data()]
+        if not self.active_cust_ids:
+            return []
+        cursor = self._db_conn.cursor()
+        sql, params = table_data_for_cust_ids_sql(sorted(self.active_cust_ids))
+        cursor.execute(sql, params)
+        rows = [DriverTableRow.from_sql_row(row) for row in cursor.fetchall()]
         return build_live_session_entries(
             self.active_cust_ids,
             self.active_driver_names,
@@ -236,15 +249,16 @@ class RaceBookApp(QMainWindow):
     def _refresh_live_session_view(self) -> None:
         if not hasattr(self, "live_session_view"):
             return
-        connected = self._sdk_connected
-        driver_count = len(self.active_cust_ids)
+        race_session = is_race_session(self.current_session_kind)
+        driver_count = len(self.active_cust_ids) if race_session else 0
         self.live_session_view.set_session_info(
-            connected=connected,
+            connected=self._sdk_connected,
             subsession_id=self.current_subsession_id,
             driver_count=driver_count,
+            session_kind=self.current_session_kind,
         )
-        if connected:
-            self.live_session_view.rebuild(self._build_live_session_entries())
+        if self._sdk_connected and race_session:
+            self.live_session_view.rebuild_if_changed(self._build_live_session_entries())
 
     def _on_live_driver_clicked(self, cust_id: int) -> None:
         self._set_live_mode(False)
@@ -354,6 +368,7 @@ class RaceBookApp(QMainWindow):
 
         self.settings_tab = SettingsTab()
         self.settings_tab.settings_saved.connect(self._on_settings_saved)
+        self.settings_tab.zero_race_cleanup_requested.connect(self._cleanup_zero_race_drivers)
         self.main_tabs.addTab(self.settings_tab, "Settings")
 
         database_panel = QWidget()
@@ -623,7 +638,7 @@ class RaceBookApp(QMainWindow):
 
         self._update_live_session_filter(active=False, hint=MSG_SESSION_NOT_CONNECTED)
         self._set_driver_panel_enabled(False)
-        self.refresh_ui_table()
+        self._refresh_ui_table_now(force=True)
         self.apply_driver_filters()
 
     def save_ignore_name(self):
@@ -652,6 +667,43 @@ class RaceBookApp(QMainWindow):
                 self._clear_driver_details()
                 self._set_driver_panel_enabled(False)
                 self.table.clearSelection()
+
+    def _cleanup_zero_race_drivers(self) -> None:
+        pending = count_zero_race_drivers(self._db_conn)
+        if pending == 0:
+            QMessageBox.information(
+                self,
+                "Nothing To Remove",
+                "There are no drivers with zero races in the database.",
+            )
+            self.settings_tab.show_zero_race_cleanup_result(0)
+            return
+
+        res = QMessageBox.question(
+            self,
+            "Remove Zero-Race Drivers?",
+            f"Remove {pending} driver(s) who have no imported race results?\n\n"
+            "Their scouting notes and like/dislike preferences will also be deleted.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if res != QMessageBox.StandardButton.Yes:
+            return
+
+        deleted = purge_zero_race_drivers(self._db_conn)
+        self._db_conn.commit()
+
+        if self.selected_cust_id is not None:
+            row = self._row_for_cust_id(self.selected_cust_id)
+            if row is None:
+                self.selected_cust_id = None
+                self._clear_driver_details()
+                self._set_driver_panel_enabled(False)
+                self.table.clearSelection()
+
+        self._invalidate_table_fingerprint()
+        self._refresh_ui_table_now(force=True)
+        self.settings_tab.show_zero_race_cleanup_result(deleted)
 
     def apply_driver_filters(self, *_):
         q = (self.search_input.text() or "").strip().lower()
@@ -709,7 +761,8 @@ class RaceBookApp(QMainWindow):
         self._clear_driver_details()
         self._set_driver_panel_enabled(False)
         self.table.clearSelection()
-        self.refresh_ui_table()
+        self._invalidate_table_fingerprint()
+        self._refresh_ui_table_now(force=True)
 
         QMessageBox.information(self, "Database Reset", "Database cleared successfully.")
 
@@ -732,17 +785,37 @@ class RaceBookApp(QMainWindow):
         self.worker.start()
         self._update_live_session_filter(active=False, hint=MSG_SESSION_NOT_CONNECTED)
 
-    def handle_sdk_connection(self, connected: bool, subsession_id: int) -> None:
+    def handle_sdk_connection(self, connected: bool, subsession_id: int, session_kind: str) -> None:
         self._sdk_connected = connected
         if connected:
-            label = f"Live — session #{subsession_id}" if subsession_id else "Live — connected to iRacing"
-            self._set_status(STATUS_CONNECTED, label)
-            self._update_live_session_filter(active=True, hint="")
+            self.current_session_kind = session_kind
             self.current_subsession_id = subsession_id
+            if is_race_session(session_kind):
+                label = (
+                    f"Live — session #{subsession_id}"
+                    if subsession_id
+                    else "Live — race session"
+                )
+                self._update_live_session_filter(active=True, hint="")
+            else:
+                label = f"Live — {session_kind_label(session_kind)} (race session only)"
+                self.active_cust_ids = set()
+                self.active_driver_names = {}
+                self._update_live_session_filter(
+                    active=False,
+                    hint=(
+                        f"Current session is {session_kind_label(session_kind)}. "
+                        "Driver sync is available during races only."
+                    ),
+                )
+                if hasattr(self, "chk_current_race_only"):
+                    self.chk_current_race_only.setChecked(False)
+            self._set_status(STATUS_CONNECTED, label)
             self._refresh_live_session_view()
             return
 
         self.current_subsession_id = 0
+        self.current_session_kind = ""
         self.active_cust_ids = set()
         self.active_driver_names = {}
         self._set_status(STATUS_WAITING, "Waiting for iRacing…")
@@ -751,13 +824,32 @@ class RaceBookApp(QMainWindow):
             self.chk_current_race_only.setChecked(False)
         self._refresh_live_session_view()
 
-    def handle_sdk_update(self, active_drivers, subsession_id):
+    def handle_sdk_update(self, active_drivers, subsession_id, session_kind):
         self.current_subsession_id = subsession_id
+        self.current_session_kind = session_kind
+
+        if not is_race_session(session_kind):
+            self.active_cust_ids = set()
+            self.active_driver_names = {}
+            status = f"Live — {session_kind_label(session_kind)} (race session only)"
+            self._set_status(STATUS_CONNECTED, status)
+            self._update_live_session_filter(
+                active=False,
+                hint=(
+                    f"Current session is {session_kind_label(session_kind)}. "
+                    "Driver sync is available during races only."
+                ),
+            )
+            if hasattr(self, "chk_current_race_only"):
+                self.chk_current_race_only.setChecked(False)
+            self._refresh_live_session_view()
+            return
+
         driver_count = len(active_drivers)
         if subsession_id:
             status = f"Live — session #{subsession_id} · {driver_count} drivers"
         else:
-            status = f"Live — connected · {driver_count} drivers"
+            status = f"Live — race session · {driver_count} drivers"
         self._set_status(STATUS_CONNECTED, status)
         self._update_live_session_filter(active=True, hint="")
 
@@ -772,17 +864,52 @@ class RaceBookApp(QMainWindow):
             if d.get("cust_id") is not None
         }
         cursor = self._db_conn.cursor()
-        added = sync_live_session_drivers(cursor, active_drivers)
-        if added:
+        added_ids = sync_live_session_drivers(cursor, active_drivers)
+        if added_ids:
             self._db_conn.commit()
-            self.refresh_ui_table()
-        self.apply_driver_filters()
+            self._insert_table_rows_for_cust_ids(added_ids)
+        if (
+            hasattr(self, "chk_current_race_only")
+            and self.chk_current_race_only.isChecked()
+        ):
+            self.apply_driver_filters()
         self._refresh_live_session_view()
 
-    def refresh_ui_table(self):
+    def schedule_table_refresh(self) -> None:
+        self._table_refresh_timer.start()
+
+    def refresh_ui_table(self) -> None:
+        self.schedule_table_refresh()
+
+    def _invalidate_table_fingerprint(self) -> None:
+        self._last_table_fingerprint = None
+
+    def _table_data_fingerprint(self, rows: list[tuple]) -> tuple:
+        return tuple(
+            (
+                row[8],  # cust_id
+                row[0],  # name
+                row[3],  # total_races
+                row[1],  # avg_inc
+                row[2],  # avg_fin
+                row[9],  # race_preference
+                row[16],  # has_notes
+                row[4],  # last_ir
+                row[5],  # last_sr
+                row[6],  # last_series
+            )
+            for row in rows
+        )
+
+    def _refresh_ui_table_now(self, *, force: bool = False) -> None:
         rows = self._fetch_table_data()
+        fingerprint = self._table_data_fingerprint(rows)
+        if not force and fingerprint == self._last_table_fingerprint:
+            return
+        self._last_table_fingerprint = fingerprint
+
         row_count = len(rows)
-        process_every = 50 if row_count > 200 else 0
+        selected_cust_id = self.selected_cust_id
 
         was_sorting = self.table.isSortingEnabled()
         if was_sorting:
@@ -790,23 +917,21 @@ class RaceBookApp(QMainWindow):
 
         self._clear_table_row_hover()
         self.table.setUpdatesEnabled(False)
+        self.table.blockSignals(True)
         try:
-            self.table.clearContents()
             self.table.setRowCount(row_count)
             for row_idx, row_data in enumerate(rows):
                 display_row, cust_id, pref, risky, risky_tip, safety = self._build_display_row(row_data)
                 self._render_table_row(row_idx, display_row, cust_id, pref, risky=risky, safety=safety)
                 if risky:
                     self._apply_risky_row_style(row_idx, risky_tip)
-                if process_every and row_idx % process_every == 0:
-                    QApplication.processEvents()
         finally:
+            self.table.blockSignals(False)
             self.table.setUpdatesEnabled(True)
             self.table.viewport().update()
 
         if was_sorting:
             self.table.setSortingEnabled(True)
-        # Rows are loaded in name order from SQL; avoid an expensive re-sort pass.
         self.table.horizontalHeader().setSortIndicator(COL_NAME, Qt.SortOrder.AscendingOrder)
         if not self._did_initial_column_resize:
             self.table.resizeColumnsToContents()
@@ -814,7 +939,56 @@ class RaceBookApp(QMainWindow):
         self.table.setColumnWidth(COL_NAME, max(self.table.columnWidth(COL_NAME), 180))
         self.table.setColumnWidth(COL_SERIES, max(self.table.columnWidth(COL_SERIES), 160))
         self.apply_driver_filters()
-        self._refresh_live_session_view()
+        if selected_cust_id is not None:
+            self._select_driver_row_by_cust_id(selected_cust_id)
+
+    def _find_insert_row(self, name: str) -> int:
+        name_lc = (name or "").lower()
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, COL_NAME)
+            row_name = (item.text() if item else "").lower()
+            if row_name > name_lc:
+                return row
+        return self.table.rowCount()
+
+    def _insert_table_rows_for_cust_ids(self, cust_ids: list[int]) -> None:
+        if not cust_ids:
+            return
+
+        cursor = self._db_conn.cursor()
+        sql, params = table_data_for_cust_ids_sql(sorted(cust_ids))
+        cursor.execute(sql, params)
+        new_rows = cursor.fetchall()
+        if not new_rows:
+            return
+
+        selected_cust_id = self.selected_cust_id
+        self.table.setUpdatesEnabled(False)
+        self.table.blockSignals(True)
+        try:
+            for row_data in sorted(new_rows, key=lambda row: (row[0] or "").lower(), reverse=True):
+                display_row, cust_id, pref, risky, risky_tip, safety = self._build_display_row(row_data)
+                insert_at = self._find_insert_row(display_row[COL_NAME])
+                self.table.insertRow(insert_at)
+                self._render_table_row(
+                    insert_at,
+                    display_row,
+                    cust_id,
+                    pref,
+                    risky=risky,
+                    safety=safety,
+                )
+                if risky:
+                    self._apply_risky_row_style(insert_at, risky_tip)
+        finally:
+            self.table.blockSignals(False)
+            self.table.setUpdatesEnabled(True)
+            self.table.viewport().update()
+
+        self._last_table_fingerprint = self._table_data_fingerprint(self._fetch_table_data())
+        self.apply_driver_filters()
+        if selected_cust_id is not None:
+            self._select_driver_row_by_cust_id(selected_cust_id)
 
     def _fetch_table_data(self) -> list[tuple]:
         cursor = self._db_conn.cursor()
@@ -1060,7 +1234,7 @@ class RaceBookApp(QMainWindow):
             else:
                 self._populate_driver_details(self.selected_cust_id)
 
-        self.refresh_ui_table()
+        self._refresh_ui_table_now(force=True)
         if hasattr(self, "settings_tab"):
             self.settings_tab.refresh_storage_info()
 

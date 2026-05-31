@@ -375,9 +375,9 @@ def import_race_entries(
     return (races_imported, results_imported, results_updated, results_skipped)
 
 
-def sync_live_session_drivers(cursor: sqlite3.Cursor, active_drivers: list[dict]) -> int:
-    """Ensure live session drivers exist in the book. Returns count of newly added drivers."""
-    added = 0
+def sync_live_session_drivers(cursor: sqlite3.Cursor, active_drivers: list[dict]) -> list[int]:
+    """Ensure live session drivers exist in the book. Returns newly added cust_ids."""
+    added_ids: list[int] = []
     for driver in active_drivers:
         if not isinstance(driver, dict):
             continue
@@ -389,5 +389,5 @@ def sync_live_session_drivers(cursor: sqlite3.Cursor, active_drivers: list[dict]
         existed = cursor.fetchone() is not None
         _upsert_driver(cursor, cust_id, name)
         if not existed:
-            added += 1
-    return added
+            added_ids.append(cust_id)
+    return added_ids

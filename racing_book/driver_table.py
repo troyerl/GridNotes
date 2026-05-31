@@ -17,6 +17,9 @@ from .utils import sqlite_row_to_int
 PREF_DATA_ROLE = Qt.ItemDataRole.UserRole + 1
 RISK_DATA_ROLE = Qt.ItemDataRole.UserRole + 2
 SAFETY_TIER_DATA_ROLE = Qt.ItemDataRole.UserRole + 3
+SAFETY_SORT_DATA_ROLE = Qt.ItemDataRole.UserRole + 4
+UNKNOWN_SAFETY_SORT = -1
+EMPTY_CELL = "—"
 
 COL_NAME = 0
 COL_RACES = 1
@@ -181,7 +184,7 @@ def refresh_driver_table_row(table: QTableWidget, row_idx: int) -> None:
 def make_table_item(value) -> QTableWidgetItem:
     item = QTableWidgetItem()
     if value is None:
-        item.setText("N/A")
+        item.setText(EMPTY_CELL)
     else:
         if isinstance(value, (int, float)):
             item.setData(Qt.ItemDataRole.EditRole, value)
@@ -207,13 +210,14 @@ def make_safety_item(safety: SafetyIndex) -> QTableWidgetItem:
     item.setData(SAFETY_TIER_DATA_ROLE, safety.tier)
 
     if safety.tier == "unknown":
-        item.setText("—")
-        item.setData(Qt.ItemDataRole.EditRole, -1)
+        item.setText(EMPTY_CELL)
+        item.setData(SAFETY_SORT_DATA_ROLE, UNKNOWN_SAFETY_SORT)
         item.setToolTip(unknown_history_message(safety.total_races, for_table=True))
         item.setForeground(tier_qcolor("unknown"))
     else:
         item.setText(f"{safety.score:.0f}")
         item.setData(Qt.ItemDataRole.EditRole, safety.score)
+        item.setData(SAFETY_SORT_DATA_ROLE, safety.score)
         item.setToolTip(safety_tooltip(safety))
         item.setForeground(tier_qcolor(safety.tier))
 

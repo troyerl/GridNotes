@@ -3,6 +3,8 @@ import sys
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
+from .session_kind import SESSION_KIND_OTHER, current_session_kind, is_race_session
+
 logger = logging.getLogger(__name__)
 
 
@@ -48,14 +50,20 @@ def _parse_session_drivers(ir) -> tuple[list[dict], int]:
     return active_drivers, subsession_id
 
 
+def _parse_session(ir) -> tuple[list[dict], int, str]:
+    active_drivers, subsession_id = _parse_session_drivers(ir)
+    session_kind = current_session_kind(ir)
+    return active_drivers, subsession_id, session_kind
+
+
 class IRacingWorker(QThread):
     """
     Polled worker thread using pyirsdk (irsdk) to read iRacing's live session data
     without blocking the main GUI thread.
     """
 
-    drivers_updated = pyqtSignal(list, int)  # (driver_list, subsession_id)
-    connection_changed = pyqtSignal(bool, int)  # (connected, subsession_id)
+    drivers_updated = pyqtSignal(list, int, str)  # (driver_list, subsession_id, session_kind)
+    connection_changed = pyqtSignal(bool, int, str)  # (connected, subsession_id, session_kind)
 
     def __init__(self):
         super().__init__()
@@ -94,13 +102,18 @@ class IRacingWorker(QThread):
             self.ir = None
             self.available = False
 
-    def _emit_connection(self, connected: bool, subsession_id: int = 0) -> None:
-        key = (connected, subsession_id if connected else 0)
+    def _emit_connection(self, connected: bool, subsession_id: int = 0, session_kind: str = SESSION_KIND_OTHER) -> None:
+        key = (connected, subsession_id if connected else 0, session_kind if connected else "")
         if self._last_connection_key == key:
             return
         self._last_connection_key = key
-        logger.info("SDK connection_changed=%s subsession_id=%s", connected, subsession_id)
-        self.connection_changed.emit(connected, subsession_id)
+        logger.info(
+            "SDK connection_changed=%s subsession_id=%s session_kind=%s",
+            connected,
+            subsession_id,
+            session_kind,
+        )
+        self.connection_changed.emit(connected, subsession_id, session_kind)
 
     def run(self):
         if not self.available or self.ir is None:
@@ -163,14 +176,15 @@ class IRacingWorker(QThread):
                 if not self._sdk_connected:
                     continue
 
-                active_drivers, subsession_id = _parse_session_drivers(self.ir)
+                active_drivers, subsession_id, session_kind = _parse_session(self.ir)
 
                 if not is_connected and not active_drivers:
-                    self._emit_connection(True, subsession_id)
+                    self._emit_connection(True, subsession_id, session_kind)
                     continue
 
                 emit_key = (
                     subsession_id,
+                    session_kind,
                     tuple((d["cust_id"], d["name"]) for d in active_drivers),
                 )
                 if emit_key == self._last_emit_key:
@@ -178,12 +192,13 @@ class IRacingWorker(QThread):
 
                 self._last_emit_key = emit_key
                 logger.info(
-                    "Session update: subsession=%s drivers=%s",
+                    "Session update: subsession=%s kind=%s drivers=%s",
                     subsession_id,
+                    session_kind,
                     len(active_drivers),
                 )
-                self._emit_connection(True, subsession_id)
-                self.drivers_updated.emit(active_drivers, subsession_id)
+                self._emit_connection(True, subsession_id, session_kind)
+                self.drivers_updated.emit(active_drivers, subsession_id, session_kind)
 
             except Exception:
                 logger.exception("Error reading iRacing SDK")

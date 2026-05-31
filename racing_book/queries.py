@@ -79,6 +79,43 @@ def table_data_sql() -> str:
     """
 
 
+def _table_select_body() -> str:
+    return f"""
+        SELECT
+            d.driver_name,
+            a.avg_inc,
+            a.avg_fin,
+            COALESCE(a.total_races, 0) AS total_races,
+            d.last_irating,
+            d.last_safety,
+            d.last_series,
+            a.avg_pos_delta,
+            d.cust_id,
+            d.race_preference,
+            {_DNF_COALESCE},
+            CASE WHEN TRIM(COALESCE(d.notes, '')) != '' THEN 1 ELSE 0 END AS has_notes
+        FROM drivers d
+        LEFT JOIN agg a ON d.cust_id = a.cust_id
+    """
+
+
+def table_data_for_cust_ids_sql(cust_ids: list[int]) -> tuple[str, list[int]]:
+    if not cust_ids:
+        return ("SELECT NULL LIMIT 0", [])
+    placeholders = ",".join("?" * len(cust_ids))
+    sql = f"""
+        WITH agg AS (
+            SELECT {_RACE_AGG_SELECT}
+            FROM race_results
+            GROUP BY cust_id
+        )
+        {_table_select_body().strip()}
+        WHERE d.cust_id IN ({placeholders})
+        ORDER BY d.driver_name ASC
+    """
+    return sql, cust_ids
+
+
 def driver_detail_sql() -> str:
     return f"""
         WITH agg AS (

@@ -14,7 +14,8 @@ from PyQt6.QtWidgets import (
 )
 
 from .data_retention import DEFAULT_RETENTION, RETENTION_OPTIONS, SETTING_KEY, retention_label
-from .db import get_data_dir_path, get_db_file_size, get_db_path, get_setting, set_setting
+from .db import connect_db, get_data_dir_path, get_db_file_size, get_db_path, get_setting, set_setting
+from .driver_cleanup import count_zero_race_drivers
 from .utils import format_file_size
 
 
@@ -22,6 +23,7 @@ class SettingsTab(QWidget):
     """Application settings panel."""
 
     settings_saved = pyqtSignal()
+    zero_race_cleanup_requested = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -76,6 +78,30 @@ class SettingsTab(QWidget):
 
         layout.addWidget(retention_group)
 
+        cleanup_group = QGroupBox("Driver cleanup")
+        cleanup_layout = QVBoxLayout(cleanup_group)
+        cleanup_layout.setSpacing(10)
+
+        cleanup_hint = QLabel(
+            "Remove drivers who have no imported race results. "
+            "This clears live-session placeholders and scouting notes for those drivers."
+        )
+        cleanup_hint.setObjectName("sectionHint")
+        cleanup_hint.setWordWrap(True)
+        cleanup_layout.addWidget(cleanup_hint)
+
+        self.zero_race_status = QLabel("")
+        self.zero_race_status.setObjectName("sectionHint")
+        self.zero_race_status.setWordWrap(True)
+        cleanup_layout.addWidget(self.zero_race_status)
+        self._update_zero_race_status_label()
+
+        self.btn_remove_zero_race = QPushButton("Remove drivers with 0 races")
+        self.btn_remove_zero_race.clicked.connect(self._request_zero_race_cleanup)
+        cleanup_layout.addWidget(self.btn_remove_zero_race)
+
+        layout.addWidget(cleanup_group)
+
         data_group = QGroupBox("Data storage")
         data_layout = QVBoxLayout(data_group)
         data_hint = QLabel("Local database and settings are stored at:")
@@ -107,6 +133,7 @@ class SettingsTab(QWidget):
     def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)
         self.refresh_storage_info()
+        self._update_zero_race_status_label()
 
     def refresh_storage_info(self) -> None:
         db_path = get_db_path()
@@ -125,10 +152,36 @@ class SettingsTab(QWidget):
             f"Current policy: {retention_label(self.current_retention_value())}"
         )
 
+    def _update_zero_race_status_label(self, pending: int | None = None) -> None:
+        if pending is None:
+            conn = connect_db()
+            try:
+                pending = count_zero_race_drivers(conn)
+            finally:
+                conn.close()
+        if pending:
+            self.zero_race_status.setText(
+                f"{pending} driver(s) with 0 races can be removed."
+            )
+        else:
+            self.zero_race_status.setText("No zero-race drivers to remove.")
+
+    def _request_zero_race_cleanup(self) -> None:
+        self.zero_race_cleanup_requested.emit()
+
     def _save_settings(self) -> None:
         set_setting(SETTING_KEY, self.current_retention_value())
         self._update_retention_status_label()
         self.settings_saved.emit()
+
+    def show_zero_race_cleanup_result(self, deleted: int) -> None:
+        self.refresh_storage_info()
+        if deleted:
+            self.zero_race_status.setText(
+                f"Removed {deleted} driver(s) with no race history."
+            )
+        else:
+            self._update_zero_race_status_label(0)
 
     def show_purge_result(self, deleted: int) -> None:
         self.refresh_storage_info()

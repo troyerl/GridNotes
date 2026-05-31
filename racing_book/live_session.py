@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .safety_index import SafetyIndex, empty_safety, tier_color_hex, tier_label, unknown_history_message
+from .session_kind import SESSION_KIND_RACE, is_race_session, session_kind_label
 from .theme import configure_scroll_area
 
 
@@ -207,8 +208,30 @@ class LiveSessionView(QWidget):
         root.addWidget(self.scroll, stretch=1)
 
         self._cards: list[LiveDriverCard] = []
+        self._last_entry_key: tuple | None = None
 
-    def set_session_info(self, *, connected: bool, subsession_id: int, driver_count: int) -> None:
+    def set_session_info(
+        self,
+        *,
+        connected: bool,
+        subsession_id: int,
+        driver_count: int,
+        session_kind: str = SESSION_KIND_RACE,
+    ) -> None:
+        if connected and not is_race_session(session_kind):
+            label = session_kind_label(session_kind)
+            self.offline_label.setText(
+                f"Connected — {label}. Live driver scouting is available during races only."
+            )
+            self.offline_label.setVisible(True)
+            self.scroll.setVisible(False)
+            if subsession_id:
+                self.session_label.setText(f"Session #{subsession_id} · {label}")
+            else:
+                self.session_label.setText(label)
+            self.count_label.setText("")
+            return
+
         if connected:
             self.offline_label.setVisible(False)
             self.scroll.setVisible(True)
@@ -222,6 +245,24 @@ class LiveSessionView(QWidget):
             self.scroll.setVisible(False)
             self.session_label.setText("")
             self.count_label.setText("")
+
+    def rebuild_if_changed(self, entries: list[dict]) -> None:
+        entry_key = tuple(
+            (
+                e.get("cust_id"),
+                e.get("name"),
+                e.get("total_races"),
+                e.get("pref"),
+                round(getattr(e.get("safety"), "score", -1), 1)
+                if e.get("safety") is not None
+                else -1,
+            )
+            for e in entries
+        )
+        if entry_key == self._last_entry_key:
+            return
+        self._last_entry_key = entry_key
+        self.rebuild(entries)
 
     def rebuild(self, entries: list[dict]) -> None:
         while self.cards_layout.count():
