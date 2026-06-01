@@ -1,6 +1,6 @@
 # How to install GridNotes
 
-**Version 1.2.7**
+**Version 1.2.8**
 
 GridNotes helps you remember iRacing drivers you raced with and keep private notes.  
 You do **not** need to know how to code. Follow the steps below in order.
@@ -69,9 +69,10 @@ Python is free software GridNotes needs. You are not writing code.
 
 #### Step 3 — Run the install helper
 
-1. **Double-click** `Install GridNotes.bat` (use **`/noelevate`** on the command line for D: with no UAC prompt).  
-   **D:\** and the **default folder** do not need administrator.  
-   **`C:\Program Files`** requires **right-click** `Install GridNotes.bat` → **Run as administrator**.
+1. **Double-click** `Install GridNotes.bat`.  
+   **Default install** and **D:\** need **no** administrator.  
+   **`C:\Program Files`** only: **right-click** → **Run as administrator**, or run `Install GridNotes.bat /elevate`.  
+   If the black window closes instantly, open **`install-helper.log`** in the same folder.
 2. A window titled **Install GridNotes** opens.
 3. Leave the **install folder** as shown (default: your user folder, **no admin**), or use **Choose folder…** for **D:\** (→ `D:\GridNotes`).  
    For **`C:\Program Files`**, use advanced → **Use Program Files** and **right-click** `Install GridNotes.bat` → **Run as administrator**.
@@ -101,7 +102,7 @@ Your notes, settings, and **`gridnotes.log`** are saved in your Windows user dat
 
 (Files: `driver_history.db`, `gridnotes.log` — not in the install folder on `D:\`.)
 
-To install without administrator permission: open **Show advanced options** → **Install for only me (no admin)**, then close the installer and run **`Install GridNotes.bat /noelevate`** from your download folder.
+The default install path needs **no** administrator permission. Use **Show advanced options** only if you want **Program Files** (requires **Run as administrator**).
 
 ---
 
@@ -147,11 +148,12 @@ You skipped Step 1 or did not check **Add python.exe to PATH**.
 2. Check **Add python.exe to PATH** on the first screen.  
 3. Close all folders, open the GridNotes download folder again, double-click **`Install GridNotes.bat`**.
 
-### The install window never opens
+### The install window never opens (black window flashes and closes)
 
-1. Make sure Python is installed (see above).  
-2. In the GridNotes folder, double-click **`Install GridNotes.bat`** again.  
-3. If Windows SmartScreen warns you, click **More info** → **Run anyway** (you downloaded this yourself).
+1. Open **`install-helper.log`** in your download folder (same folder as `Install GridNotes.bat`) and read the last lines.  
+2. Make sure Python is installed with **Add python.exe to PATH** (see above).  
+3. Double-click **`Install GridNotes.bat`** again — do **not** click No on a UAC prompt unless you chose Program Files.  
+4. If Windows SmartScreen warns you, click **More info** → **Run anyway**.
 
 ### “Access denied” or `[WinError 5]` during install
 
@@ -165,7 +167,7 @@ Windows blocked writing to **Program Files** without administrator permission.
 2. Right-click **`Install GridNotes.bat`** → **Run as administrator**.  
 3. Advanced options → **Use Program Files (admin)** → install again.
 
-**For D: drive without admin prompts:** run `Install GridNotes.bat /noelevate`.
+**For D: drive:** use **Choose folder…** in the wizard — no admin needed.
 
 ### I closed the app — how do I open it again?
 

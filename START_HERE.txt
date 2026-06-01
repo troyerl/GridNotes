@@ -17,13 +17,13 @@ DOWNLOADED FROM GITHUB (ZIP / source code)?
   1. Extract the ZIP anywhere (Downloads, Desktop, etc.)
   2. Install Python from https://www.python.org/downloads/
      (Turn ON "Add python.exe to PATH" on the first screen.)
-  3. Double-click: Install GridNotes.bat (click Yes if Windows asks)
+  3. Double-click: Install GridNotes.bat (no admin needed for default install)
   4. In the window, click "Install GridNotes" and wait until it finishes
   5. Open the app from the "GridNotes" icon on your Desktop
      (or double-click Open GridNotes.bat in this folder)
 
-  Default install location: C:\Program Files\GridNotes
-  (or D:\GridNotes if you picked the D: drive)
+  Default install location: your user folder (no admin)
+  (or D:\GridNotes if you chose D: in the wizard)
 
 HAVE GridNotes-Setup.exe (from a Release download)?
   1. Double-click GridNotes-Setup.exe
