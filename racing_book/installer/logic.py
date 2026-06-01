@@ -335,39 +335,126 @@ def windows_vbs_launcher_path(root: Path) -> Path:
     return root.resolve() / "Launch GridNotes.vbs"
 
 
+def gridnotes_start_script_path(root: Path) -> Path:
+    return root.resolve() / "gridnotes_start.py"
+
+
+def write_gridnotes_start_script(root: Path) -> Path:
+    """Write a small bootstrap that logs UI startup failures to launch-error.log."""
+    path = gridnotes_start_script_path(root)
+    path.write_text(
+        '''"""Launch GridNotes; write startup errors to launch-error.log."""
+from __future__ import annotations
+
+import runpy
+import sys
+import traceback
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+LOG = ROOT / "launch-error.log"
+
+
+def _log(line: str) -> None:
+    with LOG.open("a", encoding="utf-8") as handle:
+        handle.write(line.rstrip() + "\n")
+
+
+def main() -> int:
+    try:
+        LOG.write_text("", encoding="utf-8")
+    except OSError:
+        pass
+
+    _log(f"Python: {sys.version.split()[0]} ({sys.executable})")
+    _log(f"Install folder: {ROOT}")
+
+    root_str = str(ROOT)
+    if root_str not in sys.path:
+        sys.path.insert(0, root_str)
+
+    try:
+        _log("Importing PyQt6…")
+        import PyQt6  # noqa: F401
+
+        _log("PyQt6 OK")
+    except Exception:
+        _log("PyQt6 import failed:")
+        with LOG.open("a", encoding="utf-8") as handle:
+            traceback.print_exc(file=handle)
+        return 1
+
+    main_py = ROOT / "main.py"
+    if not main_py.is_file():
+        _log(f"Missing file: {main_py}")
+        return 1
+
+    try:
+        _log("Starting GridNotes…")
+        runpy.run_path(str(main_py), run_name="__main__")
+        _log("GridNotes closed.")
+        return 0
+    except SystemExit as exc:
+        code = exc.code if isinstance(exc.code, int) else 0
+        _log(f"GridNotes exited with code {code}")
+        return code
+    except Exception:
+        _log("GridNotes crashed:")
+        with LOG.open("a", encoding="utf-8") as handle:
+            traceback.print_exc(file=handle)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+''',
+        encoding="utf-8",
+    )
+    return path
+
+
 def write_launcher_scripts(root: Path, venv_dir: Path) -> list[Path]:
     """Create double-click launchers in the install folder."""
     created: list[Path] = []
     py = venv_python(venv_dir)
     pyw = venv_pythonw(venv_dir)
     root = root.resolve()
+    write_gridnotes_start_script(root)
+    starter = gridnotes_start_script_path(root)
 
     if sys.platform == "win32":
+        ps1 = root / "Launch-GridNotes.ps1"
+        ps1.write_text(
+            "$ErrorActionPreference = 'Continue'\r\n"
+            "$py = Join-Path $PSScriptRoot '.venv\\Scripts\\python.exe'\r\n"
+            "$starter = Join-Path $PSScriptRoot 'gridnotes_start.py'\r\n"
+            "$log = Join-Path $PSScriptRoot 'launch-error.log'\r\n"
+            "if (-not (Test-Path $py)) { 'Python not found: ' + $py | Out-File $log; exit 1 }\r\n"
+            "if (-not (Test-Path $starter)) { 'gridnotes_start.py not found' | Out-File $log; exit 1 }\r\n"
+            "Start-Process -FilePath $py -ArgumentList $starter "
+            "-WorkingDirectory $PSScriptRoot -WindowStyle Hidden\r\n"
+            "exit 0\r\n",
+            encoding="utf-8",
+        )
+        created.append(ps1)
+
         run_bat = root / "Run GridNotes.bat"
         run_bat.write_text(
             "@echo off\r\n"
             "setlocal\r\n"
             'cd /d "%~dp0"\r\n'
-            'set "PYW=%~dp0.venv\\Scripts\\pythonw.exe"\r\n'
             'set "PY=%~dp0.venv\\Scripts\\python.exe"\r\n'
-            'set "MAIN=%~dp0main.py"\r\n'
+            'set "STARTER=%~dp0gridnotes_start.py"\r\n'
             'set "LOG=%~dp0launch-error.log"\r\n'
-            'if not exist "%MAIN%" (\r\n'
-            '  echo main.py not found>>"%LOG%"\r\n'
+            'if not exist "%STARTER%" (\r\n'
+            '  echo gridnotes_start.py not found>>"%LOG%"\r\n'
             "  goto :fail\r\n"
             ")\r\n"
-            'if not exist "%PYW%" set "PYW=%PY%"\r\n'
             'if not exist "%PY%" (\r\n'
             '  echo Python missing in .venv>>"%LOG%"\r\n'
             "  goto :fail\r\n"
             ")\r\n"
-            'del /q "%LOG%" 2>nul\r\n'
-            '"%PYW%" "%MAIN%" 2>>"%LOG%"\r\n'
-            "if not errorlevel 1 exit /b 0\r\n"
-            'echo pythonw failed, retrying with python.exe>>"%LOG%"\r\n'
-            '"%PY%" -c "import PyQt6" 2>>"%LOG%"\r\n'
-            "if errorlevel 1 goto :fail\r\n"
-            'start "GridNotes" "%PY%" "%MAIN%"\r\n'
+            'start "" /D "%~dp0" "%PY%" "%STARTER%"\r\n'
             "exit /b 0\r\n"
             ":fail\r\n"
             "msg * GridNotes could not start. Check launch-error.log in the install folder.\r\n"
@@ -375,26 +462,7 @@ def write_launcher_scripts(root: Path, venv_dir: Path) -> list[Path]:
             encoding="utf-8",
         )
         created.append(run_bat)
-
-        launcher_py = pyw if pyw.is_file() else py
-        pyw_abs = str(launcher_py.resolve())
-        main_abs = str((root / "main.py").resolve())
-        root_abs = str(root)
-        vbs_path = windows_vbs_launcher_path(root)
-
-        def _vbs_str(value: str) -> str:
-            return value.replace('"', '""')
-
-        vbs_path.write_text(
-            "Set shell = CreateObject(\"WScript.Shell\")\r\n"
-            f'shell.CurrentDirectory = "{_vbs_str(root_abs)}"\r\n'
-            "command = Chr(34) & "
-            f'"{_vbs_str(pyw_abs)}" & Chr(34) & " " & Chr(34) & '
-            f'"{_vbs_str(main_abs)}" & Chr(34)\r\n'
-            "shell.Run command, 0, False\r\n",
-            encoding="utf-8",
-        )
-        created.append(vbs_path)
+        created.append(starter)
     else:
         run_sh = root / "Run GridNotes.command"
         run_sh.write_text(
@@ -460,6 +528,9 @@ def validate_install_for_launch(install_root: Path) -> tuple[bool, str]:
     main_py = install_root / "main.py"
     if not main_py.is_file():
         return False, f"main.py is missing in:\n{install_root}"
+
+    if sys.platform == "win32" and not gridnotes_start_script_path(install_root).is_file():
+        write_gridnotes_start_script(install_root)
 
     venv_dir = install_root / VENV_DIR_NAME
     py = venv_python(venv_dir)
