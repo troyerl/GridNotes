@@ -122,6 +122,10 @@ def _runtime_paths() -> list[Path]:
     paths: list[Path] = []
     if getattr(sys, "frozen", False):
         paths.append(Path(sys.executable).resolve())
+    try:
+        paths.append(Path(sys.executable).resolve())
+    except OSError:
+        pass
     if sys.argv:
         paths.append(Path(sys.argv[0]).resolve())
     try:
@@ -146,60 +150,107 @@ def _cleanup_log_path() -> Path:
     return Path(tempfile.gettempdir()) / _CLEANUP_LOG_NAME
 
 
-def _schedule_install_folder_removal(install_root: Path) -> Path:
-    """Delete install folder after this process exits (venv files may be locked)."""
+def _quote_batch_path(path: Path) -> str:
+    return str(path.resolve()).replace('"', '""')
+
+
+def _schedule_install_folder_removal(install_root: Path, *, wait_pid: int) -> Path:
+    """
+    Delete *install_root* after process *wait_pid* exits.
+
+    Uninstall runs from .venv inside the install folder, so the folder cannot be
+    deleted until this Python process has fully exited.
+    """
     install_root = install_root.resolve()
     log_path = _cleanup_log_path()
-    log_ps = str(log_path).replace("'", "''")
-    target_ps = str(install_root).replace("'", "''")
+    target = _quote_batch_path(install_root)
+    log_file = _quote_batch_path(log_path)
+    temp_dir = _quote_batch_path(Path(tempfile.gettempdir()))
+    bat_path = Path(tempfile.gettempdir()) / f"gridnotes-remove-{wait_pid}.bat"
 
     if sys.platform == "win32":
-        script = (
-            f"$log = '{log_ps}'\n"
-            f"$target = '{target_ps}'\n"
-            "Add-Content -LiteralPath $log \"Cleanup started $(Get-Date)\"\n"
-            "Start-Sleep -Seconds 8\n"
-            "Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | "
-            "Where-Object { $_.Name -match 'python(w)?\\.exe' -and $_.CommandLine -and "
-            "($_.CommandLine -like \"*$target*\") } | "
-            "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }\n"
-            "Start-Sleep -Seconds 2\n"
-            "if (Test-Path -LiteralPath $target) {\n"
-            "  Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction SilentlyContinue\n"
-            "}\n"
-            "if (Test-Path -LiteralPath $target) {\n"
-            "  Add-Content -LiteralPath $log \"FAILED: folder still exists: $target\"\n"
-            "} else {\n"
-            "  Add-Content -LiteralPath $log \"OK: removed $target\"\n"
-            "}\n"
+        bat_path.write_text(
+            "@echo off\r\n"
+            "setlocal EnableExtensions\r\n"
+            f'set "TARGET={target}"\r\n'
+            f'set "LOG={log_file}"\r\n'
+            f"set \"WAITPID={wait_pid}\"\r\n"
+            f'echo === GridNotes folder cleanup %date% %time% ===>>"%LOG%"\r\n'
+            'echo Waiting for uninstall process %WAITPID%...>>"%LOG%"\r\n'
+            ":wait_pid\r\n"
+            'tasklist /FI "PID eq %WAITPID%" 2>nul | find /I "%WAITPID%" >nul\r\n'
+            "if not errorlevel 1 (\r\n"
+            "  timeout /t 1 /nobreak >nul\r\n"
+            "  goto wait_pid\r\n"
+            ")\r\n"
+            "timeout /t 2 /nobreak >nul\r\n"
+            'echo Stopping Python processes under %TARGET%...>>"%LOG%"\r\n'
+            "for /f \"tokens=2\" %%P in ('tasklist /FI \"IMAGENAME eq python.exe\" /FO LIST ^| find \"PID:\"') do (\r\n"
+            "  wmic process where \"ProcessId=%%P\" get CommandLine 2>nul | find /I \"%TARGET%\" >nul && (\r\n"
+            "    taskkill /F /PID %%P >nul 2>&1\r\n"
+            "  )\r\n"
+            ")\r\n"
+            "for /f \"tokens=2\" %%P in ('tasklist /FI \"IMAGENAME eq pythonw.exe\" /FO LIST ^| find \"PID:\"') do (\r\n"
+            "  wmic process where \"ProcessId=%%P\" get CommandLine 2>nul | find /I \"%TARGET%\" >nul && (\r\n"
+            "    taskkill /F /PID %%P >nul 2>&1\r\n"
+            "  )\r\n"
+            ")\r\n"
+            "timeout /t 1 /nobreak >nul\r\n"
+            ":try_remove\r\n"
+            'if not exist "%TARGET%" (\r\n'
+            '  echo OK: folder already gone>>"%LOG%"\r\n'
+            "  goto done\r\n"
+            ")\r\n"
+            'echo Removing %TARGET%...>>"%LOG%"\r\n'
+            'rd /s /q "%TARGET%" 2>>"%LOG%"\r\n'
+            'if exist "%TARGET%" (\r\n'
+            "  powershell -NoProfile -ExecutionPolicy Bypass -Command "
+            f"\"Remove-Item -LiteralPath '{target}' -Recurse -Force -ErrorAction SilentlyContinue\"\r\n"
+            ")\r\n"
+            'if exist "%TARGET%" (\r\n'
+            "  timeout /t 2 /nobreak >nul\r\n"
+            '  rd /s /q "%TARGET%" 2>>"%LOG%"\r\n'
+            ")\r\n"
+            'if exist "%TARGET%" (\r\n'
+            '  echo FAILED: %TARGET% still exists>>"%LOG%"\r\n'
+            ") else (\r\n"
+            '  echo OK: removed %TARGET%>>"%LOG%"\r\n'
+            ")\r\n"
+            ":done\r\n"
+            "del \"%~f0\"\r\n",
+            encoding="utf-8",
         )
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         subprocess.Popen(
             [
-                "powershell",
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-WindowStyle",
-                "Hidden",
-                "-Command",
-                script,
+                "cmd.exe",
+                "/c",
+                "start",
+                "/min",
+                "",
+                str(bat_path),
             ],
+            cwd=str(Path(tempfile.gettempdir())),
             creationflags=flags,
+            close_fds=True,
         )
         return log_path
 
-    sh = Path(tempfile.gettempdir()) / "gridnotes-uninstall-cleanup.sh"
+    sh = Path(tempfile.gettempdir()) / f"gridnotes-remove-{wait_pid}.sh"
     sh.write_text(
         "#!/bin/bash\n"
-        "sleep 8\n"
-        f'rm -rf "{install_root}"\n'
-        f'echo "OK: removed {install_root}" >> "{log_path}"\n'
-        'rm -f "$0"\n',
+        f"TARGET='{install_root}'\n"
+        f"LOG='{log_path}'\n"
+        f"WAITPID={wait_pid}\n"
+        "while kill -0 \"$WAITPID\" 2>/dev/null; do sleep 1; done\n"
+        "sleep 2\n"
+        "rm -rf \"$TARGET\" && echo \"OK: removed $TARGET\" >> \"$LOG\" "
+        "|| echo \"FAILED: $TARGET\" >> \"$LOG\"\n"
+        "rm -f \"$0\"\n",
         encoding="utf-8",
     )
     sh.chmod(0o755)
-    subprocess.Popen(["/bin/bash", str(sh)])
+    subprocess.Popen(["/bin/bash", str(sh)], close_fds=True)
     return log_path
 
 
@@ -226,21 +277,36 @@ def _remove_install_folder(install_root: Path) -> tuple[bool, str, bool]:
     if not install_root.is_dir():
         return True, "Install folder was already removed.", False
 
-    running_from_install = _running_from_directory(install_root)
-    if not running_from_install:
-        try:
-            _force_rmtree(install_root)
-            if not install_root.is_dir():
-                return True, f"Removed install folder:\n{install_root}", False
-        except OSError as exc:
-            logger.warning("Immediate install removal failed: %s", exc)
+    executable_under_install = False
+    try:
+        executable_under_install = Path(sys.executable).resolve().is_relative_to(install_root)
+    except (ValueError, OSError):
+        pass
 
-    log_path = _schedule_install_folder_removal(install_root)
+    # Uninstall almost always runs from inside the install tree (.venv); wait for exit.
+    if _running_from_directory(install_root) or executable_under_install:
+        log_path = _schedule_install_folder_removal(install_root, wait_pid=os.getpid())
+        return (
+            True,
+            "The install folder will be deleted when you close this window:\n"
+            f"{install_root}\n\n"
+            f"(If {install_root} remains, delete it manually or see {log_path})",
+            True,
+        )
+
+    try:
+        _force_rmtree(install_root)
+        if not install_root.is_dir():
+            return True, f"Removed install folder:\n{install_root}", False
+    except OSError as exc:
+        logger.warning("Immediate install removal failed: %s", exc)
+
+    log_path = _schedule_install_folder_removal(install_root, wait_pid=os.getpid())
     return (
         True,
-        "Install folder will be removed after GridNotes closes:\n"
+        "Install folder will be removed shortly:\n"
         f"{install_root}\n\n"
-        f"If it remains, delete that folder manually or check:\n{log_path}",
+        f"If it remains, delete it manually or check:\n{log_path}",
         True,
     )
 
@@ -314,7 +380,7 @@ def perform_uninstall(
             result.ok = False
             result.messages.append(
                 f"Install folder could not be removed:\n{install_root}\n"
-                "Close GridNotes and delete this folder manually."
+                "Delete this folder manually in File Explorer."
             )
     else:
         result.messages.append(

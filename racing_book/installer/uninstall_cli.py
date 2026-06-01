@@ -45,6 +45,12 @@ def main() -> int:
     )
 
     if not quiet:
+        summary = result.summary()
+        if result.install_removal_deferred:
+            summary += (
+                "\n\nClick OK to finish. The install folder (for example D:\\GridNotes) "
+                "will be deleted when this window closes."
+            )
         if sys.platform == "win32":
             try:
                 import ctypes
@@ -52,16 +58,17 @@ def main() -> int:
                 icon = 0x40 if result.ok else 0x10
                 ctypes.windll.user32.MessageBoxW(
                     0,
-                    result.summary(),
+                    summary,
                     "Uninstall GridNotes",
                     icon,
                 )
             except OSError:
-                print(result.summary())
+                print(summary)
         else:
-            print(result.summary())
+            print(summary)
 
-    return 0 if result.ok else 1
+    # Exit so the cleanup script can remove .venv and the whole install folder.
+    raise SystemExit(0 if result.ok else 1)
 
 
 if __name__ == "__main__":

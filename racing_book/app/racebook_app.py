@@ -1031,11 +1031,13 @@ class RaceBookApp(QMainWindow):
         self.settings_tab.show_uninstall_result(result.ok, result.summary())
 
         if result.ok:
-            QMessageBox.information(
-                self,
-                "Uninstall",
-                result.summary() + "\n\nGridNotes will now close.",
-            )
+            summary = result.summary()
+            if result.install_removal_deferred:
+                summary += (
+                    "\n\nClick OK to finish. Your install folder "
+                    "(for example D:\\GridNotes) will be deleted when GridNotes closes."
+                )
+            QMessageBox.information(self, "Uninstall", summary)
             QApplication.instance().quit()
             return
 
