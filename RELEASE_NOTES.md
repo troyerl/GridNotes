@@ -6,6 +6,14 @@ New versions are listed below with the newest first. When publishing on GitHub, 
 
 ---
 
+## v1.0.2 — 2026-05-29
+
+### Fixed
+
+- **Install no longer asks for an App ID** — the Windows taskbar identity (`AppUserModelID`) is applied automatically when shortcuts are created. A PowerShell invocation bug had caused an interactive prompt during `Install GridNotes.bat`.
+
+---
+
 ## v1.0.1 — 2026-05-29
 
 ### Fixed

@@ -13,7 +13,7 @@ _PS_APPLY = r"""
 param(
   [string]$ShortcutPath,
   [long]$Hwnd,
-  [Parameter(Mandatory=$true)][string]$AppId,
+  [string]$AppId = "GridNotes.GridNotes.1",
   [string]$IconPath
 )
 
@@ -118,12 +118,6 @@ if ($ShortcutPath) {
 """
 
 
-def _icon_resource(icon: Path | None) -> str:
-    if icon is None or not icon.is_file():
-        return ""
-    return f"{icon.resolve()},0"
-
-
 def _run_shell_property_script(
     *,
     app_id: str,
@@ -134,27 +128,41 @@ def _run_shell_property_script(
     if sys.platform != "win32":
         return False
 
-    args = [
-        "powershell",
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        _PS_APPLY,
-        "-AppId",
-        app_id,
-    ]
-    if shortcut_path is not None:
-        args.extend(["-ShortcutPath", str(shortcut_path.resolve())])
-    if hwnd is not None and hwnd > 0:
-        args.extend(["-Hwnd", str(hwnd)])
-    icon_res = _icon_resource(icon)
-    if icon_res:
-        icon_file = str(icon.resolve()) if icon is not None else ""
+    import tempfile
+
+    # -File passes -AppId / -ShortcutPath to the script. Using -Command with a
+    # multi-line script leaves those flags on powershell.exe itself, which triggers
+    # an interactive prompt for the mandatory $AppId parameter during install.
+    script_file: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            suffix=".ps1",
+            delete=False,
+            encoding="utf-8",
+        ) as handle:
+            handle.write(_PS_APPLY)
+            script_file = Path(handle.name)
+
+        args = [
+            "powershell",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(script_file),
+            "-AppId",
+            app_id,
+        ]
+        if shortcut_path is not None:
+            args.extend(["-ShortcutPath", str(shortcut_path.resolve())])
+        if hwnd is not None and hwnd > 0:
+            args.extend(["-Hwnd", str(hwnd)])
+        icon_file = str(icon.resolve()) if icon is not None and icon.is_file() else ""
         if icon_file:
             args.extend(["-IconPath", icon_file])
 
-    try:
         result = subprocess.run(
             args,
             capture_output=True,
@@ -164,6 +172,12 @@ def _run_shell_property_script(
     except (subprocess.SubprocessError, OSError) as exc:
         logger.warning("Could not apply Windows shell properties: %s", exc)
         return False
+    finally:
+        if script_file is not None:
+            try:
+                script_file.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "").strip()
