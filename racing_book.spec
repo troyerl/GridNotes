@@ -8,6 +8,8 @@ block_cipher = None
 _datas = [("icon.png", ".")]
 if os.path.isfile("icon.ico"):
     _datas.append(("icon.ico", "."))
+if os.path.isfile("icon.icns"):
+    _datas.append(("icon.icns", "."))
 
 try:
     from PyInstaller.utils.hooks import collect_data_files
@@ -156,8 +158,8 @@ if sys.platform == "darwin":
         info_plist={
             "CFBundleName": "GridNotes",
             "CFBundleDisplayName": "GridNotes",
-            "CFBundleVersion": "1.2.21",
-            "CFBundleShortVersionString": "1.2.21",
+            "CFBundleVersion": "1.2.22",
+            "CFBundleShortVersionString": "1.2.22",
             "NSHighResolutionCapable": True,
         },
     )

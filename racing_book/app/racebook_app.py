@@ -90,6 +90,7 @@ from ..ui.theme import (
 from ..ui.ui_widgets import WrappingLabel
 from ..services.user_feedback import log_user_error, show_critical, show_warning
 from ..core.utils import display_val, sqlite_row_to_int
+from .app_icon import load_app_icon
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +105,10 @@ class RaceBookApp(QMainWindow):
         self.setWindowTitle("GridNotes")
         self.setMinimumSize(1280, 760)
         self.resize(1440, 860)
+
+        window_icon = load_app_icon()
+        if window_icon is not None:
+            self.setWindowIcon(window_icon)
 
         self.current_subsession_id = 0
         self.current_session_kind = ""

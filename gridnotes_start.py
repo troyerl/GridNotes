@@ -102,6 +102,10 @@ def main() -> int:
         return 1
 
     try:
+        _log("Setting Windows app identity…", log_path)
+        from racing_book.app.app_icon import set_windows_app_user_model_id
+
+        set_windows_app_user_model_id()
         _log("Starting GridNotes…", log_path)
         runpy.run_path(str(main_py), run_name="__main__")
         _log("GridNotes closed.", log_path)
