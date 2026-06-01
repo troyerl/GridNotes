@@ -35,9 +35,10 @@ from .logic import (
     default_install_location_hint,
     find_project_root,
     is_valid_install_root,
-    program_files_install_location,
     simple_install_location_hint,
+    user_local_install_location,
     venv_python,
+    venv_pythonw,
 )
 from .worker import InstallWorker
 
@@ -45,7 +46,9 @@ from .worker import InstallWorker
 class InstallWizardWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self._source_root = find_project_root()
+        self._source_root = find_project_root(Path.cwd())
+        if not (self._source_root / "requirements.txt").is_file():
+            self._source_root = find_project_root()
         self._install_root = default_install_location()
         self._worker: InstallWorker | None = None
         self._install_succeeded = False
@@ -69,12 +72,24 @@ class InstallWizardWindow(QMainWindow):
         layout.addWidget(title)
 
         intro = QLabel(
-            "Click Install GridNotes below. This may take a few minutes. "
-            "You only need to do this once."
+            "Extract the download anywhere you like, then click Install GridNotes below. "
+            "GridNotes will be installed like a normal Windows app. "
+            "This may take a few minutes and you only need to do it once."
         )
         intro.setObjectName("sectionHint")
         intro.setWordWrap(True)
         layout.addWidget(intro)
+
+        download_label = QLabel(
+            "Your download folder (extract anywhere — GridNotes does not run from here):\n"
+            f"{self._source_root}"
+        )
+        download_label.setObjectName("statValue")
+        download_label.setWordWrap(True)
+        download_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        layout.addWidget(download_label)
 
         install_label = QLabel("Where to install GridNotes")
         install_label.setObjectName("statInlineLabel")
@@ -132,10 +147,10 @@ class InstallWizardWindow(QMainWindow):
 
         pf_row = QHBoxLayout()
         pf_row.addStretch()
-        self.btn_program_files = QPushButton("Use Program Files folder")
-        self.btn_program_files.setVisible(sys.platform == "win32")
-        self.btn_program_files.clicked.connect(self._use_program_files_location)
-        pf_row.addWidget(self.btn_program_files)
+        self.btn_user_local = QPushButton("Install for only me (no admin)")
+        self.btn_user_local.setVisible(sys.platform == "win32")
+        self.btn_user_local.clicked.connect(self._use_user_local_location)
+        pf_row.addWidget(self.btn_user_local)
         advanced_layout.addLayout(pf_row)
 
         self.build_checkbox = QCheckBox(
@@ -223,13 +238,20 @@ class InstallWizardWindow(QMainWindow):
                 str(default_build_output_dir(Path(self.install_path_input.text().strip())))
             )
 
-    def _use_program_files_location(self) -> None:
-        pf = program_files_install_location()
-        if pf is None:
-            return
-        self.install_path_input.setText(str(pf))
+    def _use_user_local_location(self) -> None:
+        local = user_local_install_location()
+        self.install_path_input.setText(str(local))
         if self.build_checkbox.isChecked():
-            self.build_path_input.setText(str(default_build_output_dir(pf)))
+            self.build_path_input.setText(str(default_build_output_dir(local)))
+        if sys.platform == "win32":
+            QMessageBox.information(
+                self,
+                "Install for only me",
+                "If Windows already asked for administrator permission, you can close this "
+                "window and run:\n\n"
+                "Install GridNotes.bat /noelevate\n\n"
+                "from your download folder instead.",
+            )
 
     def _browse_install_dir(self) -> None:
         start = self.install_path_input.text().strip() or str(self._source_root)
@@ -294,7 +316,7 @@ class InstallWizardWindow(QMainWindow):
         self.btn_browse_install.setEnabled(not busy)
         self.advanced_toggle.setEnabled(not busy)
         self.advanced_panel.setEnabled(not busy)
-        self.btn_program_files.setEnabled(not busy)
+        self.btn_user_local.setEnabled(not busy)
         self.details_toggle.setEnabled(not busy)
         self.build_path_input.setEnabled(not busy and self.build_checkbox.isChecked())
         self.btn_browse_build.setEnabled(not busy and self.build_checkbox.isChecked())
@@ -390,13 +412,16 @@ class InstallWizardWindow(QMainWindow):
                 self.close()
                 return
 
-        py = venv_python(root / ".venv")
+        venv_dir = root / ".venv"
+        py = venv_pythonw(venv_dir)
+        if not py.is_file():
+            py = venv_python(venv_dir)
         main_py = root / "main.py"
         if not py.is_file() or not main_py.is_file():
             QMessageBox.warning(
                 self,
                 "Cannot Launch",
-                "Run Install first, or use the launcher in your install folder.",
+                "Run Install first, or use the Desktop GridNotes icon.",
             )
             return
         subprocess.Popen(

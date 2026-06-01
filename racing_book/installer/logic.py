@@ -21,12 +21,21 @@ REQUIREMENTS_BUILD_FILE = "requirements-build.txt"
 
 _COPY_NAMES = (
     "main.py",
+    "install_gui.py",
     "requirements.txt",
     "requirements-build.txt",
     "racing_book.spec",
     "icon.png",
     "icon.ico",
     "icon.icns",
+    "START_HERE.txt",
+    "INSTALL.md",
+)
+_COPY_OPTIONAL_NAMES = (
+    "Install GridNotes.bat",
+    "Install GridNotes.command",
+    "Run GridNotes.bat",
+    "Run GridNotes.command",
 )
 _COPY_DIRS = ("racing_book", "scripts")
 _IGNORE_DIR_NAMES = {
@@ -43,18 +52,35 @@ _IGNORE_DIR_NAMES = {
 
 def find_project_root(start: Path | None = None) -> Path:
     """Locate the repository root (folder containing requirements.txt)."""
-    if start is None:
-        start = Path(__file__).resolve().parent.parent.parent
-    for candidate in (start, *start.parents):
-        if (candidate / REQUIREMENTS_FILE).is_file() and (candidate / "main.py").is_file():
-            return candidate
-    return start
+    candidates: list[Path] = []
+    if start is not None:
+        candidates.append(start)
+    else:
+        cwd = Path.cwd()
+        candidates.append(cwd)
+        candidates.append(Path(__file__).resolve().parent.parent.parent)
+    seen: set[Path] = set()
+    for base in candidates:
+        for candidate in (base, *base.parents):
+            resolved = candidate.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            if (resolved / REQUIREMENTS_FILE).is_file() and (resolved / "main.py").is_file():
+                return resolved
+    return candidates[0].resolve() if candidates else Path.cwd()
 
 
 def venv_python(venv_dir: Path) -> Path:
     if sys.platform == "win32":
         return venv_dir / "Scripts" / "python.exe"
     return venv_dir / "bin" / "python"
+
+
+def venv_pythonw(venv_dir: Path) -> Path:
+    if sys.platform == "win32":
+        return venv_dir / "Scripts" / "pythonw.exe"
+    return venv_python(venv_dir)
 
 
 def venv_pip(venv_dir: Path) -> Path:
@@ -67,14 +93,8 @@ def default_build_output_dir(install_root: Path) -> Path:
     return install_root / "dist"
 
 
-def default_install_location() -> Path:
-    """
-    Recommended install folder (per-user, no admin required).
-
-    Windows: %LOCALAPPDATA%\\Programs\\GridNotes (same idea as per-user Program Files)
-    macOS:   ~/Applications/GridNotes
-    Linux:   ~/.local/share/GridNotes
-    """
+def user_local_install_location() -> Path:
+    """Per-user install folder (no administrator required)."""
     if sys.platform == "win32":
         local_app_data = os.environ.get("LOCALAPPDATA", "").strip()
         if local_app_data:
@@ -83,6 +103,22 @@ def default_install_location() -> Path:
     if sys.platform == "darwin":
         return Path.home() / "Applications" / "GridNotes"
     return Path.home() / ".local" / "share" / "GridNotes"
+
+
+def default_install_location() -> Path:
+    """
+    Recommended install folder (standard application location).
+
+    Windows: C:\\Program Files\\GridNotes (or ProgramFiles env var)
+    macOS:   ~/Applications/GridNotes
+    Linux:   ~/.local/share/GridNotes
+    """
+    if sys.platform == "win32":
+        pf = program_files_install_location()
+        if pf is not None:
+            return pf
+        return user_local_install_location()
+    return user_local_install_location()
 
 
 def program_files_install_location() -> Path | None:
@@ -97,6 +133,12 @@ def program_files_install_location() -> Path | None:
 
 def simple_install_location_hint() -> str:
     """Short guidance for non-technical users."""
+    if sys.platform == "win32":
+        return (
+            "Leave this as-is for a normal install (like other Windows apps). "
+            "Use Choose folder… only if you want another drive (for example D:\\Program Files\\GridNotes). "
+            "After install, open GridNotes from the Desktop icon — not from your download folder."
+        )
     return (
         "Leave this folder as-is unless someone told you to change it. "
         "GridNotes will be installed there and you can open it from your Desktop."
@@ -107,22 +149,12 @@ def default_install_location_hint() -> str:
     """Detailed hint shown under advanced options."""
     default = default_install_location()
     if sys.platform == "win32":
-        pf = program_files_install_location()
-        pf_note = ""
-        if pf is not None:
-            pf_note = (
-                f" Program Files path: {pf} (use the Program Files button; "
-                "may require running Install GridNotes.bat as administrator)."
-            )
+        local = user_local_install_location()
         return (
-            f"Recommended folder: {default}. "
-            "Files are copied from your download folder into the install folder."
-            f"{pf_note}"
-        )
-    if sys.platform == "darwin":
-        return (
-            f"Recommended folder: {default}. "
-            "Files are copied from your download folder into the install folder."
+            f"Default install folder: {default}. "
+            "Files are copied from your download folder into the install folder; "
+            "you can delete or move the download folder after install. "
+            f"To install without administrator permission, use “Install for only me” ({local})."
         )
     return (
         f"Recommended folder: {default}. "
@@ -164,6 +196,11 @@ def copy_source_to_install_root(source: Path, dest: Path) -> None:
         if src_file.is_file():
             shutil.copy2(src_file, dest / name)
 
+    for name in _COPY_OPTIONAL_NAMES:
+        src_file = source / name
+        if src_file.is_file():
+            shutil.copy2(src_file, dest / name)
+
     for dirname in _COPY_DIRS:
         src_dir = source / dirname
         if src_dir.is_dir():
@@ -196,16 +233,18 @@ def check_python() -> tuple[bool, str]:
 
 
 def write_launcher_scripts(root: Path, venv_dir: Path) -> list[Path]:
-    """Create double-click launchers in the project root."""
+    """Create double-click launchers in the install folder."""
     created: list[Path] = []
     py = venv_python(venv_dir)
+    pyw = venv_pythonw(venv_dir)
 
     if sys.platform == "win32":
         run_bat = root / "Run GridNotes.bat"
+        launcher_py = pyw if pyw.is_file() else py
         run_bat.write_text(
             "@echo off\r\n"
             f'cd /d "%~dp0"\r\n'
-            f'"{py}" main.py\r\n',
+            f'"{launcher_py}" main.py\r\n',
             encoding="utf-8",
         )
         created.append(run_bat)
@@ -306,21 +345,35 @@ class InstallRunner:
         if not ok:
             return False, message
 
-        if not self.requirements.is_file():
-            return False, f"Could not find {REQUIREMENTS_FILE} in {self.root}"
+        source_req = self.source_root / REQUIREMENTS_FILE
+        if not source_req.is_file():
+            return False, (
+                f"Could not find {REQUIREMENTS_FILE} in your download folder:\n"
+                f"{self.source_root}\n\n"
+                "Use the folder that contains Install GridNotes.bat and main.py "
+                "(not the AppData install folder). Run Install GridNotes.bat from "
+                "that download folder."
+            )
 
         try:
             self._step("Checking Python", 5)
             self._log(message)
+            self._log(f"Download folder: {self.source_root}")
             self._check_cancelled()
 
-            if self.root != self.source_root:
+            if self.root.resolve() != self.source_root.resolve():
                 self._step("Copying files to install location", 10)
                 self._log(f"Install folder: {self.root}")
-                resolve_install_root(self.source_root, self.root)
+                copy_source_to_install_root(self.source_root, self.root)
             else:
                 self._log(f"Installing in place: {self.root}")
             self._check_cancelled()
+
+            if not self.requirements.is_file():
+                return False, (
+                    f"Could not find {REQUIREMENTS_FILE} in {self.root} after copying.\n"
+                    "Try again, or set the install location to your download folder."
+                )
 
             self._step("Creating virtual environment", 15)
             if self.venv_dir.exists():
@@ -382,25 +435,32 @@ class InstallRunner:
                 self._log(f"Created {path.name}")
 
             dist_exe = self.build_output_dir / "GridNotes" / "GridNotes.exe"
+            shortcut_args: str | None = None
             if self.build_standalone and dist_exe.is_file():
                 self._launch_target = dist_exe
+                shortcut_working_dir = dist_exe.parent
+            elif sys.platform == "win32" and venv_pythonw(self.venv_dir).is_file():
+                self._launch_target = venv_pythonw(self.venv_dir)
+                shortcut_working_dir = self.root
+                shortcut_args = "main.py"
             elif launchers:
                 self._launch_target = launchers[0]
+                shortcut_working_dir = self.root
             else:
                 self._launch_target = venv_python(self.venv_dir)
+                shortcut_working_dir = self.root
+                shortcut_args = "main.py"
 
             if self.create_desktop_shortcut and self._launch_target is not None:
                 try:
                     shortcut = create_desktop_shortcut(
                         target=self._launch_target,
-                        working_dir=(
-                            self._launch_target.parent
-                            if self._launch_target.suffix.lower() == ".exe"
-                            else self.root
-                        ),
+                        working_dir=shortcut_working_dir,
+                        arguments=shortcut_args,
                         icon=self._shortcut_icon,
                     )
                     self._log(f"Desktop shortcut: {shortcut}")
+                    self._log(f"Shortcut opens: {self.root}")
                 except (OSError, subprocess.SubprocessError) as exc:
                     self._log(f"Could not create desktop shortcut: {exc}")
 
@@ -420,11 +480,16 @@ class InstallRunner:
                         "Check the log for PyInstaller errors."
                     )
             else:
-                launcher = launchers[0].name if launchers else "main.py"
+                shortcut_note = (
+                    "Open GridNotes from the Desktop icon."
+                    if self.create_desktop_shortcut
+                    else f'Use “Launch GridNotes” or “{launchers[0].name if launchers else "Run GridNotes.bat"}”.'
+                )
                 summary = (
                     "Installation complete.\n\n"
                     f"Install folder: {self.root}\n"
-                    f"Use “Launch GridNotes” or double-click “{launcher}” to start the app."
+                    f"{shortcut_note}\n"
+                    "You can move or delete your download folder; GridNotes runs from the install folder."
                 )
             return True, summary
         except RuntimeError as exc:

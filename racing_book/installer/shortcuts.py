@@ -39,18 +39,24 @@ def _create_windows_lnk(
     working_dir: Path,
     description: str,
     icon: Path | None = None,
+    arguments: str | None = None,
 ) -> None:
     icon_stmt = ""
     if icon is not None and icon.is_file():
-        icon_stmt = f"$s.IconLocation = '{_escape_ps(icon)}'"
+        icon_stmt = f"$s.IconLocation = '{_escape_ps(icon)}'; "
+
+    args_stmt = ""
+    if arguments:
+        args_stmt = f"$s.Arguments = '{arguments.replace(chr(39), chr(39) + chr(39))}'; "
 
     script = (
         "$ws = New-Object -ComObject WScript.Shell; "
         f"$s = $ws.CreateShortcut('{_escape_ps(shortcut_path)}'); "
         f"$s.TargetPath = '{_escape_ps(target)}'; "
         f"$s.WorkingDirectory = '{_escape_ps(working_dir)}'; "
+        f"{args_stmt}"
         f"$s.Description = '{description.replace(chr(39), chr(39) + chr(39))}'; "
-        f"{icon_stmt}; "
+        f"{icon_stmt}"
         "$s.Save()"
     )
     subprocess.run(
@@ -67,6 +73,7 @@ def create_desktop_shortcut(
     working_dir: Path,
     name: str = APP_SHORTCUT_NAME,
     icon: Path | None = None,
+    arguments: str | None = None,
 ) -> Path:
     """
     Create a desktop shortcut to *target*.
@@ -84,6 +91,7 @@ def create_desktop_shortcut(
             working_dir=working_dir,
             description="GridNotes — iRacing driver scouting",
             icon=icon,
+            arguments=arguments,
         )
         logger.info("Created desktop shortcut: %s", shortcut_path)
         return shortcut_path

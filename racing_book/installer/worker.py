@@ -26,7 +26,9 @@ class InstallWorker(QThread):
         parent=None,
     ) -> None:
         super().__init__(parent)
-        self._source_root = source_root or find_project_root()
+        self._source_root = source_root or find_project_root(Path.cwd())
+        if not (self._source_root / "requirements.txt").is_file():
+            self._source_root = find_project_root()
         self._install_root = install_root or self._source_root
         self._build_standalone = build_standalone
         self._build_output_dir = build_output_dir

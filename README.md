@@ -11,8 +11,9 @@ All data stays on your machine in a local SQLite database — no account or clou
 1. Open **`START_HERE.txt`** in this folder (short checklist), or  
 2. Read **[INSTALL.md](INSTALL.md)** — plain-language steps with pictures of what to click.
 
-**Easiest for Windows:** use **`GridNotes-Setup.exe`** from a release (no Python).  
-**If you have the download folder:** double-click **`Install GridNotes.bat`** and follow the window.
+**Downloaded source from GitHub?** You will **not** see `GridNotes-Setup.exe` in the ZIP — use **`Install GridNotes.bat`** ([INSTALL.md](INSTALL.md)).  
+
+**Easiest for Windows:** download **`GridNotes-Setup.exe`** from [Releases → Assets](https://github.com/troyerl/race_book/releases) (you must build and upload it first; see [docs/BUILD_WINDOWS_INSTALLER.md](docs/BUILD_WINDOWS_INSTALLER.md)).
 
 ## Overview
 

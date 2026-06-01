@@ -4,6 +4,20 @@ cd /d "%~dp0"
 
 title GridNotes Install Helper
 
+:: Installing to Program Files needs administrator permission on Windows.
+:: Use: Install GridNotes.bat /noelevate  (advanced: install for only me, no UAC)
+if /I not "%~1"=="/noelevate" (
+  net session >nul 2>&1
+  if errorlevel 1 (
+    echo.
+    echo  GridNotes installs to Program Files like other Windows apps.
+    echo  Click Yes if Windows asks for permission.
+    echo.
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+    exit /b 0
+  )
+)
+
 where python >nul 2>&1
 if errorlevel 1 (
   echo.
