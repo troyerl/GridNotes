@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import QApplication
 from racing_book.app_icon import load_app_icon, set_windows_app_user_model_id
 from racing_book.log_config import setup_logging
 from racing_book.racebook_app import RaceBookApp
-from racing_book.theme import APP_STYLESHEET
+from racing_book.theme import apply_app_theme
 
 
 def main() -> int:
@@ -13,7 +13,7 @@ def main() -> int:
     setup_logging()
 
     app = QApplication(sys.argv)
-    app.setStyleSheet(APP_STYLESHEET)
+    apply_app_theme(app)
 
     icon = load_app_icon()
     if icon is not None:

@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from .appearance import get_theme_id, normalize_theme_id
 from .data_retention import DEFAULT_RETENTION, SETTING_KEY, purge_expired_race_results
 from .db import connect_db, get_setting, init_db, set_setting
 from .driver_cleanup import count_zero_race_drivers, purge_zero_race_drivers
@@ -43,6 +44,7 @@ from .driver_table import (
     PREF_DATA_ROLE,
     RESIZE_TO_CONTENTS_COLUMNS,
     RISK_DATA_ROLE,
+    configure_driver_table_theme,
     configure_driver_table_widget,
     make_note_item,
     make_safety_item,
@@ -71,8 +73,10 @@ from .theme import (
     STATUS_CONNECTED,
     STATUS_OFFLINE,
     STATUS_WAITING,
+    apply_app_theme,
     configure_scroll_area,
     configure_widget_scrollbars,
+    refresh_widget_tree,
 )
 from .ui_widgets import WrappingLabel
 from .user_feedback import log_user_error, show_critical, show_warning
@@ -386,6 +390,7 @@ class RaceBookApp(QMainWindow):
 
         self.settings_tab = SettingsTab()
         self.settings_tab.settings_saved.connect(self._on_settings_saved)
+        self.settings_tab.theme_changed.connect(self.apply_theme)
         self.settings_tab.zero_race_cleanup_requested.connect(self._cleanup_zero_race_drivers)
         if iracing_data_api_auto_import_enabled():
             self.settings_tab.api_test_requested.connect(self._test_iracing_api_connection)
@@ -661,6 +666,22 @@ class RaceBookApp(QMainWindow):
         self._set_driver_panel_enabled(False)
         self._refresh_ui_table_now(force=True)
         self.apply_driver_filters()
+        self.apply_theme()
+
+    def apply_theme(self, theme_id: str | None = None) -> None:
+        """Apply light/dark stylesheet and refresh theme-dependent widgets."""
+        tid = normalize_theme_id(theme_id) if theme_id is not None else get_theme_id()
+        app = QApplication.instance()
+        if app is not None:
+            apply_app_theme(app, tid)
+        configure_driver_table_theme(tid)
+        refresh_widget_tree(self)
+        if hasattr(self, "table"):
+            self.table.viewport().update()
+        if hasattr(self, "safety_index_panel"):
+            self.safety_index_panel.refresh_theme()
+        if hasattr(self, "live_session_view"):
+            self.live_session_view.update()
 
     def save_ignore_name(self):
         set_setting("ignore_driver_name", (self.ignore_name_input.text() or "").strip() or None)

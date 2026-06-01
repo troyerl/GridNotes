@@ -14,7 +14,9 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from .appearance import get_theme_id
 from .safety_index import MIN_RACES_FOR_SCORE, SafetyIndex, tier_color_hex
+from .theme import safety_progress_bar_style
 
 
 def _bar_color(tier: str) -> str:
@@ -108,7 +110,14 @@ class SafetyIndexPanel(QGroupBox):
         self.reasons_label.setWordWrap(True)
         layout.addWidget(self.reasons_label)
 
+        self._last_safety: SafetyIndex | None = None
+
+    def refresh_theme(self) -> None:
+        if self._last_safety is not None:
+            self.update_safety(self._last_safety)
+
     def update_safety(self, safety: SafetyIndex) -> None:
+        self._last_safety = safety
         color = _bar_color(safety.tier)
 
         if safety.tier == "unknown":
@@ -134,12 +143,8 @@ class SafetyIndexPanel(QGroupBox):
 
         self.overall_bar.setValue(int(round(safety.score)))
         self.overall_bar.setFormat("%v / 100")
-        chunk = (
-            f"QProgressBar#safetyOverallBar::chunk {{ background-color: {color}; border-radius: 4px; }}"
-        )
         self.overall_bar.setStyleSheet(
-            f"QProgressBar#safetyOverallBar {{ border: 1px solid #3d4654; border-radius: 4px; "
-            f"background: #1a1e24; text-align: center; color: #e8eaed; }} {chunk}"
+            safety_progress_bar_style(get_theme_id(), color)
         )
 
         self.profile_label.setText(safety.profile)

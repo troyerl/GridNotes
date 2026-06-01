@@ -6,12 +6,14 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QBrush, QColor
 from PyQt6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem, QTableWidget, QTableWidgetItem
 
+from .appearance import get_theme_id
 from .safety_index import (
     SafetyIndex,
     safety_tooltip,
     tier_qcolor,
     unknown_history_message,
 )
+from .theme import table_row_color
 from .utils import sqlite_row_to_int
 
 PREF_DATA_ROLE = Qt.ItemDataRole.UserRole + 1
@@ -76,6 +78,24 @@ ROW_BG_BASE = QColor(26, 30, 36)
 ROW_FG_HIGHLIGHT = QColor(232, 234, 237)
 SELECTED_ROW_BG = QColor(45, 74, 122)
 SELECTED_ROW_FG = QColor(255, 255, 255)
+
+
+def configure_driver_table_theme(theme_id: str | None = None) -> None:
+    """Update module-level row colors when the application theme changes."""
+    global ROW_BG_LIKED, ROW_BG_DISLIKED, ROW_BG_HOVER, ROW_BG_RISKY
+    global ROW_BG_ALTERNATE, ROW_BG_BASE, ROW_FG_HIGHLIGHT
+    global SELECTED_ROW_BG, SELECTED_ROW_FG
+
+    tid = theme_id if theme_id is not None else get_theme_id()
+    ROW_BG_LIKED = table_row_color(tid, "liked")
+    ROW_BG_DISLIKED = table_row_color(tid, "disliked")
+    ROW_BG_HOVER = table_row_color(tid, "hover")
+    ROW_BG_RISKY = table_row_color(tid, "risky")
+    ROW_BG_ALTERNATE = table_row_color(tid, "alternate")
+    ROW_BG_BASE = table_row_color(tid, "base")
+    ROW_FG_HIGHLIGHT = table_row_color(tid, "highlight_fg")
+    SELECTED_ROW_BG = table_row_color(tid, "selected_bg")
+    SELECTED_ROW_FG = table_row_color(tid, "selected_fg")
 
 TABLE_HOVER_ROW_PROPERTY = "hover_row"
 

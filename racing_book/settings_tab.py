@@ -18,6 +18,11 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from .appearance import (
+    THEME_OPTIONS,
+    get_theme_id,
+    set_theme_id,
+)
 from .data_retention import DEFAULT_RETENTION, RETENTION_OPTIONS, SETTING_KEY, retention_label
 from .db import connect_db, get_data_dir_path, get_db_file_size, get_db_path, get_setting, set_setting
 from .driver_cleanup import count_zero_race_drivers
@@ -35,7 +40,7 @@ from .iracing_oauth_guide import (
     oauth_registration_paused_plain,
 )
 from .ui_widgets import Accordion, HtmlHintLabel, SettingsSectionNavigator
-from .theme import configure_scroll_area
+from .theme import configure_scroll_area, status_message_color
 from .user_feedback import log_user_error
 from .utils import format_file_size
 
@@ -44,6 +49,7 @@ class SettingsTab(QWidget):
     """Application settings panel."""
 
     settings_saved = pyqtSignal()
+    theme_changed = pyqtSignal(str)
     zero_race_cleanup_requested = pyqtSignal()
     api_test_requested = pyqtSignal(str)  # access_token
 
@@ -194,6 +200,30 @@ class SettingsTab(QWidget):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(12)
 
+        appearance_group = QGroupBox("Appearance")
+        appearance_layout = QVBoxLayout(appearance_group)
+        appearance_layout.setSpacing(10)
+
+        appearance_layout.addWidget(
+            self._section_hint("Choose light or dark colors for the whole application.")
+        )
+
+        theme_label = QLabel("Color theme")
+        theme_label.setObjectName("statInlineLabel")
+        appearance_layout.addWidget(theme_label)
+
+        self.theme_combo = QComboBox()
+        self.theme_combo.setObjectName("settingsCombo")
+        for value, label in THEME_OPTIONS:
+            self.theme_combo.addItem(label, value)
+        current_theme = get_theme_id()
+        theme_idx = self.theme_combo.findData(current_theme)
+        self.theme_combo.setCurrentIndex(theme_idx if theme_idx >= 0 else 0)
+        self.theme_combo.currentIndexChanged.connect(self._on_theme_combo_changed)
+        appearance_layout.addWidget(self.theme_combo)
+
+        layout.addWidget(appearance_group)
+
         retention_group = QGroupBox("Race history retention")
         retention_layout = QVBoxLayout(retention_group)
         retention_layout.setSpacing(10)
@@ -309,6 +339,14 @@ class SettingsTab(QWidget):
         value = self.retention_combo.currentData()
         return value if value else DEFAULT_RETENTION
 
+    def current_theme_value(self) -> str:
+        value = self.theme_combo.currentData()
+        return value if value else get_theme_id()
+
+    def _on_theme_combo_changed(self) -> None:
+        theme_id = self.current_theme_value()
+        self.theme_changed.emit(theme_id)
+
     def _update_retention_status_label(self) -> None:
         self.retention_status.setText(
             f"Current policy: {retention_label(self.current_retention_value())}"
@@ -364,10 +402,10 @@ class SettingsTab(QWidget):
             return
         self._focus_auto_import_tab()
         self.api_status.setText(message)
-        if not ok:
-            self.api_status.setStyleSheet("color: #f08080;")
-        else:
-            self.api_status.setStyleSheet("color: #6ee7a8;")
+        theme_id = get_theme_id()
+        self.api_status.setStyleSheet(
+            f"color: {status_message_color(theme_id, ok=ok)};"
+        )
 
     def show_api_fetch_status(self, message: str, *, error: bool = False) -> None:
         if not iracing_data_api_auto_import_enabled():
@@ -376,10 +414,10 @@ class SettingsTab(QWidget):
         if error:
             log_user_error(message, context="iRacing Data API auto-fetch")
         self.api_status.setText(message)
-        if error:
-            self.api_status.setStyleSheet("color: #f08080;")
-        else:
-            self.api_status.setStyleSheet("color: #6ee7a8;")
+        theme_id = get_theme_id()
+        self.api_status.setStyleSheet(
+            f"color: {status_message_color(theme_id, ok=not error)};"
+        )
 
     def _save_api_settings(self) -> None:
         if not iracing_data_api_auto_import_enabled():
@@ -391,6 +429,7 @@ class SettingsTab(QWidget):
 
     def _save_settings(self) -> None:
         set_setting(SETTING_KEY, self.current_retention_value())
+        set_theme_id(self.current_theme_value())
         if iracing_data_api_auto_import_enabled():
             self._save_api_settings()
         self._update_retention_status_label()
