@@ -1,6 +1,6 @@
 # How to install GridNotes
 
-**Version 1.2.24**
+**Version 1.2.25**
 
 GridNotes helps you remember iRacing drivers you raced with and keep private notes.  
 You do **not** need to know how to code. Follow the steps below in order.

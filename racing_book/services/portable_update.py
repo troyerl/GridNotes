@@ -5,9 +5,11 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
+import time
 import zipfile
 from collections.abc import Callable
 from pathlib import Path
@@ -22,8 +24,6 @@ from ..installer.logic import (
     relaunch_gridnotes,
     venv_python,
     windows_update_relaunch_batch_lines,
-    write_gridnotes_start_script,
-    write_windows_vbs_launcher,
 )
 from ..installer.uninstall import resolve_install_root
 from .app_update import GITHUB_OWNER, GITHUB_REPO, REQUEST_TIMEOUT_SEC, _GITHUB_HEADERS, _normalize_tag
@@ -63,6 +63,24 @@ def release_zipball_url(version: str) -> str:
 
 def _update_log_path() -> Path:
     return Path(tempfile.gettempdir()) / _UPDATE_LOG_NAME
+
+
+def _chmod_and_retry(func, path: str, exc_info) -> None:
+    if not os.access(path, os.W_OK):
+        os.chmod(path, stat.S_IWUSR | stat.S_IREAD)
+        func(path)
+    else:
+        raise exc_info[1]
+
+
+def _safe_rmtree(path: Path) -> None:
+    """Remove a directory tree; tolerate read-only or briefly locked files on Windows."""
+    if not path.exists():
+        return
+    try:
+        shutil.rmtree(path, onerror=_chmod_and_retry)
+    except OSError:
+        shutil.rmtree(path, ignore_errors=True)
 
 
 def _append_update_log(line: str) -> None:
@@ -189,7 +207,8 @@ def _write_windows_apply_batch(
         "  ping -n 2 127.0.0.1 >nul\r\n"
         "  goto wait_pid\r\n"
         ")\r\n"
-        "ping -n 2 127.0.0.1 >nul\r\n"
+        'echo [%date% %time%] GridNotes process ended>>"%LOG%"\r\n'
+        "ping -n 5 127.0.0.1 >nul\r\n"
         'echo [%date% %time%] Copying files...>>"%LOG%"\r\n'
         'robocopy "%SRC%" "%DEST%" /E /XD .venv dist build .git __pycache__ .cursor .pytest_cache '
         "/XF driver_history.db /NFL /NDL /NJH /NJS /NC /NS\r\n"
@@ -206,6 +225,12 @@ def _write_windows_apply_batch(
         '"%PY%" -c "from racing_book.installer.windows_apps import register_windows_uninstall; '
         "from racing_book.app.app_version import __version__; "
         'register_windows_uninstall(__import__(\'pathlib\').Path(r\'%DEST%\'), __version__)" '
+        '>>"%LOG%" 2>&1\r\n'
+        'echo [%date% %time%] Refreshing launch scripts...>>"%LOG%"\r\n'
+        '"%PY%" -c "from pathlib import Path; from racing_book.installer.logic import '
+        "write_gridnotes_start_script, write_windows_vbs_launcher; "
+        "r=Path(r'%DEST%'); write_gridnotes_start_script(r); "
+        'write_windows_vbs_launcher(r, r / \'.venv\')" '
         '>>"%LOG%" 2>&1\r\n'
         f"{relaunch_block}\r\n"
         'echo [%date% %time%] Update finished>>"%LOG%"\r\n'
@@ -266,7 +291,10 @@ def apply_portable_update(
         return False, "No release version to install.", True
 
     pid = wait_pid if wait_pid is not None else os.getpid()
-    temp_parent = Path(tempfile.gettempdir()) / f"gridnotes-update-{version}-{pid}"
+    temp_parent = (
+        Path(tempfile.gettempdir())
+        / f"gridnotes-update-{version}-{pid}-{int(time.time())}"
+    )
     zip_path = temp_parent / "release.zip"
     extract_dir = temp_parent / "extract"
     staging_dir = temp_parent / "source"
@@ -280,30 +308,26 @@ def apply_portable_update(
 
     try:
         report("Preparing update…", 5)
-        if temp_parent.exists():
-            shutil.rmtree(temp_parent, ignore_errors=True)
         temp_parent.mkdir(parents=True, exist_ok=True)
         download_release_archive(version, zip_path, on_progress=on_progress)
         report("Extracting release…", 65)
         source_root = extract_release_archive(zip_path, extract_dir)
         report("Preparing files…", 75)
         # Stage a clean tree for robocopy (extract dir may contain extra nesting).
-        if staging_dir.exists():
-            shutil.rmtree(staging_dir)
+        _safe_rmtree(staging_dir)
         copy_source_to_install_root(source_root, staging_dir)
-        shutil.rmtree(extract_dir, ignore_errors=True)
-        zip_path.unlink(missing_ok=True)
+        _safe_rmtree(extract_dir)
+        try:
+            zip_path.unlink(missing_ok=True)
+        except OSError:
+            pass
     except (requests.RequestException, OSError, zipfile.BadZipFile, FileNotFoundError) as exc:
         logger.exception("Failed to download or extract release")
-        shutil.rmtree(temp_parent, ignore_errors=True)
+        _safe_rmtree(temp_parent)
         return False, f"Could not download the update: {exc}", True
 
     if sys.platform == "win32":
         report("Installing update (GridNotes will close)…", 88)
-        venv_dir = install_root / VENV_DIR_NAME
-        write_gridnotes_start_script(install_root)
-        if venv_dir.is_dir():
-            write_windows_vbs_launcher(install_root, venv_dir)
         bat_path = temp_parent / "apply-update.bat"
         vbs_path = temp_parent / "apply-update.vbs"
         _write_windows_apply_batch(

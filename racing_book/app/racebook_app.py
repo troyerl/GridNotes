@@ -1070,12 +1070,24 @@ class RaceBookApp(QMainWindow):
             restart_application()
             return
 
-        logger.info("Portable update scheduled; quitting for background install")
-        from PyQt6.QtWidgets import QApplication
+        logger.info("Portable update scheduled; exiting for background install")
+        self._release_resources_before_exit()
+        os._exit(0)
 
-        app = QApplication.instance()
-        if app is not None:
-            app.quit()
+    def _release_resources_before_exit(self) -> None:
+        """Close DB and log files so uninstall/update can remove user or app data."""
+        if hasattr(self, "_db_conn"):
+            try:
+                self._db_conn.close()
+            except Exception:
+                pass
+            del self._db_conn
+        try:
+            from ..services.log_config import shutdown_logging
+
+            shutdown_logging()
+        except Exception:
+            pass
 
     def _uninstall_application(self, remove_user_data: bool) -> None:
         from ..installer.uninstall import perform_uninstall, resolve_install_root
@@ -1084,17 +1096,14 @@ class RaceBookApp(QMainWindow):
         if hasattr(self.settings_tab, "btn_uninstall"):
             self.settings_tab.btn_uninstall.setEnabled(False)
 
-        if hasattr(self, "_db_conn"):
+        if remove_user_data:
+            self._release_resources_before_exit()
+        elif hasattr(self, "_db_conn"):
             try:
                 self._db_conn.close()
             except Exception:
                 pass
             del self._db_conn
-
-        if remove_user_data:
-            from ..services.log_config import shutdown_logging
-
-            shutdown_logging()
 
         result = perform_uninstall(
             install_root=install_root,
