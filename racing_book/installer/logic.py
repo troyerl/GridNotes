@@ -15,6 +15,7 @@ from .shortcuts import create_desktop_shortcut
 logger = logging.getLogger(__name__)
 
 MIN_PYTHON = (3, 10)
+MAX_PYTHON = (3, 13)  # 3.14+ breaks PyQt6 in the install-helper venv today
 VENV_DIR_NAME = ".venv"
 APP_INSTALL_DIRNAME = "GridNotes"
 REQUIREMENTS_FILE = "requirements.txt"
@@ -109,18 +110,78 @@ def user_local_install_location() -> Path:
 
 def default_install_location() -> Path:
     """
-    Recommended install folder (standard application location).
+    Recommended install folder (no administrator required on Windows).
 
-    Windows: C:\\Program Files\\GridNotes (or ProgramFiles env var)
+    Windows: %LOCALAPPDATA%\\Programs\\GridNotes (use Program Files only with admin)
     macOS:   ~/Applications/GridNotes
     Linux:   ~/.local/share/GridNotes
     """
-    if sys.platform == "win32":
-        pf = program_files_install_location()
-        if pf is not None:
-            return pf
-        return user_local_install_location()
     return user_local_install_location()
+
+
+def is_windows_admin() -> bool:
+    if sys.platform != "win32":
+        return True
+    try:
+        import ctypes
+
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:
+        return False
+
+
+def install_path_under_program_files(path: Path) -> bool:
+    if sys.platform != "win32":
+        return False
+    resolved = path.resolve()
+    for env_name in ("ProgramFiles", "ProgramFiles(x86)"):
+        prefix = os.environ.get(env_name, "").strip()
+        if not prefix:
+            continue
+        try:
+            resolved.relative_to(Path(prefix).resolve())
+            return True
+        except ValueError:
+            continue
+    return False
+
+
+def permission_denied_install_message(install_root: Path) -> str:
+    local = user_local_install_location()
+    return (
+        f"Windows denied access to:\n{install_root}\n\n"
+        "Program Files requires administrator permission.\n\n"
+        "Choose one:\n"
+        f"• Click “Install for only me” or use: {local}\n"
+        "• Or pick D:\\ in Choose folder… (installs to D:\\GridNotes)\n"
+        "• Or close this window, right-click Install GridNotes.bat → "
+        "Run as administrator, then install to Program Files again"
+    )
+
+
+def check_install_folder_writable(install_root: Path) -> tuple[bool, str]:
+    """Return whether GridNotes can create/write the install folder."""
+    install_root = install_root.resolve()
+    try:
+        install_root.mkdir(parents=True, exist_ok=True)
+    except (PermissionError, OSError) as exc:
+        if isinstance(exc, PermissionError) or getattr(exc, "winerror", None) == 5:
+            return False, permission_denied_install_message(install_root)
+        return False, str(exc)
+
+    probe = install_root / ".gridnotes_install_write_test"
+    try:
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+    except (PermissionError, OSError) as exc:
+        if isinstance(exc, PermissionError) or getattr(exc, "winerror", None) == 5:
+            return False, permission_denied_install_message(install_root)
+        return False, str(exc)
+
+    if install_path_under_program_files(install_root) and not is_windows_admin():
+        return False, permission_denied_install_message(install_root)
+
+    return True, ""
 
 
 def program_files_install_location() -> Path | None:
@@ -218,10 +279,10 @@ def simple_install_location_hint() -> str:
     """Short guidance for non-technical users."""
     if sys.platform == "win32":
         return (
-            "Leave this as-is for a normal install (like other Windows apps). "
-            "Use Choose folder… to pick another drive or folder — GridNotes will be installed "
-            "in a GridNotes folder there (for example D:\\ → D:\\GridNotes). "
-            "After install, open GridNotes from the Desktop icon — not from your download folder."
+            "Default folder needs no administrator permission. "
+            "Use Choose folder… for another drive (for example D:\\ → D:\\GridNotes). "
+            "For C:\\Program Files, use advanced options and run Install GridNotes.bat as administrator. "
+            "After install, open GridNotes from the Desktop icon."
         )
     return (
         "Leave this folder as-is unless someone told you to change it. "
@@ -233,12 +294,13 @@ def default_install_location_hint() -> str:
     """Detailed hint shown under advanced options."""
     default = default_install_location()
     if sys.platform == "win32":
-        local = user_local_install_location()
+        pf = program_files_install_location()
+        pf_note = f" {pf}" if pf is not None else ""
         return (
             f"Default install folder: {default}. "
-            "Files are copied from your download folder into the install folder; "
-            "you can delete or move the download folder after install. "
-            f"To install without administrator permission, use “Install for only me” ({local})."
+            "Program Files"
+            f"{pf_note} requires running Install GridNotes.bat as administrator. "
+            "Use Choose folder… for D:\\ or another drive."
         )
     return (
         f"Recommended folder: {default}. "
@@ -306,14 +368,91 @@ def resolve_install_root(source: Path, chosen: Path) -> Path:
     return chosen
 
 
-def check_python() -> tuple[bool, str]:
-    version = sys.version_info[:3]
-    if version[:2] < MIN_PYTHON:
+def _python_version_for_executable(executable: str) -> tuple[int, int] | None:
+    try:
+        output = subprocess.check_output(
+            [executable, "-c", "import sys; print(sys.version_info[0], sys.version_info[1])"],
+            text=True,
+            timeout=20,
+        )
+        major_s, minor_s = output.strip().split()[:2]
+        return int(major_s), int(minor_s)
+    except (subprocess.SubprocessError, OSError, ValueError):
+        return None
+
+
+def _is_supported_python_version(major: int, minor: int) -> bool:
+    return (major, minor) >= MIN_PYTHON and (major, minor) <= MAX_PYTHON
+
+
+def _resolve_windows_py_launcher(version: str) -> str | None:
+    try:
+        output = subprocess.check_output(
+            ["py", f"-{version}", "-c", "import sys; print(sys.executable)"],
+            text=True,
+            timeout=20,
+        )
+        path = output.strip()
+        return path if path and Path(path).is_file() else None
+    except (subprocess.SubprocessError, OSError):
+        return None
+
+
+def resolve_install_python() -> tuple[bool, str, str | None]:
+    """
+    Pick a Python executable for creating the GridNotes .venv.
+
+    On Windows, prefers the ``py`` launcher (3.13, 3.12, …) so Python 3.14 on PATH
+    does not break the install.
+    """
+    if sys.platform == "win32":
+        for version in ("3.13", "3.12", "3.11", "3.10"):
+            executable = _resolve_windows_py_launcher(version)
+            if executable is None:
+                continue
+            parsed = _python_version_for_executable(executable)
+            if parsed is not None and _is_supported_python_version(*parsed):
+                return (
+                    True,
+                    f"Using {executable} (Python {parsed[0]}.{parsed[1]})",
+                    executable,
+                )
+
+    executable = sys.executable
+    parsed = _python_version_for_executable(executable)
+    if parsed is None:
+        return False, "Could not determine your Python version.", None
+
+    if not _is_supported_python_version(*parsed):
+        if parsed >= (3, 14):
+            return (
+                False,
+                "Python 3.14 is not supported for GridNotes install yet.\n\n"
+                "Install Python 3.12 or 3.13 from https://www.python.org/downloads/\n"
+                '(check "Add python.exe to PATH" on the first installer screen).\n\n'
+                "Then delete the folder D:\\GridNotes\\.venv if it exists, and run\n"
+                "Install GridNotes.bat again.\n\n"
+                "Tip: On Windows you can keep 3.14 installed; the installer will use\n"
+                "3.12 or 3.13 automatically if you install them too.",
+                None,
+            )
         return (
             False,
-            f"Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]}+ is required (found {version[0]}.{version[1]}).",
+            f"Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]}–{MAX_PYTHON[0]}.{MAX_PYTHON[1]} is required "
+            f"(found {parsed[0]}.{parsed[1]}).",
+            None,
         )
-    return True, f"Using {sys.executable} (Python {version[0]}.{version[1]}.{version[2]})"
+
+    return (
+        True,
+        f"Using {executable} (Python {parsed[0]}.{parsed[1]})",
+        executable,
+    )
+
+
+def check_python() -> tuple[bool, str]:
+    ok, message, _executable = resolve_install_python()
+    return ok, message
 
 
 def install_location_pointer_file() -> Path:
@@ -463,28 +602,28 @@ def write_launcher_scripts(root: Path, venv_dir: Path) -> list[Path]:
             '  echo ERROR: Missing %PY%>>"%LOG%"\r\n'
             "  goto :fail\r\n"
             ")\r\n"
-            'if exist "%STARTER%" (\r\n'
-            '  echo Running gridnotes_start.py...>>"%LOG%"\r\n'
-            '  "%PY%" "%STARTER%"\r\n'
-            "  set ERR=%ERRORLEVEL%\r\n"
-            '  echo gridnotes_start exit code %ERR%>>"%LOG%"\r\n'
-            "  if %ERR% neq 0 goto :fail\r\n"
-            "  exit /b 0\r\n"
-            ")\r\n"
+            'if exist "%STARTER%" goto :run_starter\r\n'
             'echo gridnotes_start.py missing, running main.py>>"%LOG%"\r\n'
             'if not exist "%MAIN%" (\r\n'
             '  echo ERROR: Missing %MAIN%>>"%LOG%"\r\n'
             "  goto :fail\r\n"
             ")\r\n"
-            '"%PY%" "%MAIN%"\r\n'
-            "set ERR=%ERRORLEVEL%\r\n"
-            'echo main.py exit code %ERR%>>"%LOG%"\r\n'
-            "if %ERR% neq 0 goto :fail\r\n"
+            'goto :run_main\r\n'
+            ":run_starter\r\n"
+            'echo Running gridnotes_start.py...>>"%LOG%"\r\n'
+            '"%PY%" "%STARTER%" >>"%LOG%" 2>&1\r\n'
+            "if errorlevel 1 goto :fail\r\n"
+            "exit /b 0\r\n"
+            ":run_main\r\n"
+            'echo Running main.py...>>"%LOG%"\r\n'
+            '"%PY%" "%MAIN%" >>"%LOG%" 2>&1\r\n'
+            "if errorlevel 1 goto :fail\r\n"
             "exit /b 0\r\n"
             ":fail\r\n"
             "echo.\r\n"
             "echo GridNotes did not start.\r\n"
             "echo See: %LOG%\r\n"
+            "echo App log (if the app ran): %APPDATA%\\GridNotes\\gridnotes.log\r\n"
             "echo.\r\n"
             "type \"%LOG%\"\r\n"
             "echo.\r\n"
@@ -704,6 +843,7 @@ class InstallRunner:
         self.venv_dir = self.root / VENV_DIR_NAME
         self.requirements = self.root / REQUIREMENTS_FILE
         self._launch_target: Path | None = None
+        self._install_python: str | None = None
 
     def _log(self, line: str) -> None:
         if line:
@@ -745,9 +885,10 @@ class InstallRunner:
             raise RuntimeError(f"Command failed ({code}): {' '.join(args)}")
 
     def run(self) -> tuple[bool, str]:
-        ok, message = check_python()
-        if not ok:
+        ok, message, install_python = resolve_install_python()
+        if not ok or install_python is None:
             return False, message
+        self._install_python = install_python
 
         source_req = self.source_root / REQUIREMENTS_FILE
         if not source_req.is_file():
@@ -780,10 +921,21 @@ class InstallRunner:
                 )
 
             self._step("Creating virtual environment", 15)
-            if self.venv_dir.exists():
-                self._log(f"Using existing {self.venv_dir.name}/")
-            else:
-                self._run([sys.executable, "-m", "venv", str(self.venv_dir)])
+            venv_py = venv_python(self.venv_dir)
+            if self.venv_dir.exists() and venv_py.is_file():
+                existing = _python_version_for_executable(str(venv_py))
+                if existing is not None and not _is_supported_python_version(*existing):
+                    self._log(
+                        f"Removing existing {self.venv_dir.name} "
+                        f"(Python {existing[0]}.{existing[1]} is not supported)…"
+                    )
+                    shutil.rmtree(self.venv_dir)
+                else:
+                    self._log(f"Using existing {self.venv_dir.name}/")
+
+            if not self.venv_dir.exists():
+                self._log(f"Creating {self.venv_dir.name} with {self._install_python}")
+                self._run([self._install_python, "-m", "venv", str(self.venv_dir)])
             self._check_cancelled()
 
             py = venv_python(self.venv_dir)
@@ -907,6 +1059,15 @@ class InstallRunner:
             if str(exc) == "Installation cancelled.":
                 return False, "Installation cancelled."
             return False, str(exc)
-        except (OSError, subprocess.SubprocessError) as exc:
+        except PermissionError:
+            logger.exception("Install failed: permission denied")
+            return False, permission_denied_install_message(self.root)
+        except OSError as exc:
+            if getattr(exc, "winerror", None) == 5:
+                logger.exception("Install failed: access denied")
+                return False, permission_denied_install_message(self.root)
+            logger.exception("Install failed")
+            return False, str(exc)
+        except subprocess.SubprocessError as exc:
             logger.exception("Install failed")
             return False, str(exc)
