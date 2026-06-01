@@ -1004,7 +1004,11 @@ class RaceBookApp(QMainWindow):
             logger.info("Applying application update (%s)", result.apply_method or "unknown")
             self.settings_tab.set_apply_update_busy(True)
             self._open_update_progress(result.latest_version)
-            self._apply_update_worker = ApplyAppUpdateWorker(result, parent=self)
+            self._apply_update_worker = ApplyAppUpdateWorker(
+                result,
+                wait_pid=os.getpid(),
+                parent=self,
+            )
             self._apply_update_worker.progress.connect(
                 self._on_apply_update_progress,
                 Qt.ConnectionType.QueuedConnection,

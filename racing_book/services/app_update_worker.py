@@ -37,9 +37,16 @@ class ApplyAppUpdateWorker(QThread):
     progress = pyqtSignal(str, int)  # status message, percent 0–100
     finished = pyqtSignal(bool, str, bool)  # ok, message, restart_in_process
 
-    def __init__(self, result: UpdateCheckResult, parent=None) -> None:
+    def __init__(
+        self,
+        result: UpdateCheckResult,
+        *,
+        wait_pid: int | None = None,
+        parent=None,
+    ) -> None:
         super().__init__(parent)
         self._result = result
+        self._wait_pid = wait_pid
 
     def _report(self, message: str, percent: int) -> None:
         self.progress.emit(message, percent)
@@ -72,6 +79,7 @@ class ApplyAppUpdateWorker(QThread):
                 ok, message, restart = apply_portable_update(
                     install_root,
                     version,
+                    wait_pid=self._wait_pid,
                     on_progress=self._report,
                 )
                 self.finished.emit(ok, message, restart)

@@ -300,21 +300,39 @@ def apply_source_update(
 
 def restart_application() -> None:
     """Restart GridNotes so code and UI changes take effect."""
+    import os
+
     from PyQt6.QtWidgets import QApplication
+
+    from ..installer.logic import find_project_root, relaunch_gridnotes
+    from ..installer.uninstall import resolve_install_root
 
     app = QApplication.instance()
     if app is not None:
         app.quit()
 
+    install_root = resolve_install_root()
+    if install_root is None and is_frozen_build():
+        install_root = Path(sys.executable).resolve().parent
+    if install_root is None:
+        try:
+            candidate = find_project_root()
+            if (candidate / "main.py").is_file():
+                install_root = candidate
+        except Exception:
+            pass
+
+    if install_root is not None and relaunch_gridnotes(install_root):
+        logger.info("Restarting GridNotes via new process at %s", install_root)
+        os._exit(0)
+
     if is_frozen_build():
-        os_args = [sys.executable]
         executable = sys.executable
+        os_args = [sys.executable]
     else:
-        main_py = project_root() / "main.py"
+        main_py = (install_root or find_project_root()) / "main.py"
         executable = sys.executable
         os_args = [sys.executable, str(main_py)]
 
-    logger.info("Restarting application: %s", " ".join(os_args))
-    import os
-
+    logger.info("Restarting application (execv): %s", " ".join(os_args))
     os.execv(executable, os_args)

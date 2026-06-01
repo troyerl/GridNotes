@@ -536,6 +536,102 @@ def write_windows_vbs_launcher(root: Path, venv_dir: Path) -> Path:
     return path
 
 
+def _windows_wscript_path() -> Path:
+    system_root = os.environ.get("SystemRoot", r"C:\Windows")
+    return Path(system_root) / "System32" / "wscript.exe"
+
+
+def _detached_popen(args: list[str], *, cwd: Path) -> None:
+    kwargs: dict = {
+        "cwd": str(cwd),
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+        "close_fds": True,
+    }
+    if sys.platform == "win32":
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(
+            subprocess, "DETACHED_PROCESS", 0
+        )
+    subprocess.Popen(args, **kwargs)
+
+
+def relaunch_gridnotes(install_root: Path) -> bool:
+    """
+    Start GridNotes again in a new process (after update or restart).
+
+    Prefers Launch GridNotes.vbs, then a standalone GridNotes.exe build, then pythonw.
+    """
+    install_root = install_root.resolve()
+    venv_dir = install_root / VENV_DIR_NAME
+
+    if sys.platform == "win32":
+        wscript = _windows_wscript_path()
+        if not gridnotes_start_script_path(install_root).is_file():
+            write_gridnotes_start_script(install_root)
+        if not windows_vbs_launcher_path(install_root).is_file() and venv_pythonw(venv_dir).is_file():
+            write_windows_vbs_launcher(install_root, venv_dir)
+
+        dist_exe = install_root / "dist" / "GridNotes" / "GridNotes.exe"
+        if dist_exe.is_file():
+            logger.info("Relaunching GridNotes via standalone exe: %s", dist_exe)
+            _detached_popen([str(dist_exe)], cwd=dist_exe.parent)
+            return True
+
+        launcher = windows_vbs_launcher_path(install_root)
+        if launcher.is_file() and wscript.is_file():
+            logger.info("Relaunching GridNotes via %s", launcher)
+            _detached_popen(
+                [str(wscript), "//B", "//Nologo", str(launcher)],
+                cwd=install_root,
+            )
+            return True
+
+        pyw = venv_pythonw(venv_dir)
+        starter = gridnotes_start_script_path(install_root)
+        script = starter if starter.is_file() else (install_root / "main.py")
+        if pyw.is_file() and script.is_file():
+            logger.info("Relaunching GridNotes via %s %s", pyw, script)
+            _detached_popen([str(pyw), str(script)], cwd=install_root)
+            return True
+        return False
+
+    py = venv_python(venv_dir)
+    main_py = install_root / "main.py"
+    if py.is_file() and main_py.is_file():
+        logger.info("Relaunching GridNotes via %s %s", py, main_py)
+        _detached_popen([str(py), str(main_py)], cwd=install_root)
+        return True
+    return False
+
+
+def windows_update_relaunch_batch_lines(install_root: Path) -> list[str]:
+    """Batch lines to start GridNotes after a portable update (uses ``start``)."""
+    install_root = install_root.resolve()
+    venv_dir = install_root / VENV_DIR_NAME
+    wscript = _windows_wscript_path()
+    lines = [
+        'echo [%date% %time%] Relaunching GridNotes...>>"%LOG%"',
+        f'cd /d "{install_root}"',
+    ]
+
+    dist_exe = install_root / "dist" / "GridNotes" / "GridNotes.exe"
+    launcher = windows_vbs_launcher_path(install_root)
+
+    if dist_exe.is_file():
+        lines.append(f'start "" /D "{dist_exe.parent}" "{dist_exe}"')
+    elif launcher.is_file() and wscript.is_file():
+        lines.append(f'start "" "{wscript}" //B //Nologo "{launcher}"')
+    else:
+        pyw = venv_pythonw(venv_dir)
+        starter = gridnotes_start_script_path(install_root)
+        script = starter if starter.is_file() else (install_root / "main.py")
+        lines.append(f'start "" /D "{install_root}" "{pyw}" "{script}"')
+
+    lines.append("ping -n 2 127.0.0.1 >nul")
+    return lines
+
+
 def write_uninstaller_scripts(root: Path, venv_dir: Path) -> list[Path]:
     """Create Uninstall GridNotes.bat/.vbs for Windows Settings → Apps."""
     root = root.resolve()

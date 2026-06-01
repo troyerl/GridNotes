@@ -7,7 +7,7 @@ racing_book/
 ├── app/              Application entry & config
 │   ├── racebook_app.py    Main window (Drivers, Settings, SDK)
 │   ├── app_icon.py        Window / taskbar icon
-│   ├── app_version.py     Version string (1.2.22)
+│   ├── app_version.py     Version string (1.2.23)
 │   └── feature_flags.py   Feature toggles
 │
 ├── ui/               Qt screens, theme, table styling

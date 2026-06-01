@@ -19,8 +19,11 @@ import requests
 from ..installer.logic import (
     VENV_DIR_NAME,
     copy_source_to_install_root,
+    relaunch_gridnotes,
     venv_python,
-    windows_vbs_launcher_path,
+    windows_update_relaunch_batch_lines,
+    write_gridnotes_start_script,
+    write_windows_vbs_launcher,
 )
 from ..installer.uninstall import resolve_install_root
 from .app_update import GITHUB_OWNER, GITHUB_REPO, REQUEST_TIMEOUT_SEC, _GITHUB_HEADERS, _normalize_tag
@@ -169,12 +172,8 @@ def _write_windows_apply_batch(
     dest = str(install_root.resolve())
     log_file = str(log_path.resolve())
     py = venv_python(install_root)
-    launcher = windows_vbs_launcher_path(install_root)
-    relaunch = (
-        f'wscript.exe //B //Nologo "{launcher}"'
-        if launcher.is_file()
-        else f'"{py.parent / "pythonw.exe"}" "{install_root / "gridnotes_start.py"}"'
-    )
+    relaunch_lines = windows_update_relaunch_batch_lines(install_root)
+    relaunch_block = "\r\n".join(relaunch_lines)
     bat_path.write_text(
         "@echo off\r\n"
         "setlocal EnableExtensions\r\n"
@@ -190,12 +189,15 @@ def _write_windows_apply_batch(
         "  ping -n 2 127.0.0.1 >nul\r\n"
         "  goto wait_pid\r\n"
         ")\r\n"
+        "ping -n 2 127.0.0.1 >nul\r\n"
         'echo [%date% %time%] Copying files...>>"%LOG%"\r\n'
         'robocopy "%SRC%" "%DEST%" /E /XD .venv dist build .git __pycache__ .cursor .pytest_cache '
         "/XF driver_history.db /NFL /NDL /NJH /NJS /NC /NS\r\n"
-        "if %ERRORLEVEL% GEQ 8 (\r\n"
-        '  echo [%date% %time%] robocopy failed (%ERRORLEVEL%)>>"%LOG%"\r\n'
-        "  goto done\r\n"
+        "set \"ROBOCOPY_CODE=%ERRORLEVEL%\"\r\n"
+        'echo [%date% %time%] robocopy exit code %ROBOCOPY_CODE%>>"%LOG%"\r\n'
+        "if %ROBOCOPY_CODE% GEQ 8 (\r\n"
+        '  echo [%date% %time%] robocopy failed, skipping pip and relaunch>>"%LOG%"\r\n'
+        "  goto cleanup\r\n"
         ")\r\n"
         'echo [%date% %time%] Upgrading dependencies...>>"%LOG%"\r\n'
         '"%PY%" -m pip install -q -r "%DEST%\\requirements.txt" >>"%LOG%" 2>&1\r\n'
@@ -205,12 +207,10 @@ def _write_windows_apply_batch(
         "from racing_book.app.app_version import __version__; "
         'register_windows_uninstall(__import__(\'pathlib\').Path(r\'%DEST%\'), __version__)" '
         '>>"%LOG%" 2>&1\r\n'
-        'echo [%date% %time%] Relaunching GridNotes...>>"%LOG%"\r\n'
-        f"cd /d \"{dest}\"\r\n"
-        f"{relaunch}\r\n"
+        f"{relaunch_block}\r\n"
         'echo [%date% %time%] Update finished>>"%LOG%"\r\n'
+        ":cleanup\r\n"
         f'rd /s /q "{src}" 2>nul\r\n'
-        ":done\r\n"
         "del \"%~f0\"\r\n",
         encoding="utf-8",
     )
@@ -300,6 +300,10 @@ def apply_portable_update(
 
     if sys.platform == "win32":
         report("Installing update (GridNotes will close)…", 88)
+        venv_dir = install_root / VENV_DIR_NAME
+        write_gridnotes_start_script(install_root)
+        if venv_dir.is_dir():
+            write_windows_vbs_launcher(install_root, venv_dir)
         bat_path = temp_parent / "apply-update.bat"
         vbs_path = temp_parent / "apply-update.vbs"
         _write_windows_apply_batch(
@@ -323,5 +327,8 @@ def apply_portable_update(
     report("Installing files…", 85)
     ok, message = _apply_on_unix(staging_dir, install_root)
     if ok:
+        report("Reopening GridNotes…", 95)
+        if not relaunch_gridnotes(install_root):
+            message = f"{message}\n\nCould not reopen GridNotes automatically."
         report("Finishing…", 100)
-    return ok, message, True
+    return ok, message, False
