@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .safety_index import SafetyIndex, compute_safety_index, empty_safety, live_sort_score
-from .utils import sqlite_row_to_int
+from ..safety.safety_index import SafetyIndex, compute_safety_index, empty_safety, live_sort_score
+from ..core.utils import sqlite_row_to_int
 
 
 def format_dnf_breakdown(disc: int, eject: int, quit_: int, dq: int, other: int) -> str:

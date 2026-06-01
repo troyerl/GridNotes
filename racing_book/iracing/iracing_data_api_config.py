@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from .db import get_setting, set_setting
-from .feature_flags import iracing_data_api_auto_import_enabled
+from ..data.db import get_setting, set_setting
+from ..app.feature_flags import iracing_data_api_auto_import_enabled
 
 SETTING_ENABLED = "iracing_api_auto_fetch"
 SETTING_ACCESS_TOKEN = "iracing_api_access_token"

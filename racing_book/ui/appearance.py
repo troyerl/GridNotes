@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .db import get_setting, set_setting
+from ..data.db import get_setting, set_setting
 
 THEME_DARK_ID = "dark"
 THEME_LIGHT_ID = "light"

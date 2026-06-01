@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .appearance import get_theme_id
-from .safety_index import MIN_RACES_FOR_SCORE, SafetyIndex, tier_color_hex
+from ..safety.safety_index import MIN_RACES_FOR_SCORE, SafetyIndex, tier_color_hex
 from .theme import safety_progress_bar_style
 
 

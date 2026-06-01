@@ -18,33 +18,33 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .app_update import UpdateCheckResult, is_frozen_build
-from .app_version import __version__
+from ..services.app_update import UpdateCheckResult, is_frozen_build
+from ..app.app_version import __version__
 from .appearance import (
     THEME_OPTIONS,
     get_theme_id,
     set_theme_id,
 )
-from .data_retention import DEFAULT_RETENTION, RETENTION_OPTIONS, SETTING_KEY, retention_label
-from .db import connect_db, get_data_dir_path, get_db_file_size, get_db_path, get_setting, set_setting
-from .driver_cleanup import count_zero_race_drivers
-from .feature_flags import iracing_data_api_auto_import_enabled
-from .iracing_data_api import package_available, package_unavailable_reason
-from .iracing_data_api_config import (
+from ..data.data_retention import DEFAULT_RETENTION, RETENTION_OPTIONS, SETTING_KEY, retention_label
+from ..data.db import connect_db, get_data_dir_path, get_db_file_size, get_db_path, get_setting, set_setting
+from ..data.driver_cleanup import count_zero_race_drivers
+from ..app.feature_flags import iracing_data_api_auto_import_enabled
+from ..iracing.iracing_data_api import package_available, package_unavailable_reason
+from ..iracing.iracing_data_api_config import (
     clear_legacy_api_settings,
     get_access_token,
     is_auto_fetch_enabled,
     save_api_settings,
 )
-from .iracing_oauth_guide import (
+from ..iracing.iracing_oauth_guide import (
     OAUTH_REGISTRATION_PAUSED_HTML,
     combined_oauth_guide_html,
     oauth_registration_paused_plain,
 )
 from .ui_widgets import Accordion, HtmlHintLabel, SettingsSectionNavigator
 from .theme import configure_scroll_area, status_message_color
-from .user_feedback import log_user_error
-from .utils import format_file_size
+from ..services.user_feedback import log_user_error
+from ..core.utils import format_file_size
 
 
 class SettingsTab(QWidget):

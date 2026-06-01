@@ -28,14 +28,14 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .app_update import GITHUB_RELEASES_PAGE, restart_application
-from .app_update_worker import ApplySourceUpdateWorker, UpdateCheckWorker
-from .appearance import get_theme_id, normalize_theme_id
-from .data_retention import DEFAULT_RETENTION, SETTING_KEY, purge_expired_race_results
-from .db import connect_db, get_setting, init_db, set_setting
-from .driver_cleanup import count_zero_race_drivers, purge_zero_race_drivers
-from .driver_models import DriverDetailRow, DriverTableRow, build_live_session_entries
-from .driver_table import (
+from ..services.app_update import GITHUB_RELEASES_PAGE, restart_application
+from ..services.app_update_worker import ApplySourceUpdateWorker, UpdateCheckWorker
+from ..ui.appearance import get_theme_id, normalize_theme_id
+from ..data.data_retention import DEFAULT_RETENTION, SETTING_KEY, purge_expired_race_results
+from ..data.db import connect_db, get_setting, init_db, set_setting
+from ..data.driver_cleanup import count_zero_race_drivers, purge_zero_race_drivers
+from ..data.driver_models import DriverDetailRow, DriverTableRow, build_live_session_entries
+from ..ui.driver_table import (
     COL_CUST_ID,
     COL_NAME,
     COL_NOTE,
@@ -54,24 +54,24 @@ from .driver_table import (
     refresh_driver_table_row,
     set_driver_table_hover_row,
 )
-from .import_worker import ImportJobResult, ImportWorker
-from .iracing_api_fetch_worker import (
+from ..iracing.import_worker import ImportJobResult, ImportWorker
+from ..iracing.iracing_api_fetch_worker import (
     ApiConnectionTestWorker,
     SubsessionFetchResult,
     SubsessionFetchWorker,
 )
 from .feature_flags import iracing_data_api_auto_import_enabled
-from .iracing_data_api_config import is_auto_fetch_enabled
-from .iracing_worker import IRacingWorker
-from .iracing_import import sync_live_session_drivers
-from .live_session import LiveSessionView
-from .queries import driver_detail_sql, table_data_for_cust_ids_sql, table_data_sql
-from .session_kind import is_live_scouting_session, is_race_session, session_kind_label
-from .safety_index import SafetyIndex, empty_safety, safety_tooltip
-from .safety_widgets import SafetyIndexPanel
-from .settings_tab import SettingsTab
-from .timestamps import format_last_seen_et
-from .theme import (
+from ..iracing.iracing_data_api_config import is_auto_fetch_enabled
+from ..iracing.iracing_worker import IRacingWorker
+from ..iracing.iracing_import import sync_live_session_drivers
+from ..ui.live_session import LiveSessionView
+from ..data.queries import driver_detail_sql, table_data_for_cust_ids_sql, table_data_sql
+from ..iracing.session_kind import is_live_scouting_session, is_race_session, session_kind_label
+from ..safety.safety_index import SafetyIndex, empty_safety, safety_tooltip
+from ..ui.safety_widgets import SafetyIndexPanel
+from ..ui.settings_tab import SettingsTab
+from ..core.timestamps import format_last_seen_et
+from ..ui.theme import (
     STATUS_CONNECTED,
     STATUS_OFFLINE,
     STATUS_WAITING,
@@ -80,9 +80,9 @@ from .theme import (
     configure_widget_scrollbars,
     refresh_widget_tree,
 )
-from .ui_widgets import WrappingLabel
-from .user_feedback import log_user_error, show_critical, show_warning
-from .utils import display_val, sqlite_row_to_int
+from ..ui.ui_widgets import WrappingLabel
+from ..services.user_feedback import log_user_error, show_critical, show_warning
+from ..core.utils import display_val, sqlite_row_to_int
 
 logger = logging.getLogger(__name__)
 
@@ -862,7 +862,7 @@ class RaceBookApp(QMainWindow):
         if self._api_test_worker is not None and self._api_test_worker.isRunning():
             return
 
-        from .iracing_data_api_config import get_access_token
+        from ..iracing.iracing_data_api_config import get_access_token
 
         token = access_token.strip() or get_access_token()
         logger.info("User requested iRacing Data API connection test")

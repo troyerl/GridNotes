@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from typing import Literal
 
-from .utils import normalize_1_based, sqlite_row_to_int
+from ..core.utils import normalize_1_based, sqlite_row_to_int
 
 # iRacing reason_out_id (0 = finished on track; excluded from DNF stats)
 REASON_OUT_RUNNING = 0

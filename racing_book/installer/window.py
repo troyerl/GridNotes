@@ -24,9 +24,9 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from ..appearance import THEME_DARK_ID
-from ..app_icon import load_app_icon
-from ..theme import apply_app_theme, configure_widget_scrollbars
+from ..ui.appearance import THEME_DARK_ID
+from ..app.app_icon import load_app_icon
+from ..ui.theme import apply_app_theme, configure_widget_scrollbars
 
 from .logic import (
     check_python,

@@ -13,8 +13,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .safety_index import SafetyIndex, empty_safety, tier_color_hex, tier_label, unknown_history_message
-from .session_kind import session_kind_label
+from ..safety.safety_index import SafetyIndex, empty_safety, tier_color_hex, tier_label, unknown_history_message
+from ..iracing.session_kind import session_kind_label
 from .theme import configure_scroll_area
 
 

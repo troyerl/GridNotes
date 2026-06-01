@@ -8,8 +8,8 @@ from dataclasses import dataclass, field
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
-from .data_retention import DEFAULT_RETENTION, SETTING_KEY, purge_expired_race_results
-from .db import connect_db, get_db_path, get_setting
+from ..data.data_retention import DEFAULT_RETENTION, SETTING_KEY, purge_expired_race_results
+from ..data.db import connect_db, get_db_path, get_setting
 from .iracing_import import import_race_entries, parse_races_from_json
 
 logger = logging.getLogger(__name__)

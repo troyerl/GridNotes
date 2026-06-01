@@ -1,6 +1,6 @@
 # GridNotes
 
-**Version 1.1.0**
+**Version 1.2.0**
 
 Desktop app for **iRacing driver scouting**: keep personal notes, review race history and stats, and optionally see who is in your current session while iRacing is running (Windows).
 
@@ -88,6 +88,10 @@ Driver history and settings are stored in:
 `%APPDATA%\GridNotes\driver_history.db`
 
 (If you used the app before it was renamed, data is copied automatically from `%APPDATA%\RacingBook\`.)
+
+## Code layout
+
+Source is organized by area under `racing_book/` (`app`, `ui`, `data`, `iracing`, `safety`, `services`, `core`, `installer`). See **[docs/CODE_STRUCTURE.md](docs/CODE_STRUCTURE.md)**.
 
 ## Development notes
 

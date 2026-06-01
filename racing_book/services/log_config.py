@@ -11,7 +11,7 @@ import threading
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from .db import get_data_dir_path
+from ..data.db import get_data_dir_path
 
 _LOG_FILE_NAME = "gridnotes.log"
 _MAX_BYTES = 2 * 1024 * 1024  # 2 MB per file

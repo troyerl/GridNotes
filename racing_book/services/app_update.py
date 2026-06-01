@@ -11,7 +11,7 @@ from pathlib import Path
 
 import requests
 
-from .app_version import __version__, is_newer_version
+from ..app.app_version import __version__, is_newer_version
 
 logger = logging.getLogger(__name__)
 

@@ -7,14 +7,14 @@ from PyQt6.QtGui import QBrush, QColor
 from PyQt6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem, QTableWidget, QTableWidgetItem
 
 from .appearance import get_theme_id
-from .safety_index import (
+from ..safety.safety_index import (
     SafetyIndex,
     safety_tooltip,
     tier_qcolor,
     unknown_history_message,
 )
 from .theme import table_row_color
-from .utils import sqlite_row_to_int
+from ..core.utils import sqlite_row_to_int
 
 PREF_DATA_ROLE = Qt.ItemDataRole.UserRole + 1
 RISK_DATA_ROLE = Qt.ItemDataRole.UserRole + 2
