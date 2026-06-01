@@ -341,8 +341,9 @@ class SettingsTab(QWidget):
             )
         else:
             updates_hint = (
-                "Check for a newer release on GitHub. When running from source, you can "
-                "pull the latest code and restart the app in one step."
+                "Check for a newer release on GitHub. For a normal install (for example "
+                "D:\\GridNotes), Update now downloads the release and reinstalls it "
+                "automatically. Your notes and settings are kept."
             )
         updates_layout.addWidget(self._section_hint(updates_hint))
 
@@ -590,9 +591,14 @@ class SettingsTab(QWidget):
         self.btn_apply_update.setVisible(True)
         if result.can_apply_in_place:
             self.btn_apply_update.setText("Update now")
-            self.btn_apply_update.setToolTip(
-                "Pull the latest code from GitHub and restart GridNotes"
-            )
+            if result.apply_method == "portable":
+                self.btn_apply_update.setToolTip(
+                    "Download the latest release and install it automatically"
+                )
+            else:
+                self.btn_apply_update.setToolTip(
+                    "Pull the latest code from GitHub and restart GridNotes"
+                )
         else:
             self.btn_apply_update.setText("Open download page")
             self.btn_apply_update.setToolTip(

@@ -36,7 +36,7 @@ from ..services.app_update import (
     is_frozen_build,
     restart_application,
 )
-from ..services.app_update_worker import ApplySourceUpdateWorker, UpdateCheckWorker
+from ..services.app_update_worker import ApplyAppUpdateWorker, UpdateCheckWorker
 from ..ui.appearance import get_theme_id, normalize_theme_id
 from ..data.data_retention import DEFAULT_RETENTION, SETTING_KEY, purge_expired_race_results
 from ..data.db import connect_db, get_setting, init_db, set_setting
@@ -112,7 +112,7 @@ class RaceBookApp(QMainWindow):
         self._import_worker: ImportWorker | None = None
         self._api_test_worker: ApiConnectionTestWorker | None = None
         self._update_check_worker: UpdateCheckWorker | None = None
-        self._apply_update_worker: ApplySourceUpdateWorker | None = None
+        self._apply_update_worker: ApplyAppUpdateWorker | None = None
         self._update_check_on_startup = False
         self._api_fetch_worker: SubsessionFetchWorker | None = None
         self._api_fetch_queue: list[int] = []
@@ -922,12 +922,20 @@ class RaceBookApp(QMainWindow):
         version_label = f"v{result.latest_version}" if result.latest_version else "a newer version"
 
         if result.can_apply_in_place:
-            prompt = (
-                f"{version_label} of GridNotes is available.\n\n"
-                "Install the update now? GridNotes will download the latest code "
-                "and restart.\n\n"
-                "Your database and settings will be kept."
-            )
+            if result.apply_method == "portable":
+                prompt = (
+                    f"{version_label} of GridNotes is available.\n\n"
+                    "Install the update now? GridNotes will download it, close, "
+                    "install the new files, and reopen.\n\n"
+                    "Your database and settings will be kept."
+                )
+            else:
+                prompt = (
+                    f"{version_label} of GridNotes is available.\n\n"
+                    "Install the update now? GridNotes will pull the latest code "
+                    "and restart.\n\n"
+                    "Your database and settings will be kept."
+                )
         elif is_frozen_build():
             prompt = (
                 f"{version_label} of GridNotes is available.\n\n"
@@ -964,11 +972,22 @@ class RaceBookApp(QMainWindow):
 
         if result.can_apply_in_place:
             if not skip_confirm:
+                if result.apply_method == "portable":
+                    confirm_text = (
+                        "Download and install the latest GridNotes release?\n\n"
+                        "The app will close briefly while files are updated, then "
+                        "reopen automatically.\n\n"
+                        "Your database and settings will be kept."
+                    )
+                else:
+                    confirm_text = (
+                        "Pull the latest code from GitHub and restart the application?\n\n"
+                        "Your database and settings will be kept."
+                    )
                 confirm = QMessageBox.question(
                     self,
                     "Update GridNotes?",
-                    "Pull the latest code from GitHub and restart the application?\n\n"
-                    "Your database and settings will be kept.",
+                    confirm_text,
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                     QMessageBox.StandardButton.No,
                 )
@@ -976,9 +995,9 @@ class RaceBookApp(QMainWindow):
                     return
             if self._apply_update_worker is not None and self._apply_update_worker.isRunning():
                 return
-            logger.info("Applying in-place source update")
+            logger.info("Applying application update (%s)", result.apply_method or "unknown")
             self.settings_tab.set_apply_update_busy(True)
-            self._apply_update_worker = ApplySourceUpdateWorker(parent=self)
+            self._apply_update_worker = ApplyAppUpdateWorker(result, parent=self)
             self._apply_update_worker.finished.connect(self._on_apply_update_finished)
             self._apply_update_worker.start()
             return
@@ -999,7 +1018,7 @@ class RaceBookApp(QMainWindow):
             "No update is available to apply right now.",
         )
 
-    def _on_apply_update_finished(self, ok: bool, message: str) -> None:
+    def _on_apply_update_finished(self, ok: bool, message: str, restart: bool) -> None:
         self.settings_tab.set_apply_update_busy(False)
         if not ok:
             log_user_error(message, context="application update")
@@ -1008,8 +1027,17 @@ class RaceBookApp(QMainWindow):
             return
 
         self.settings_tab.show_apply_update_result(True, message)
-        logger.info("Source update applied; restarting application")
-        restart_application()
+        if restart:
+            logger.info("Update applied; restarting application")
+            restart_application()
+            return
+
+        logger.info("Portable update scheduled; quitting for background install")
+        from PyQt6.QtWidgets import QApplication
+
+        app = QApplication.instance()
+        if app is not None:
+            app.quit()
 
     def _uninstall_application(self, remove_user_data: bool) -> None:
         from ..installer.uninstall import perform_uninstall, resolve_install_root

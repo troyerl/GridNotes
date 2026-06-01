@@ -16,7 +16,7 @@ from ..app.app_version import __version__, is_newer_version
 logger = logging.getLogger(__name__)
 
 GITHUB_OWNER = "troyerl"
-GITHUB_REPO = "race_book"
+GITHUB_REPO = "GridNotes"
 GITHUB_RELEASES_API = (
     f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest"
 )
@@ -40,6 +40,7 @@ class UpdateCheckResult:
     update_available: bool = False
     can_apply_in_place: bool = False
     source_update_commits: int = 0
+    apply_method: str | None = None  # "git" or "portable"
 
 
 def project_root() -> Path:
@@ -197,11 +198,14 @@ def check_for_updates() -> UpdateCheckResult:
     else:
         messages.append(release_message)
 
+    apply_method: str | None = None
+
     if not is_frozen_build() and is_git_source_tree():
         git_ok, behind, branch = git_source_status()
         if git_ok and behind > 0:
             update_available = True
             can_apply = True
+            apply_method = "git"
             source_behind = behind
             noun = "commit" if behind == 1 else "commits"
             messages.append(
@@ -209,12 +213,32 @@ def check_for_updates() -> UpdateCheckResult:
             )
         elif git_ok:
             messages.append("Source install: already up to date with origin.")
-            can_apply = True
         else:
             messages.append("Source install: could not compare with origin.")
 
-    if update_available and can_apply:
+    if apply_method is None and not is_frozen_build():
+        from .portable_update import portable_install_root
+
+        portable_root = portable_install_root()
+        if (
+            portable_root is not None
+            and release_ok
+            and latest
+            and is_newer_version(latest, current)
+        ):
+            update_available = True
+            can_apply = True
+            apply_method = "portable"
+            messages.append(
+                f"Installed copy at {portable_root} can be updated automatically."
+            )
+
+    if update_available and apply_method == "git":
         action = "Click “Update now” to pull the latest code and restart."
+    elif update_available and apply_method == "portable":
+        action = (
+            "Click “Update now” to download the update, install it, and reopen GridNotes."
+        )
     elif update_available and is_frozen_build():
         action = "Download the latest installer from GitHub to update."
     elif update_available:
@@ -231,8 +255,9 @@ def check_for_updates() -> UpdateCheckResult:
         download_url=download_url,
         release_notes=notes,
         update_available=update_available,
-        can_apply_in_place=can_apply and source_behind > 0,
+        can_apply_in_place=can_apply and apply_method is not None,
         source_update_commits=source_behind,
+        apply_method=apply_method,
     )
 
 
