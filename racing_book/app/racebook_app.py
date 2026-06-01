@@ -40,7 +40,7 @@ from ..services.app_update import (
 from ..services.app_update_worker import ApplyAppUpdateWorker, UpdateCheckWorker
 from ..ui.appearance import get_theme_id, normalize_theme_id
 from ..data.data_retention import DEFAULT_RETENTION, SETTING_KEY, purge_expired_race_results
-from ..data.db import connect_db, get_setting, init_db, set_setting
+from ..data.db import close_sqlite_connection, connect_db, get_setting, init_db, set_setting
 from ..data.driver_cleanup import count_zero_race_drivers, purge_zero_race_drivers
 from ..data.driver_models import DriverDetailRow, DriverTableRow, build_live_session_entries
 from ..ui.driver_table import (
@@ -1102,13 +1102,26 @@ class RaceBookApp(QMainWindow):
         self._release_resources_before_exit()
         os._exit(0)
 
+    def _stop_background_workers(self) -> None:
+        """Stop threads that may still hold the database or network open."""
+        if self._import_worker is not None and self._import_worker.isRunning():
+            self._import_worker.wait(30000)
+        if self._api_fetch_worker is not None and self._api_fetch_worker.isRunning():
+            self._api_fetch_worker.wait(60000)
+        if self._api_test_worker is not None and self._api_test_worker.isRunning():
+            self._api_test_worker.wait(10000)
+        if self._update_check_worker is not None and self._update_check_worker.isRunning():
+            self._update_check_worker.wait(10000)
+        if self._apply_update_worker is not None and self._apply_update_worker.isRunning():
+            self._apply_update_worker.wait(120000)
+        if self.worker is not None:
+            self.worker.stop()
+
     def _release_resources_before_exit(self) -> None:
         """Close DB and log files so uninstall/update can remove user or app data."""
+        self._stop_background_workers()
         if hasattr(self, "_db_conn"):
-            try:
-                self._db_conn.close()
-            except Exception:
-                pass
+            close_sqlite_connection(self._db_conn)
             del self._db_conn
         try:
             from ..services.log_config import shutdown_logging
@@ -1127,15 +1140,14 @@ class RaceBookApp(QMainWindow):
         if remove_user_data:
             self._release_resources_before_exit()
         elif hasattr(self, "_db_conn"):
-            try:
-                self._db_conn.close()
-            except Exception:
-                pass
+            close_sqlite_connection(self._db_conn)
             del self._db_conn
 
         result = perform_uninstall(
             install_root=install_root,
             remove_user_data=remove_user_data,
+            defer_user_data_removal=remove_user_data,
+            wait_pid=os.getpid(),
         )
         self.settings_tab.show_uninstall_result(result.ok, result.summary())
 
@@ -1145,6 +1157,11 @@ class RaceBookApp(QMainWindow):
                 summary += (
                     "\n\nClick OK to finish. Your install folder "
                     "(for example D:\\GridNotes) will be deleted when GridNotes closes."
+                )
+            if result.user_data_removal_deferred:
+                summary += (
+                    "\n\nClick OK to finish. Your notes and database will be "
+                    "removed when GridNotes closes."
                 )
             QMessageBox.information(self, "Uninstall", summary)
             os._exit(0)
@@ -1750,19 +1767,6 @@ class RaceBookApp(QMainWindow):
 
     def closeEvent(self, event):
         logger.info("Application closing")
-        if self._import_worker is not None and self._import_worker.isRunning():
-            self._import_worker.wait(30000)
-        if self._api_fetch_worker is not None and self._api_fetch_worker.isRunning():
-            self._api_fetch_worker.wait(60000)
-        if self._api_test_worker is not None and self._api_test_worker.isRunning():
-            self._api_test_worker.wait(10000)
-        if self._update_check_worker is not None and self._update_check_worker.isRunning():
-            self._update_check_worker.wait(10000)
-        if self._apply_update_worker is not None and self._apply_update_worker.isRunning():
-            self._apply_update_worker.wait(120000)
-        if self.worker is not None:
-            self.worker.stop()
-        if hasattr(self, "_db_conn"):
-            self._db_conn.close()
+        self._release_resources_before_exit()
         event.accept()
 

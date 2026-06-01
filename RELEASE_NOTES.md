@@ -6,6 +6,19 @@ New versions are listed below with the newest first. When publishing on GitHub, 
 
 ---
 
+## v1.0.1 — 2026-05-29
+
+### Fixed
+
+- **Uninstall with “delete my data”** no longer fails because `driver_history.db` is in use. GridNotes now stops background workers, closes the database cleanly, and removes your data folder after the app exits (same reliable pattern used for the install folder).
+- **Log file lock on uninstall** — logging is shut down before user data is removed so `gridnotes.log` is not left locked.
+
+### Improved
+
+- Normal app shutdown also stops workers and closes the database connection in a consistent order.
+
+---
+
 ## v1.0.0 — 2026-05-29
 
 First public release of GridNotes.

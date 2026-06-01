@@ -51,6 +51,11 @@ def main() -> int:
                 "\n\nClick OK to finish. The install folder (for example D:\\GridNotes) "
                 "will be deleted when this window closes."
             )
+        if result.user_data_removal_deferred:
+            summary += (
+                "\n\nClick OK to finish. Your notes and database will be "
+                "removed when this window closes."
+            )
         if sys.platform == "win32":
             try:
                 import ctypes

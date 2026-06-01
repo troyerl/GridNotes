@@ -91,6 +91,32 @@ def connect_db(db_name: str = DB_NAME) -> sqlite3.Connection:
     return conn
 
 
+def close_sqlite_connection(conn: sqlite3.Connection | None) -> None:
+    """Release a SQLite connection so the database file can be deleted on Windows."""
+    if conn is None:
+        return
+    try:
+        conn.commit()
+    except sqlite3.Error:
+        try:
+            conn.rollback()
+        except sqlite3.Error:
+            pass
+    try:
+        conn.close()
+    except sqlite3.Error:
+        pass
+
+
+def delete_sqlite_sidecar_files(db_path: Path) -> None:
+    """Remove WAL/SHM/journal files that can keep driver_history.db locked."""
+    for suffix in ("-wal", "-shm", "-journal"):
+        try:
+            Path(f"{db_path}{suffix}").unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def _existing_columns(cursor: sqlite3.Cursor, table: str) -> set[str]:
     cursor.execute(f"PRAGMA table_info({table})")
     return {row[1] for row in cursor.fetchall()}

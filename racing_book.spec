@@ -158,8 +158,8 @@ if sys.platform == "darwin":
         info_plist={
             "CFBundleName": "GridNotes",
             "CFBundleDisplayName": "GridNotes",
-            "CFBundleVersion": "1.0.0",
-            "CFBundleShortVersionString": "1.0.0",
+            "CFBundleVersion": "1.0.1",
+            "CFBundleShortVersionString": "1.0.1",
             "NSHighResolutionCapable": True,
         },
     )
