@@ -1,8 +1,9 @@
 import logging
 import os
+import sys
 
 from PyQt6.QtCore import QEvent, Qt, QTimer, QUrl
-from PyQt6.QtGui import QDesktopServices, QFont, QTextCursor
+from PyQt6.QtGui import QDesktopServices, QFont, QShowEvent, QTextCursor
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -109,6 +110,7 @@ class RaceBookApp(QMainWindow):
         window_icon = load_app_icon()
         if window_icon is not None:
             self.setWindowIcon(window_icon)
+        self._taskbar_identity_applied = False
 
         self.current_subsession_id = 0
         self.current_session_kind = ""
@@ -143,6 +145,32 @@ class RaceBookApp(QMainWindow):
         self.start_sdk_worker()
         if get_setting(AUTO_CHECK_UPDATES_KEY, "0") == "1":
             QTimer.singleShot(800, self._check_for_app_updates_on_startup)
+
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        if self._taskbar_identity_applied or sys.platform != "win32":
+            return
+        self._taskbar_identity_applied = True
+        try:
+            from ..app.app_icon import icon_path
+            from ..installer.shortcuts import find_desktop_shortcuts
+            from ..installer.uninstall import resolve_install_root
+            from ..installer.windows_shell import (
+                apply_shortcut_taskbar_identity,
+                apply_window_taskbar_identity,
+            )
+
+            icon = icon_path()
+            apply_window_taskbar_identity(self, icon)
+            for shortcut in find_desktop_shortcuts():
+                apply_shortcut_taskbar_identity(shortcut, icon)
+            install_root = resolve_install_root()
+            if install_root is not None:
+                install_lnk = install_root / "GridNotes.lnk"
+                if install_lnk.is_file():
+                    apply_shortcut_taskbar_identity(install_lnk, icon)
+        except Exception:
+            pass
 
     def _polish_property(self, widget: QWidget, name: str, value) -> None:
         widget.setProperty(name, value)

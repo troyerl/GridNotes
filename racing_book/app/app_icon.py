@@ -10,7 +10,7 @@ from PyQt6.QtGui import QIcon
 
 logger = logging.getLogger(__name__)
 
-_APP_ID = "GridNotes.GridNotes.1"
+APP_USER_MODEL_ID = "GridNotes.GridNotes.1"
 
 
 def set_windows_app_user_model_id() -> None:
@@ -20,7 +20,7 @@ def set_windows_app_user_model_id() -> None:
     try:
         import ctypes
 
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(_APP_ID)
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
     except Exception:
         pass
 

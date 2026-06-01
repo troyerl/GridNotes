@@ -30,7 +30,7 @@ Install **[Inno Setup 6](https://jrsoftware.org/isinfo.php)** (free), then run `
 ## Attach to GitHub Release
 
 1. Open https://github.com/troyerl/race_book/releases  
-2. Edit release **v1.2.26** (or create one with tag **`v1.2.26`** — must start with `v`).  
+2. Edit release **v1.0.0** (or create one with tag **`v1.0.0`** — must start with `v`).  
 3. Under **Assets**, upload **`dist\GridNotes-Setup.exe`**.  
 4. Save the release.
 

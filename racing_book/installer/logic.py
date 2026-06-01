@@ -10,7 +10,11 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
-from .shortcuts import create_desktop_shortcut
+from .shortcuts import (
+    create_desktop_shortcut,
+    create_install_folder_shortcut,
+    create_start_menu_shortcut,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1129,13 +1133,25 @@ class InstallRunner:
                         launch_target=shortcut_target,
                         python=venv_python(self.venv_dir),
                     )
-                    shortcut = create_desktop_shortcut(
-                        target=shortcut_target,
-                        working_dir=shortcut_working_dir,
-                        arguments=shortcut_args,
-                        icon=shortcut_icon,
-                    )
+                    shortcut_kwargs = {
+                        "target": shortcut_target,
+                        "working_dir": shortcut_working_dir,
+                        "arguments": shortcut_args,
+                        "icon": shortcut_icon,
+                    }
+                    shortcut = create_desktop_shortcut(**shortcut_kwargs)
                     self._log(f"Desktop shortcut: {shortcut}")
+                    if sys.platform == "win32":
+                        start_lnk = create_start_menu_shortcut(**shortcut_kwargs)
+                        self._log(f"Start Menu shortcut: {start_lnk}")
+                        install_lnk = create_install_folder_shortcut(
+                            self.root,
+                            **shortcut_kwargs,
+                        )
+                        self._log(
+                            "Install-folder shortcut (pin this for the taskbar icon): "
+                            f"{install_lnk}"
+                        )
                     if shortcut_icon is not None:
                         self._log(f"Shortcut icon: {shortcut_icon}")
                     self._log(f"Shortcut opens: {self.root}")

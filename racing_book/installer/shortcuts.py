@@ -103,6 +103,12 @@ def _create_windows_lnk(
         capture_output=True,
         text=True,
     )
+    try:
+        from .windows_shell import apply_shortcut_taskbar_identity
+
+        apply_shortcut_taskbar_identity(shortcut_path, icon)
+    except Exception as exc:
+        logger.warning("Could not set shortcut taskbar identity: %s", exc)
 
 
 def create_desktop_shortcut(
@@ -185,3 +191,55 @@ def remove_all_desktop_shortcuts(name: str = APP_SHORTCUT_NAME) -> list[Path]:
 def remove_desktop_shortcut(name: str = APP_SHORTCUT_NAME) -> bool:
     """Remove the GridNotes desktop shortcut if it exists."""
     return bool(remove_all_desktop_shortcuts(name))
+
+
+def start_menu_shortcut_path(name: str = APP_SHORTCUT_NAME) -> Path:
+    """Start Menu location for a GridNotes launcher shortcut."""
+    programs = Path(os.environ.get("APPDATA", "")).expanduser()
+    return programs / "Microsoft" / "Windows" / "Start Menu" / "Programs" / f"{name}.lnk"
+
+
+def create_start_menu_shortcut(
+    *,
+    target: Path,
+    working_dir: Path,
+    name: str = APP_SHORTCUT_NAME,
+    icon: Path | None = None,
+    arguments: str | None = None,
+) -> Path:
+    """Create a Start Menu shortcut with proper taskbar/pin identity."""
+    shortcut_path = start_menu_shortcut_path(name)
+    shortcut_path.parent.mkdir(parents=True, exist_ok=True)
+    _create_windows_lnk(
+        shortcut_path=shortcut_path,
+        target=target,
+        working_dir=working_dir,
+        description="GridNotes — iRacing driver scouting",
+        icon=icon,
+        arguments=arguments,
+    )
+    logger.info("Created Start Menu shortcut: %s", shortcut_path)
+    return shortcut_path
+
+
+def create_install_folder_shortcut(
+    install_root: Path,
+    *,
+    target: Path,
+    working_dir: Path,
+    name: str = APP_SHORTCUT_NAME,
+    icon: Path | None = None,
+    arguments: str | None = None,
+) -> Path:
+    """Create GridNotes.lnk in the install folder (useful for pinning to the taskbar)."""
+    shortcut_path = install_root.resolve() / f"{name}.lnk"
+    _create_windows_lnk(
+        shortcut_path=shortcut_path,
+        target=target,
+        working_dir=working_dir,
+        description="GridNotes — iRacing driver scouting",
+        icon=icon,
+        arguments=arguments,
+    )
+    logger.info("Created install-folder shortcut: %s", shortcut_path)
+    return shortcut_path
