@@ -362,9 +362,11 @@ def _log(line: str) -> None:
 
 def main() -> int:
     try:
+        LOG.parent.mkdir(parents=True, exist_ok=True)
         LOG.write_text("", encoding="utf-8")
-    except OSError:
-        pass
+    except OSError as exc:
+        sys.stderr.write(f"Could not write {LOG}: {exc}\n")
+        return 1
 
     _log(f"Python: {sys.version.split()[0]} ({sys.executable})")
     _log(f"Install folder: {ROOT}")
@@ -372,6 +374,15 @@ def main() -> int:
     root_str = str(ROOT)
     if root_str not in sys.path:
         sys.path.insert(0, root_str)
+
+    try:
+        from racing_book.data.db import get_data_dir_path
+
+        data_dir = get_data_dir_path()
+        _log(f"User data folder: {data_dir}")
+        _log(f"App log file: {data_dir / 'gridnotes.log'}")
+    except Exception:
+        _log("Could not resolve user data folder (will retry when app starts)")
 
     try:
         _log("Importing PyQt6…")
@@ -426,14 +437,13 @@ def write_launcher_scripts(root: Path, venv_dir: Path) -> list[Path]:
         ps1 = root / "Launch-GridNotes.ps1"
         ps1.write_text(
             "$ErrorActionPreference = 'Continue'\r\n"
-            "$py = Join-Path $PSScriptRoot '.venv\\Scripts\\python.exe'\r\n"
-            "$starter = Join-Path $PSScriptRoot 'gridnotes_start.py'\r\n"
-            "$log = Join-Path $PSScriptRoot 'launch-error.log'\r\n"
-            "if (-not (Test-Path $py)) { 'Python not found: ' + $py | Out-File $log; exit 1 }\r\n"
-            "if (-not (Test-Path $starter)) { 'gridnotes_start.py not found' | Out-File $log; exit 1 }\r\n"
-            "Start-Process -FilePath $py -ArgumentList $starter "
-            "-WorkingDirectory $PSScriptRoot -WindowStyle Hidden\r\n"
-            "exit 0\r\n",
+            "$root = $PSScriptRoot\r\n"
+            "$bat = Join-Path $root 'Run GridNotes.bat'\r\n"
+            "$log = Join-Path $root 'launch-error.log'\r\n"
+            "if (-not (Test-Path $bat)) { 'Run GridNotes.bat not found' | Out-File $log; exit 1 }\r\n"
+            "$p = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/c', $bat) "
+            "-WorkingDirectory $root -Wait -PassThru\r\n"
+            "exit $p.ExitCode\r\n",
             encoding="utf-8",
         )
         created.append(ps1)
@@ -441,27 +451,73 @@ def write_launcher_scripts(root: Path, venv_dir: Path) -> list[Path]:
         run_bat = root / "Run GridNotes.bat"
         run_bat.write_text(
             "@echo off\r\n"
-            "setlocal\r\n"
+            "setlocal EnableExtensions\r\n"
             'cd /d "%~dp0"\r\n'
             'set "PY=%~dp0.venv\\Scripts\\python.exe"\r\n'
             'set "STARTER=%~dp0gridnotes_start.py"\r\n'
+            'set "MAIN=%~dp0main.py"\r\n'
             'set "LOG=%~dp0launch-error.log"\r\n'
-            'if not exist "%STARTER%" (\r\n'
-            '  echo gridnotes_start.py not found>>"%LOG%"\r\n'
-            "  goto :fail\r\n"
-            ")\r\n"
+            'echo === GridNotes launch %date% %time% ===>"%LOG%"\r\n'
+            'echo Install folder: %CD%>>"%LOG%"\r\n'
             'if not exist "%PY%" (\r\n'
-            '  echo Python missing in .venv>>"%LOG%"\r\n'
+            '  echo ERROR: Missing %PY%>>"%LOG%"\r\n'
             "  goto :fail\r\n"
             ")\r\n"
-            'start "" /D "%~dp0" "%PY%" "%STARTER%"\r\n'
+            'if exist "%STARTER%" (\r\n'
+            '  echo Running gridnotes_start.py...>>"%LOG%"\r\n'
+            '  "%PY%" "%STARTER%"\r\n'
+            "  set ERR=%ERRORLEVEL%\r\n"
+            '  echo gridnotes_start exit code %ERR%>>"%LOG%"\r\n'
+            "  if %ERR% neq 0 goto :fail\r\n"
+            "  exit /b 0\r\n"
+            ")\r\n"
+            'echo gridnotes_start.py missing, running main.py>>"%LOG%"\r\n'
+            'if not exist "%MAIN%" (\r\n'
+            '  echo ERROR: Missing %MAIN%>>"%LOG%"\r\n'
+            "  goto :fail\r\n"
+            ")\r\n"
+            '"%PY%" "%MAIN%"\r\n'
+            "set ERR=%ERRORLEVEL%\r\n"
+            'echo main.py exit code %ERR%>>"%LOG%"\r\n'
+            "if %ERR% neq 0 goto :fail\r\n"
             "exit /b 0\r\n"
             ":fail\r\n"
-            "msg * GridNotes could not start. Check launch-error.log in the install folder.\r\n"
+            "echo.\r\n"
+            "echo GridNotes did not start.\r\n"
+            "echo See: %LOG%\r\n"
+            "echo.\r\n"
+            "type \"%LOG%\"\r\n"
+            "echo.\r\n"
+            "pause\r\n"
             "exit /b 1\r\n",
             encoding="utf-8",
         )
         created.append(run_bat)
+
+        diagnose_bat = root / "Diagnose GridNotes.bat"
+        diagnose_bat.write_text(
+            "@echo off\r\n"
+            "setlocal\r\n"
+            'cd /d "%~dp0"\r\n'
+            'set "LOG=%~dp0launch-error.log"\r\n'
+            'set "PY=%~dp0.venv\\Scripts\\python.exe"\r\n'
+            'echo === GridNotes diagnose %date% %time% ===>"%LOG%"\r\n'
+            'echo Folder: %CD%>>"%LOG%"\r\n'
+            'dir /b >>"%LOG%" 2>&1\r\n'
+            'if not exist "%PY%" (\r\n'
+            '  echo ERROR: venv python missing>>"%LOG%"\r\n'
+            "  goto :done\r\n"
+            ")\r\n"
+            '"%PY%" --version>>"%LOG%" 2>&1\r\n'
+            '"%PY%" -c "import PyQt6">>"%LOG%" 2>&1\r\n'
+            '"%PY%" -c "import racing_book">>"%LOG%" 2>&1\r\n'
+            ":done\r\n"
+            "type \"%LOG%\"\r\n"
+            "echo.\r\n"
+            "pause\r\n",
+            encoding="utf-8",
+        )
+        created.append(diagnose_bat)
         created.append(starter)
     else:
         run_sh = root / "Run GridNotes.command"
@@ -507,17 +563,9 @@ def preferred_shortcut_target(
 
 
 def _windows_start_file(install_root: Path, launcher: Path) -> None:
-    """Start a launcher in the install folder (works when the installer was elevated)."""
+    """Start a launcher and wait so startup errors surface in the console/log."""
     subprocess.Popen(
-        [
-            "cmd.exe",
-            "/c",
-            "start",
-            "",
-            "/D",
-            str(install_root),
-            str(launcher.name),
-        ],
+        ["cmd.exe", "/c", str(launcher)],
         cwd=str(install_root),
     )
 

@@ -1,6 +1,6 @@
 # GridNotes
 
-**Version 1.2.5**
+**Version 1.2.6**
 
 Desktop app for **iRacing driver scouting**: keep personal notes, review race history and stats, and optionally see who is in your current session while iRacing is running (Windows).
 
@@ -96,7 +96,7 @@ Source is organized by area under `racing_book/` (`app`, `ui`, `data`, `iracing`
 
 ## Development notes
 
-- When running from source, the database stays in the project folder as `driver_history.db`
+- When running from the install helper, the database and `gridnotes.log` are in `%APPDATA%\GridNotes\` (same as the Setup installer)
 - When running the bundled app, data lives in `%APPDATA%\GridNotes\` so updates do not wipe history
 - On first launch after an update, existing duplicate rows for the same driver + subsession may be merged automatically when the database migrates
 

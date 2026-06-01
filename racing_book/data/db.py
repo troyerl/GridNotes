@@ -15,17 +15,51 @@ def _install_data_dir(name: str) -> Path:
     return Path.home() / ".local" / "share" / name
 
 
-def _get_data_dir() -> Path:
-    """Return a stable writable folder for app data (dev vs bundled)."""
-    if getattr(sys, "frozen", False):
-        base = _install_data_dir(APP_NAME)
-        legacy = _install_data_dir(LEGACY_APP_NAME)
-        if not base.exists() and legacy.exists():
-            import shutil
+def _local_install_data_candidates() -> list[Path]:
+    """Folders that may hold data from older installs (database next to main.py)."""
+    candidates: list[Path] = []
+    seen: set[Path] = set()
 
-            shutil.copytree(legacy, base)
-    else:
-        base = Path.cwd()
+    def add(path: Path) -> None:
+        resolved = path.resolve()
+        if resolved in seen:
+            return
+        seen.add(resolved)
+        candidates.append(resolved)
+
+    add(Path.cwd())
+    if sys.argv:
+        add(Path(sys.argv[0]).resolve().parent)
+    pkg_root = Path(__file__).resolve().parent.parent.parent
+    add(pkg_root)
+    return candidates
+
+
+def _migrate_file_if_missing(*, source: Path, dest: Path) -> None:
+    if not source.is_file() or dest.exists():
+        return
+    import shutil
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, dest)
+
+
+def _get_data_dir() -> Path:
+    """Return a stable per-user folder for database, settings, and logs."""
+    base = _install_data_dir(APP_NAME)
+    legacy = _install_data_dir(LEGACY_APP_NAME)
+    if not base.exists() and legacy.exists():
+        import shutil
+
+        shutil.copytree(legacy, base)
+
+    if not getattr(sys, "frozen", False):
+        app_db = base / "driver_history.db"
+        for folder in _local_install_data_candidates():
+            local_db = folder / "driver_history.db"
+            if local_db.is_file():
+                _migrate_file_if_missing(source=local_db, dest=app_db)
+                break
 
     base.mkdir(parents=True, exist_ok=True)
     return base
