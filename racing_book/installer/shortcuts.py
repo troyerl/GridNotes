@@ -97,11 +97,18 @@ def _create_windows_lnk(
         f"{icon_stmt}"
         "$s.Save()"
     )
+    kwargs: dict = {
+        "check": True,
+        "capture_output": True,
+        "text": True,
+    }
+    if sys.platform == "win32":
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        if flags:
+            kwargs["creationflags"] = flags
     subprocess.run(
-        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
-        check=True,
-        capture_output=True,
-        text=True,
+        ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
+        **kwargs,
     )
     try:
         from .windows_shell import apply_shortcut_taskbar_identity

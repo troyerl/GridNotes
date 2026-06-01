@@ -9,6 +9,15 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+
+def _subprocess_hide_window_kwargs() -> dict:
+    """Avoid flashing console windows when spawning PowerShell on Windows."""
+    if sys.platform != "win32":
+        return {}
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    return {"creationflags": flags} if flags else {}
+
+
 _PS_APPLY = r"""
 param(
   [string]$ShortcutPath,
@@ -168,6 +177,7 @@ def _run_shell_property_script(
             capture_output=True,
             text=True,
             timeout=30,
+            **_subprocess_hide_window_kwargs(),
         )
     except (subprocess.SubprocessError, OSError) as exc:
         logger.warning("Could not apply Windows shell properties: %s", exc)

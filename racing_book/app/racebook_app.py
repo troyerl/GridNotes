@@ -152,23 +152,11 @@ class RaceBookApp(QMainWindow):
             return
         self._taskbar_identity_applied = True
         try:
-            from ..app.app_icon import icon_path
-            from ..installer.shortcuts import find_desktop_shortcuts
-            from ..installer.uninstall import resolve_install_root
-            from ..installer.windows_shell import (
-                apply_shortcut_taskbar_identity,
-                apply_window_taskbar_identity,
-            )
+            from ..app.app_icon import icon_path, set_windows_app_user_model_id
+            from ..installer.windows_shell import apply_window_taskbar_identity
 
-            icon = icon_path()
-            apply_window_taskbar_identity(self, icon)
-            for shortcut in find_desktop_shortcuts():
-                apply_shortcut_taskbar_identity(shortcut, icon)
-            install_root = resolve_install_root()
-            if install_root is not None:
-                install_lnk = install_root / "GridNotes.lnk"
-                if install_lnk.is_file():
-                    apply_shortcut_taskbar_identity(install_lnk, icon)
+            set_windows_app_user_model_id()
+            apply_window_taskbar_identity(self, icon_path())
         except Exception:
             pass
 

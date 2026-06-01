@@ -6,6 +6,18 @@ New versions are listed below with the newest first. When publishing on GitHub, 
 
 ---
 
+## v1.0.3 — 2026-05-29
+
+### Fixed
+
+- **No more flashing terminal windows on startup** — taskbar icon setup no longer spawns visible PowerShell consoles when GridNotes opens. Background scripts run hidden, and shortcut branding is not re-applied on every launch (only at install).
+
+### Improved
+
+- Install-time shortcut creation also runs PowerShell non-interactively and without a visible console.
+
+---
+
 ## v1.0.2 — 2026-05-29
 
 ### Fixed
