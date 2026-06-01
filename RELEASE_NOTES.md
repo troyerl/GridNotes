@@ -6,6 +6,20 @@ New versions are listed below with the newest first. When publishing on GitHub, 
 
 ---
 
+## v1.0.4 — 2026-05-29
+
+### Fixed
+
+- **Correct icon when pinning to the taskbar** — Desktop and Start Menu shortcuts now launch via `pythonw` + `gridnotes_start.py` (with `icon.ico`) instead of `Launch GridNotes.vbs` / wscript, so Windows no longer groups GridNotes under the generic Python icon.
+- **Automatic shortcut upgrade** — on first launch after updating, old shortcuts that still pointed at wscript/`.vbs` are rebuilt silently (no visible terminal windows).
+
+### Improved
+
+- App identity (`AppUserModelID`) is set earlier at startup; the running window gets proper relaunch metadata for taskbar pinning.
+- Docs clarify pinning the **GridNotes** shortcut (not the Python taskbar button).
+
+---
+
 ## v1.0.3 — 2026-05-29
 
 ### Fixed

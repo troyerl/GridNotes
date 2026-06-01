@@ -159,6 +159,111 @@ def create_desktop_shortcut(
     raise OSError(f"Cannot create a desktop shortcut for {target} on this platform.")
 
 
+def _read_windows_shortcut_target(shortcut_path: Path) -> tuple[str, str]:
+    """Return (TargetPath, Arguments) for a .lnk file."""
+    escaped = _escape_ps(shortcut_path.resolve())
+    script = (
+        "$s = (New-Object -ComObject WScript.Shell).CreateShortcut('" + escaped + "'); "
+        "Write-Output $s.TargetPath; "
+        "if ($s.Arguments) { Write-Output $s.Arguments } else { Write-Output '' }"
+    )
+    kwargs: dict = {
+        "capture_output": True,
+        "text": True,
+        "check": True,
+    }
+    if sys.platform == "win32":
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        if flags:
+            kwargs["creationflags"] = flags
+    result = subprocess.run(
+        [
+            "powershell",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            script,
+        ],
+        **kwargs,
+    )
+    lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    target = lines[0] if lines else ""
+    arguments = lines[1] if len(lines) > 1 else ""
+    return target, arguments
+
+
+def _shortcut_uses_script_host(shortcut_path: Path) -> bool:
+    """True when a shortcut still launches via wscript/cscript or a .vbs file."""
+    try:
+        target, _arguments = _read_windows_shortcut_target(shortcut_path)
+    except (subprocess.SubprocessError, OSError) as exc:
+        logger.debug("Could not read shortcut %s: %s", shortcut_path, exc)
+        return False
+    lowered = target.lower()
+    return lowered.endswith("wscript.exe") or lowered.endswith("cscript.exe") or lowered.endswith(".vbs")
+
+
+def _known_windows_shortcut_paths(install_root: Path) -> list[Path]:
+    paths = list(find_desktop_shortcuts())
+    start_menu = start_menu_shortcut_path()
+    if start_menu.is_file():
+        paths.append(start_menu)
+    install_lnk = install_root.resolve() / f"{APP_SHORTCUT_NAME}.lnk"
+    if install_lnk.is_file():
+        paths.append(install_lnk)
+    seen: set[Path] = set()
+    unique: list[Path] = []
+    for path in paths:
+        try:
+            resolved = path.resolve()
+        except OSError:
+            resolved = path
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        unique.append(resolved)
+    return unique
+
+
+def ensure_windows_shortcuts_for_taskbar(
+    install_root: Path,
+    *,
+    target: Path,
+    working_dir: Path,
+    arguments: str | None,
+    icon: Path | None,
+) -> None:
+    """
+    Upgrade legacy wscript/.vbs shortcuts and refresh AppUserModelID branding.
+
+    Pin **GridNotes.lnk** or the Desktop shortcut — not a generic Python taskbar button.
+    """
+    if sys.platform != "win32":
+        return
+
+    description = "GridNotes — iRacing driver scouting"
+    for shortcut_path in _known_windows_shortcut_paths(install_root):
+        try:
+            if _shortcut_uses_script_host(shortcut_path):
+                logger.info("Upgrading shortcut for taskbar icon: %s", shortcut_path)
+                _create_windows_lnk(
+                    shortcut_path=shortcut_path,
+                    target=target,
+                    working_dir=working_dir,
+                    description=description,
+                    icon=icon,
+                    arguments=arguments,
+                )
+            else:
+                from .windows_shell import apply_shortcut_taskbar_identity
+
+                apply_shortcut_taskbar_identity(shortcut_path, icon)
+        except (OSError, subprocess.SubprocessError) as exc:
+            logger.warning("Could not update shortcut %s: %s", shortcut_path, exc)
+
+
 def find_desktop_shortcuts(name: str = APP_SHORTCUT_NAME) -> list[Path]:
     """Return every GridNotes shortcut file on the Desktop(s)."""
     found: list[Path] = []

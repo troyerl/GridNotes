@@ -23,7 +23,9 @@ param(
   [string]$ShortcutPath,
   [long]$Hwnd,
   [string]$AppId = "GridNotes.GridNotes.1",
-  [string]$IconPath
+  [string]$IconPath,
+  [string]$RelaunchCommand,
+  [string]$DisplayName = "GridNotes"
 )
 
 $ErrorActionPreference = "Stop"
@@ -61,6 +63,12 @@ public static class GridNotesShellProps {
     static readonly PROPERTYKEY PKEY_AppUserModel_ID = new PROPERTYKEY {
         fmtid = new Guid("9F4C2855-9F79-4F39-A8D0-E1D42DE1D5F3"), pid = 5
     };
+    static readonly PROPERTYKEY PKEY_AppUserModel_RelaunchCommand = new PROPERTYKEY {
+        fmtid = new Guid("9F4C2855-9F79-4F39-A8D0-E1D42DE1D5F3"), pid = 2
+    };
+    static readonly PROPERTYKEY PKEY_AppUserModel_RelaunchDisplayNameResource = new PROPERTYKEY {
+        fmtid = new Guid("9F4C2855-9F79-4F39-A8D0-E1D42DE1D5F3"), pid = 4
+    };
 
     [DllImport("propsys.dll", CharSet = CharSet.Unicode)]
     static extern int SHGetPropertyStoreFromParsingName(
@@ -86,29 +94,55 @@ public static class GridNotesShellProps {
         PropVariantClear(ref pv);
     }
 
-  public static void Apply(IPropertyStore store, string appId, string iconResource) {
+  public static void Apply(
+        IPropertyStore store,
+        string appId,
+        string iconResource,
+        string relaunchCommand,
+        string displayName
+    ) {
+        SetString(store, PKEY_AppUserModel_ID, appId);
         if (!string.IsNullOrWhiteSpace(iconResource)) {
             SetString(store, PKEY_AppUserModel_RelaunchIconResource, iconResource);
         }
-        SetString(store, PKEY_AppUserModel_ID, appId);
+        if (!string.IsNullOrWhiteSpace(relaunchCommand)) {
+            SetString(store, PKEY_AppUserModel_RelaunchCommand, relaunchCommand);
+            SetString(
+                store,
+                PKEY_AppUserModel_RelaunchDisplayNameResource,
+                string.IsNullOrWhiteSpace(displayName) ? "GridNotes" : displayName
+            );
+        }
         store.Commit();
     }
 
-    public static void ApplyShortcut(string shortcutPath, string appId, string iconResource) {
+    public static void ApplyShortcut(
+        string shortcutPath,
+        string appId,
+        string iconResource,
+        string relaunchCommand,
+        string displayName
+    ) {
         IPropertyStore store;
         Guid iid = IID_PropertyStore;
         int hr = SHGetPropertyStoreFromParsingName(shortcutPath, IntPtr.Zero, 2, ref iid, out store);
         if (hr != 0) throw new System.ComponentModel.Win32Exception(hr);
-        try { Apply(store, appId, iconResource); }
+        try { Apply(store, appId, iconResource, relaunchCommand, displayName); }
         finally { Marshal.ReleaseComObject(store); }
     }
 
-    public static void ApplyWindow(long hwnd, string appId, string iconResource) {
+    public static void ApplyWindow(
+        long hwnd,
+        string appId,
+        string iconResource,
+        string relaunchCommand,
+        string displayName
+    ) {
         IPropertyStore store;
         Guid iid = IID_PropertyStore;
         int hr = SHGetPropertyStoreForWindow(new IntPtr(hwnd), ref iid, out store);
         if (hr != 0) throw new System.ComponentModel.Win32Exception(hr);
-        try { Apply(store, appId, iconResource); }
+        try { Apply(store, appId, iconResource, relaunchCommand, displayName); }
         finally { Marshal.ReleaseComObject(store); }
     }
 }
@@ -120,11 +154,28 @@ if ($IconPath -and (Test-Path -LiteralPath $IconPath)) {
 }
 
 if ($ShortcutPath) {
-  [GridNotesShellProps]::ApplyShortcut($ShortcutPath, $AppId, $iconResource)
+  [GridNotesShellProps]::ApplyShortcut(
+    $ShortcutPath, $AppId, $iconResource, "", $DisplayName
+  )
 } elseif ($Hwnd -gt 0) {
-  [GridNotesShellProps]::ApplyWindow($Hwnd, $AppId, $iconResource)
+  [GridNotesShellProps]::ApplyWindow(
+    $Hwnd, $AppId, $iconResource, $RelaunchCommand, $DisplayName
+  )
 }
 """
+
+
+def build_relaunch_command(install_root: Path) -> str | None:
+    """Command line Windows uses when pinning the running app to the taskbar."""
+    from .logic import VENV_DIR_NAME, gridnotes_start_script_path, venv_pythonw
+
+    install_root = install_root.resolve()
+    venv_dir = install_root / VENV_DIR_NAME
+    pyw = venv_pythonw(venv_dir)
+    starter = gridnotes_start_script_path(install_root)
+    if not pyw.is_file() or not starter.is_file():
+        return None
+    return f'"{pyw.resolve()}" "{starter.resolve()}"'
 
 
 def _run_shell_property_script(
@@ -133,6 +184,8 @@ def _run_shell_property_script(
     icon: Path | None,
     shortcut_path: Path | None = None,
     hwnd: int | None = None,
+    relaunch_command: str | None = None,
+    display_name: str = "GridNotes",
 ) -> bool:
     if sys.platform != "win32":
         return False
@@ -171,6 +224,9 @@ def _run_shell_property_script(
         icon_file = str(icon.resolve()) if icon is not None and icon.is_file() else ""
         if icon_file:
             args.extend(["-IconPath", icon_file])
+        if relaunch_command:
+            args.extend(["-RelaunchCommand", relaunch_command])
+        args.extend(["-DisplayName", display_name])
 
         result = subprocess.run(
             args,
@@ -211,7 +267,12 @@ def apply_shortcut_taskbar_identity(shortcut_path: Path, icon: Path | None) -> b
     )
 
 
-def apply_window_taskbar_identity(widget, icon: Path | None) -> bool:
+def apply_window_taskbar_identity(
+    widget,
+    icon: Path | None,
+    *,
+    relaunch_command: str | None = None,
+) -> bool:
     """Associate the main window with the same AppUserModelID as our shortcuts."""
     from ..app.app_icon import APP_USER_MODEL_ID, set_windows_app_user_model_id
 
@@ -228,4 +289,5 @@ def apply_window_taskbar_identity(widget, icon: Path | None) -> bool:
         app_id=APP_USER_MODEL_ID,
         icon=icon,
         hwnd=hwnd,
+        relaunch_command=relaunch_command,
     )

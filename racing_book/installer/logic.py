@@ -831,15 +831,16 @@ def preferred_shortcut_target(
         return dist_exe.resolve(), dist_exe.parent.resolve(), None
 
     if sys.platform == "win32":
-        vbs = windows_vbs_launcher_path(root)
-        if vbs.is_file():
-            return vbs, root, None
-
         pyw = venv_pythonw(venv_dir)
         if pyw.is_file():
             starter = gridnotes_start_script_path(root)
             script = starter if starter.is_file() else (root / "main.py")
-            return pyw.resolve(), root, f'"{script.resolve()}"'
+            if script.is_file():
+                return pyw.resolve(), root, f'"{script.resolve()}"'
+
+        vbs = windows_vbs_launcher_path(root)
+        if vbs.is_file():
+            return vbs, root, None
 
     pyw = venv_pythonw(venv_dir)
     if pyw.is_file():

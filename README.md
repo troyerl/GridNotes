@@ -1,6 +1,6 @@
 # GridNotes
 
-**Version 1.0.3**
+**Version 1.0.4**
 
 Desktop app for **iRacing driver scouting**: keep personal notes, review race history and stats, and optionally see who is in your current session while iRacing is running (Windows).
 
@@ -112,6 +112,8 @@ pip install Pillow
 python scripts/generate_icon.py
 python main.py
 ```
+
+**Pinning to the taskbar:** use the **GridNotes** Desktop shortcut or **`GridNotes.lnk`** in your install folder (for example `D:\GridNotes`). Do not pin the generic Python icon from a running window. If you previously pinned Python, unpin it, open GridNotes from the Desktop shortcut, then right‑click that shortcut → **Pin to taskbar**. GridNotes upgrades old shortcuts that pointed at `wscript`/`.vbs` on first launch after an update.
 
 ## Troubleshooting log (for support)
 
