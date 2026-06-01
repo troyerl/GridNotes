@@ -134,3 +134,16 @@ def setup_logging() -> Path:
     boot.info("=" * 60)
 
     return log_path
+
+
+def shutdown_logging() -> None:
+    """Close log file handlers so user data folders can be deleted (e.g. uninstall)."""
+    global _log_path
+    root = logging.getLogger()
+    for handler in root.handlers[:]:
+        try:
+            handler.close()
+        except Exception:
+            pass
+        root.removeHandler(handler)
+    _log_path = None

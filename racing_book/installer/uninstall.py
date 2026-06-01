@@ -397,6 +397,13 @@ def _remove_user_data() -> tuple[bool, str]:
     errors: list[str] = []
 
     try:
+        from ..services.log_config import shutdown_logging
+
+        shutdown_logging()
+    except Exception as exc:
+        logger.warning("Could not release log file before uninstall: %s", exc)
+
+    try:
         primary = get_data_dir_path()
         targets = [primary, *data_dir_candidates(include_legacy=True)]
     except OSError as exc:

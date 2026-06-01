@@ -1053,6 +1053,11 @@ class RaceBookApp(QMainWindow):
                 pass
             del self._db_conn
 
+        if remove_user_data:
+            from ..services.log_config import shutdown_logging
+
+            shutdown_logging()
+
         result = perform_uninstall(
             install_root=install_root,
             remove_user_data=remove_user_data,
