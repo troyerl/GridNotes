@@ -1,6 +1,6 @@
 # How to install GridNotes
 
-**Version 1.2.9**
+**Version 1.2.10**
 
 GridNotes helps you remember iRacing drivers you raced with and keep private notes.  
 You do **not** need to know how to code. Follow the steps below in order.
@@ -180,10 +180,10 @@ This often happens if the installer ran **as administrator** but GridNotes needs
 
 1. Open your **install folder** (for example `D:\GridNotes`).  
 2. Double-click **`Run GridNotes.bat`** in your install folder (for example `D:\GridNotes\Run GridNotes.bat`).  
-   If the window flashes and closes, it will **pause** and show **`launch-error.log`** in that same folder.  
-   Or run **`Diagnose GridNotes.bat`** there to test Python/PyQt6 imports.  
-   App logs are always in **`%APPDATA%\GridNotes\gridnotes.log`** on Windows (not in `D:\GridNotes`).  
-   **`launch-error.log`** is only in the install folder (`D:\GridNotes\launch-error.log`).  
+   If the window flashes and closes, it will **pause** and show the log path on screen.  
+   Or run **`Diagnose GridNotes.bat`** in your install folder to test Python/PyQt6 imports.  
+   On Windows, logs are in **`%APPDATA%\GridNotes\`**:  
+   **`gridnotes.log`** (app) and **`launch-error.log`** (startup problems).  
    If that file stops after `Install folder: D:\GridNotes`, re-run **`Install GridNotes.bat`** from the latest ZIP (fixes a Windows batch bug that hid the real error).  
 3. Run **`Install GridNotes.bat`** again from your download ZIP folder — choose **D:\** again, finish install, use the new Desktop icon. **Do not** use “Run as administrator” unless you install to C:\Program Files.  
 4. Or double-click **`Open GridNotes.bat`** in your download folder after install.

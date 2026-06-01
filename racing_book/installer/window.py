@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -439,12 +440,22 @@ class InstallWizardWindow(QMainWindow):
             )
             return
 
+        if sys.platform == "win32":
+            app_data = os.environ.get("APPDATA", "").strip()
+            log_hint = (
+                f"{app_data}\\GridNotes\\launch-error.log"
+                if app_data
+                else "%APPDATA%\\GridNotes\\launch-error.log"
+            )
+        else:
+            log_hint = str(self._install_root / "launch-error.log")
+
         QMessageBox.information(
             self,
             "GridNotes Starting",
             "GridNotes is starting.\n\n"
-            f"If no window appears, open:\n{self._install_root}\\launch-error.log\n\n"
-            "Or double-click Run GridNotes.bat in that folder.",
+            f"If no window appears, open:\n{log_hint}\n\n"
+            "Or double-click Run GridNotes.bat in your install folder.",
         )
         self.close()
 

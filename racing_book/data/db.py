@@ -69,6 +69,13 @@ def get_data_dir_path() -> Path:
     return _get_data_dir()
 
 
+def get_launch_log_path() -> Path:
+    """User-writable launch diagnostics (install folder may be read-only)."""
+    path = _get_data_dir() / "launch-error.log"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def get_db_path() -> str:
     return str(_get_data_dir() / "driver_history.db")
 
