@@ -95,29 +95,38 @@ def program_files_install_location() -> Path | None:
     return Path(program_files) / "GridNotes"
 
 
+def simple_install_location_hint() -> str:
+    """Short guidance for non-technical users."""
+    return (
+        "Leave this folder as-is unless someone told you to change it. "
+        "GridNotes will be installed there and you can open it from your Desktop."
+    )
+
+
 def default_install_location_hint() -> str:
+    """Detailed hint shown under advanced options."""
     default = default_install_location()
     if sys.platform == "win32":
         pf = program_files_install_location()
         pf_note = ""
         if pf is not None:
             pf_note = (
-                f" For all users under {pf}, choose that path with Browse and run "
-                "this installer as administrator if Windows asks for permission."
+                f" Program Files path: {pf} (use the Program Files button; "
+                "may require running Install GridNotes.bat as administrator)."
             )
         return (
-            f"Default install folder: {default} — your personal Programs area "
-            "(no admin password). Files are copied from the download folder into "
-            f"the location you choose.{pf_note}"
+            f"Recommended folder: {default}. "
+            "Files are copied from your download folder into the install folder."
+            f"{pf_note}"
         )
     if sys.platform == "darwin":
         return (
-            f"Default install folder: {default} — your Applications folder "
-            "(no administrator password). Files are copied from the download folder."
+            f"Recommended folder: {default}. "
+            "Files are copied from your download folder into the install folder."
         )
     return (
-        f"Default install folder: {default}. Files are copied from the download "
-        "folder into the location you choose."
+        f"Recommended folder: {default}. "
+        "Files are copied from your download folder into the install folder."
     )
 
 

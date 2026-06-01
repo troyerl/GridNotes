@@ -6,7 +6,13 @@ Desktop app for **iRacing driver scouting**: keep personal notes, review race hi
 
 All data stays on your machine in a local SQLite database — no account or cloud sync.
 
-**New users:** step-by-step install instructions are in **[INSTALL.md](INSTALL.md)**.
+### New here? No technical experience needed
+
+1. Open **`START_HERE.txt`** in this folder (short checklist), or  
+2. Read **[INSTALL.md](INSTALL.md)** — plain-language steps with pictures of what to click.
+
+**Easiest for Windows:** use **`GridNotes-Setup.exe`** from a release (no Python).  
+**If you have the download folder:** double-click **`Install GridNotes.bat`** and follow the window.
 
 ## Overview
 
@@ -31,42 +37,18 @@ Custom JSON should include `subsession_id` (or `session_id`) on each race object
 2. **`{"races": [{"subsession_id": …, "results": […]}]}`**
 3. A top-level **array** of race objects with the same shape.
 
-## Install from downloaded source (graphical wizard, v1.1.0+)
+## Install (non-technical users)
 
-If you downloaded or cloned the project folder (not the Windows `.exe` installer), use the built-in setup wizard. Full details: **[INSTALL.md](INSTALL.md)**.
+See **[INSTALL.md](INSTALL.md)**. Summary:
 
-**Windows:** double-click `Install GridNotes.bat`  
-**macOS:** double-click `Install GridNotes.command` (first time: right-click → Open if Gatekeeper blocks it)
+| What you have | What to do |
+|---------------|------------|
+| `GridNotes-Setup.exe` | Double-click it → Install → open from Start menu |
+| Download folder with `Install GridNotes.bat` | Install Python once (link in INSTALL.md) → double-click the `.bat` → **Install GridNotes** |
 
-Or from a terminal:
+## Install helper (developers / manual)
 
-```bash
-python install_gui.py
-```
-
-The wizard will:
-
-1. Check that Python 3.10+ is installed  
-2. Let you choose an **install location** (copies source there if you pick a new folder)  
-3. Create a `.venv` and install dependencies (with a live progress log)  
-4. Optionally **build a standalone app** to a **build output folder** you choose (Windows)  
-5. Optionally add a **Desktop shortcut**  
-6. Create `Run GridNotes.bat` or `Run GridNotes.command` in the install folder  
-
-When finished, click **Launch GridNotes**, use the run script, or the Desktop shortcut. Your database stays in the install folder when running from source.
-
-## Run from source (manual)
-
-```bash
-pip install -r requirements.txt
-python main.py
-```
-
-Optional live SDK support (Windows only, while iRacing is running):
-
-```bash
-pip install pyirsdk
-```
+The graphical wizard is for the source folder: `Install GridNotes.bat` / `install_gui.py`. Advanced options are hidden unless you check **Show advanced options**.
 
 ## Build a Windows installer
 

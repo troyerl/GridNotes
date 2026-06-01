@@ -1,0 +1,16 @@
+GRIDNOTES - START HERE
+======================
+
+You do not need coding experience.
+
+EASIEST (Windows):
+  Double-click: GridNotes-Setup.exe
+  Then open GridNotes from the Start menu.
+
+IF YOU HAVE A DOWNLOAD FOLDER WITH "Install GridNotes.bat":
+  1. Install Python from https://www.python.org/downloads/
+     (Check "Add python.exe to PATH" on the first screen.)
+  2. Double-click: Install GridNotes.bat
+  3. Click "Install GridNotes", then "Launch GridNotes"
+
+Full picture guide: open INSTALL.md in this folder.

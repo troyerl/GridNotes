@@ -36,6 +36,7 @@ from .logic import (
     find_project_root,
     is_valid_install_root,
     program_files_install_location,
+    simple_install_location_hint,
     venv_python,
 )
 from .worker import InstallWorker
@@ -68,76 +69,101 @@ class InstallWizardWindow(QMainWindow):
         layout.addWidget(title)
 
         intro = QLabel(
-            "Set up GridNotes from the downloaded source code. Choose where to install, "
-            "optionally build a standalone app to a folder you pick, and add a desktop shortcut."
+            "Click Install GridNotes below. This may take a few minutes. "
+            "You only need to do this once."
         )
         intro.setObjectName("sectionHint")
         intro.setWordWrap(True)
         layout.addWidget(intro)
 
-        install_label = QLabel("Install location")
+        install_label = QLabel("Where to install GridNotes")
         install_label.setObjectName("statInlineLabel")
         layout.addWidget(install_label)
 
         install_row = QHBoxLayout()
         install_row.setSpacing(8)
         self.install_path_input = QLineEdit(str(self._install_root))
-        self.install_path_input.setPlaceholderText("Folder where GridNotes will be installed")
+        self.install_path_input.setPlaceholderText("Recommended install folder")
         install_row.addWidget(self.install_path_input, stretch=1)
-        self.btn_browse_install = QPushButton("Browse…")
+        self.btn_browse_install = QPushButton("Choose folder…")
         self.btn_browse_install.clicked.connect(self._browse_install_dir)
         install_row.addWidget(self.btn_browse_install)
-        self.btn_program_files = QPushButton("Program Files")
-        self.btn_program_files.setVisible(sys.platform == "win32")
-        self.btn_program_files.setToolTip(
-            "Use C:\\Program Files\\GridNotes (may require running the installer as administrator)"
-        )
-        self.btn_program_files.clicked.connect(self._use_program_files_location)
-        install_row.addWidget(self.btn_program_files)
         layout.addLayout(install_row)
 
-        install_hint = QLabel(default_install_location_hint())
+        install_hint = QLabel(simple_install_location_hint())
         install_hint.setObjectName("sectionHint")
         install_hint.setWordWrap(True)
         layout.addWidget(install_hint)
 
         ok, python_message = check_python()
-        self.python_label = QLabel(python_message)
-        self.python_label.setObjectName("sectionHint" if ok else "emptyState")
+        if ok:
+            self.python_label = QLabel("Python is installed. You are ready to continue.")
+            self.python_label.setObjectName("sectionHint")
+        else:
+            self.python_label = QLabel(
+                "Python is not set up yet.\n\n"
+                "1. Go to https://www.python.org/downloads/\n"
+                "2. Download and run the installer\n"
+                "3. On the first screen, turn ON “Add python.exe to PATH”\n"
+                "4. Close this window and double-click Install GridNotes.bat again"
+            )
+            self.python_label.setObjectName("emptyState")
         self.python_label.setWordWrap(True)
         layout.addWidget(self.python_label)
 
+        self.desktop_checkbox = QCheckBox("Put a GridNotes icon on my Desktop")
+        self.desktop_checkbox.setChecked(True)
+        layout.addWidget(self.desktop_checkbox)
+
+        self.advanced_toggle = QCheckBox("Show advanced options")
+        self.advanced_toggle.setChecked(False)
+        self.advanced_toggle.toggled.connect(self._on_advanced_toggled)
+        layout.addWidget(self.advanced_toggle)
+
+        self.advanced_panel = QWidget()
+        advanced_layout = QVBoxLayout(self.advanced_panel)
+        advanced_layout.setContentsMargins(12, 0, 0, 0)
+        advanced_layout.setSpacing(8)
+
+        advanced_hint = QLabel(default_install_location_hint())
+        advanced_hint.setObjectName("sectionHint")
+        advanced_hint.setWordWrap(True)
+        advanced_layout.addWidget(advanced_hint)
+
+        pf_row = QHBoxLayout()
+        pf_row.addStretch()
+        self.btn_program_files = QPushButton("Use Program Files folder")
+        self.btn_program_files.setVisible(sys.platform == "win32")
+        self.btn_program_files.clicked.connect(self._use_program_files_location)
+        pf_row.addWidget(self.btn_program_files)
+        advanced_layout.addLayout(pf_row)
+
         self.build_checkbox = QCheckBox(
-            "Build a standalone Windows app (GridNotes.exe)"
+            "Build GridNotes.exe in a separate folder (for sharing with others)"
         )
         self.build_checkbox.setVisible(sys.platform == "win32")
-        self.build_checkbox.setToolTip(
-            "Runs PyInstaller and writes the built app to the folder below."
-        )
         self.build_checkbox.toggled.connect(self._on_build_toggled)
-        layout.addWidget(self.build_checkbox)
+        advanced_layout.addWidget(self.build_checkbox)
 
         build_label = QLabel("Build output folder")
         build_label.setObjectName("statInlineLabel")
-        layout.addWidget(build_label)
+        advanced_layout.addWidget(build_label)
 
         build_row = QHBoxLayout()
         build_row.setSpacing(8)
         self.build_path_input = QLineEdit(str(default_build_output_dir(self._install_root)))
-        self.build_path_input.setPlaceholderText("Folder for GridNotes.exe and bundled files")
         self.build_path_input.setEnabled(False)
         build_row.addWidget(self.build_path_input, stretch=1)
-        self.btn_browse_build = QPushButton("Browse…")
+        self.btn_browse_build = QPushButton("Choose folder…")
         self.btn_browse_build.setEnabled(False)
         self.btn_browse_build.clicked.connect(self._browse_build_dir)
         build_row.addWidget(self.btn_browse_build)
-        layout.addLayout(build_row)
+        advanced_layout.addLayout(build_row)
 
-        self.desktop_checkbox = QCheckBox("Create a shortcut on the Desktop")
-        self.desktop_checkbox.setChecked(True)
-        layout.addWidget(self.desktop_checkbox)
+        self.advanced_panel.setVisible(False)
+        layout.addWidget(self.advanced_panel)
 
-        self.step_label = QLabel("Ready to install.")
+        self.step_label = QLabel("Ready when you are.")
         self.step_label.setObjectName("statInlineLabel")
         layout.addWidget(self.step_label)
 
@@ -149,11 +175,17 @@ class InstallWizardWindow(QMainWindow):
 
         self.log_view = QTextEdit()
         self.log_view.setReadOnly(True)
-        self.log_view.setPlaceholderText("Installation log will appear here…")
+        self.log_view.setPlaceholderText("Technical log…")
+        self.log_view.setVisible(False)
         log_font = QFont("Menlo" if sys.platform == "darwin" else "Consolas")
         log_font.setPointSize(11)
         self.log_view.setFont(log_font)
         configure_widget_scrollbars(self.log_view, page_step=80)
+
+        self.details_toggle = QCheckBox("Show installation details (technical)")
+        self.details_toggle.setChecked(False)
+        self.details_toggle.toggled.connect(self.log_view.setVisible)
+        layout.addWidget(self.details_toggle)
         layout.addWidget(self.log_view, stretch=1)
 
         button_row = QHBoxLayout()
@@ -163,7 +195,7 @@ class InstallWizardWindow(QMainWindow):
         self.btn_cancel.clicked.connect(self.close)
         button_row.addWidget(self.btn_cancel)
 
-        self.btn_install = QPushButton("Install")
+        self.btn_install = QPushButton("Install GridNotes")
         self.btn_install.setObjectName("primaryBtn")
         self.btn_install.clicked.connect(self._start_install)
         self.btn_install.setEnabled(ok)
@@ -178,9 +210,10 @@ class InstallWizardWindow(QMainWindow):
         layout.addLayout(button_row)
 
         if not ok:
-            self.step_label.setText(
-                "Fix the Python version issue above, then restart this installer."
-            )
+            self.step_label.setText("Install Python first (see steps above).")
+
+    def _on_advanced_toggled(self, checked: bool) -> None:
+        self.advanced_panel.setVisible(checked)
 
     def _on_build_toggled(self, checked: bool) -> None:
         self.build_path_input.setEnabled(checked)
@@ -259,7 +292,10 @@ class InstallWizardWindow(QMainWindow):
         self.build_checkbox.setEnabled(not busy)
         self.install_path_input.setEnabled(not busy)
         self.btn_browse_install.setEnabled(not busy)
+        self.advanced_toggle.setEnabled(not busy)
+        self.advanced_panel.setEnabled(not busy)
         self.btn_program_files.setEnabled(not busy)
+        self.details_toggle.setEnabled(not busy)
         self.build_path_input.setEnabled(not busy and self.build_checkbox.isChecked())
         self.btn_browse_build.setEnabled(not busy and self.build_checkbox.isChecked())
         self.desktop_checkbox.setEnabled(not busy)
@@ -303,7 +339,9 @@ class InstallWizardWindow(QMainWindow):
         self.progress.setValue(0)
         self._install_succeeded = False
         self._set_busy(True)
-        self.step_label.setText("Installing…")
+        self.step_label.setText("Installing… please wait.")
+        self.log_view.setVisible(True)
+        self.details_toggle.setChecked(True)
 
         self._worker = InstallWorker(
             source_root=self._source_root,
