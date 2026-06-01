@@ -726,6 +726,18 @@ QWidget#settingsContent {
     background: transparent;
 }
 
+QWidget#settingsContent QCheckBox {
+    background: transparent;
+}
+
+QWidget#settingsContent QCheckBox::indicator {
+    background-color: transparent;
+}
+
+QWidget#settingsContent QCheckBox::indicator:checked {
+    background-color: {{accent}};
+}
+
 QFrame#settingsNavSidebar {
     background-color: {{bg_elevated}};
     border: none;
