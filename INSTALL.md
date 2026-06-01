@@ -1,6 +1,6 @@
 # How to install GridNotes
 
-**Version 1.2.2**
+**Version 1.2.3**
 
 GridNotes helps you remember iRacing drivers you raced with and keep private notes.  
 You do **not** need to know how to code. Follow the steps below in order.
@@ -129,7 +129,14 @@ You skipped Step 1 or did not check **Add python.exe to PATH**.
 ### I closed the app — how do I open it again?
 
 - Double-click the **Desktop** icon **GridNotes**, or  
-- Go to your install folder and double-click **`Run GridNotes.bat`**.
+- Go to your install folder and double-click **`Launch GridNotes.vbs`** or **`Run GridNotes.bat`**.
+
+### Desktop icon or “Launch GridNotes” does nothing
+
+1. Open your **install folder** (for example `C:\Program Files\GridNotes` or `D:\GridNotes`).  
+2. Double-click **`Launch GridNotes.vbs`**. If the app opens, the install is fine but the shortcut is outdated.  
+3. Run **`Install GridNotes.bat`** again from your download folder (same options as before) to recreate the Desktop shortcut.  
+4. If step 2 also fails, open **`gridnotes.log`** in your install folder (or `%APPDATA%\GridNotes\` when using the Setup installer) for error details.
 
 ### GridNotes does not see iRacing
 

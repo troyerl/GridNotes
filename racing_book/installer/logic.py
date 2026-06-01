@@ -132,6 +132,64 @@ def program_files_install_location() -> Path | None:
     return Path(program_files) / APP_INSTALL_DIRNAME
 
 
+def ensure_icon_ico(root: Path, python: Path | None = None) -> Path | None:
+    """Create icon.ico from icon.png in *root* when missing (Windows desktop shortcuts)."""
+    ico = root / "icon.ico"
+    if ico.is_file():
+        return ico
+    png = root / "icon.png"
+    if not png.is_file():
+        return None
+    script = root / "scripts" / "generate_icon.py"
+    if not script.is_file() or python is None or not python.is_file():
+        return None
+    try:
+        subprocess.run(
+            [str(python), "-m", "pip", "install", "Pillow>=10.0"],
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            timeout=180,
+            check=False,
+        )
+        subprocess.run(
+            [str(python), str(script)],
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=True,
+        )
+    except (subprocess.SubprocessError, OSError) as exc:
+        logger.warning("Could not generate icon.ico: %s", exc)
+        return None
+    return ico if ico.is_file() else None
+
+
+def resolve_shortcut_icon(
+    install_root: Path,
+    *,
+    source_root: Path | None = None,
+    launch_target: Path | None = None,
+    python: Path | None = None,
+) -> Path | None:
+    """Pick the best .ico (or .exe with embedded icon) for a desktop shortcut."""
+    ensure_icon_ico(install_root, python)
+    for base in (install_root, source_root):
+        if base is None:
+            continue
+        ico = base / "icon.ico"
+        if ico.is_file():
+            return ico
+    if (
+        launch_target is not None
+        and launch_target.suffix.lower() == ".exe"
+        and launch_target.is_file()
+    ):
+        return launch_target
+    return None
+
+
 def normalize_chosen_install_dir(
     chosen: Path,
     *,
@@ -257,22 +315,50 @@ def check_python() -> tuple[bool, str]:
     return True, f"Using {sys.executable} (Python {version[0]}.{version[1]}.{version[2]})"
 
 
+def windows_vbs_launcher_path(root: Path) -> Path:
+    return root.resolve() / "Launch GridNotes.vbs"
+
+
 def write_launcher_scripts(root: Path, venv_dir: Path) -> list[Path]:
     """Create double-click launchers in the install folder."""
     created: list[Path] = []
     py = venv_python(venv_dir)
     pyw = venv_pythonw(venv_dir)
+    root = root.resolve()
 
     if sys.platform == "win32":
         run_bat = root / "Run GridNotes.bat"
-        launcher_py = pyw if pyw.is_file() else py
         run_bat.write_text(
             "@echo off\r\n"
-            f'cd /d "%~dp0"\r\n'
-            f'"{launcher_py}" main.py\r\n',
+            'cd /d "%~dp0"\r\n'
+            'if exist "%~dp0.venv\\Scripts\\pythonw.exe" (\r\n'
+            '  "%~dp0.venv\\Scripts\\pythonw.exe" "%~dp0main.py"\r\n'
+            ") else (\r\n"
+            '  "%~dp0.venv\\Scripts\\python.exe" "%~dp0main.py"\r\n'
+            ")\r\n",
             encoding="utf-8",
         )
         created.append(run_bat)
+
+        launcher_py = pyw if pyw.is_file() else py
+        pyw_abs = str(launcher_py.resolve())
+        main_abs = str((root / "main.py").resolve())
+        root_abs = str(root)
+        vbs_path = windows_vbs_launcher_path(root)
+
+        def _vbs_str(value: str) -> str:
+            return value.replace('"', '""')
+
+        vbs_path.write_text(
+            "Set shell = CreateObject(\"WScript.Shell\")\r\n"
+            f'shell.CurrentDirectory = "{_vbs_str(root_abs)}"\r\n'
+            "command = Chr(34) & "
+            f'"{_vbs_str(pyw_abs)}" & Chr(34) & " " & Chr(34) & '
+            f'"{_vbs_str(main_abs)}" & Chr(34)\r\n'
+            "shell.Run command, 0, False\r\n",
+            encoding="utf-8",
+        )
+        created.append(vbs_path)
     else:
         run_sh = root / "Run GridNotes.command"
         run_sh.write_text(
@@ -285,6 +371,102 @@ def write_launcher_scripts(root: Path, venv_dir: Path) -> list[Path]:
         created.append(run_sh)
 
     return created
+
+
+def preferred_shortcut_target(
+    root: Path,
+    venv_dir: Path,
+    *,
+    dist_exe: Path | None = None,
+    build_standalone: bool = False,
+) -> tuple[Path, Path, str | None]:
+    """Return (target, working_dir, arguments) for a desktop shortcut."""
+    root = root.resolve()
+    if build_standalone and dist_exe is not None and dist_exe.is_file():
+        return dist_exe.resolve(), dist_exe.parent.resolve(), None
+
+    if sys.platform == "win32":
+        vbs = windows_vbs_launcher_path(root)
+        if vbs.is_file():
+            return vbs, root, None
+        run_bat = root / "Run GridNotes.bat"
+        if run_bat.is_file():
+            return run_bat, root, None
+
+    pyw = venv_pythonw(venv_dir)
+    if pyw.is_file():
+        main_py = (root / "main.py").resolve()
+        return pyw.resolve(), root, f'"{main_py}"'
+    py = venv_python(venv_dir)
+    main_py = (root / "main.py").resolve()
+    return py.resolve(), root, f'"{main_py}"'
+
+
+def launch_installed_app(
+    install_root: Path,
+    *,
+    standalone_exe: Path | None = None,
+) -> tuple[bool, str]:
+    """Start GridNotes from an install folder."""
+    install_root = install_root.resolve()
+    main_py = install_root / "main.py"
+    if not main_py.is_file():
+        return False, f"Could not find main.py in:\n{install_root}"
+
+    venv_dir = install_root / VENV_DIR_NAME
+    dist_exe = standalone_exe
+    if dist_exe is None:
+        dist_exe = install_root / "dist" / "GridNotes" / "GridNotes.exe"
+    if dist_exe.is_file():
+        try:
+            subprocess.Popen(
+                [str(dist_exe)],
+                cwd=str(dist_exe.parent),
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            return True, ""
+        except OSError as exc:
+            return False, str(exc)
+
+    if sys.platform == "win32":
+        vbs = windows_vbs_launcher_path(install_root)
+        if vbs.is_file():
+            try:
+                subprocess.Popen(
+                    ["wscript.exe", "//B", str(vbs)],
+                    cwd=str(install_root),
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+                return True, ""
+            except OSError as exc:
+                return False, str(exc)
+
+        run_bat = install_root / "Run GridNotes.bat"
+        if run_bat.is_file():
+            try:
+                subprocess.Popen(
+                    ["cmd.exe", "/c", str(run_bat)],
+                    cwd=str(install_root),
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+                return True, ""
+            except OSError as exc:
+                return False, str(exc)
+
+    py = venv_pythonw(venv_dir)
+    if not py.is_file():
+        py = venv_python(venv_dir)
+    if not py.is_file():
+        return False, f"Virtual environment is missing Python under:\n{venv_dir}"
+    try:
+        subprocess.Popen(
+            [str(py), str(main_py)],
+            cwd=str(install_root),
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        return True, ""
+    except OSError as exc:
+        return False, str(exc)
 
 
 class InstallRunner:
@@ -319,12 +501,6 @@ class InstallRunner:
         self.venv_dir = self.root / VENV_DIR_NAME
         self.requirements = self.root / REQUIREMENTS_FILE
         self._launch_target: Path | None = None
-        self._shortcut_icon: Path | None = None
-        for icon_name in ("icon.ico", "icon.png"):
-            icon_path = self.root / icon_name
-            if icon_path.is_file():
-                self._shortcut_icon = icon_path
-                break
 
     def _log(self, line: str) -> None:
         if line:
@@ -460,31 +636,31 @@ class InstallRunner:
                 self._log(f"Created {path.name}")
 
             dist_exe = self.build_output_dir / "GridNotes" / "GridNotes.exe"
-            shortcut_args: str | None = None
-            if self.build_standalone and dist_exe.is_file():
-                self._launch_target = dist_exe
-                shortcut_working_dir = dist_exe.parent
-            elif sys.platform == "win32" and venv_pythonw(self.venv_dir).is_file():
-                self._launch_target = venv_pythonw(self.venv_dir)
-                shortcut_working_dir = self.root
-                shortcut_args = "main.py"
-            elif launchers:
-                self._launch_target = launchers[0]
-                shortcut_working_dir = self.root
-            else:
-                self._launch_target = venv_python(self.venv_dir)
-                shortcut_working_dir = self.root
-                shortcut_args = "main.py"
+            shortcut_target, shortcut_working_dir, shortcut_args = preferred_shortcut_target(
+                self.root,
+                self.venv_dir,
+                dist_exe=dist_exe,
+                build_standalone=self.build_standalone,
+            )
+            self._launch_target = shortcut_target
 
-            if self.create_desktop_shortcut and self._launch_target is not None:
+            if self.create_desktop_shortcut:
                 try:
+                    shortcut_icon = resolve_shortcut_icon(
+                        self.root,
+                        source_root=self.source_root,
+                        launch_target=shortcut_target,
+                        python=venv_python(self.venv_dir),
+                    )
                     shortcut = create_desktop_shortcut(
-                        target=self._launch_target,
+                        target=shortcut_target,
                         working_dir=shortcut_working_dir,
                         arguments=shortcut_args,
-                        icon=self._shortcut_icon,
+                        icon=shortcut_icon,
                     )
                     self._log(f"Desktop shortcut: {shortcut}")
+                    if shortcut_icon is not None:
+                        self._log(f"Shortcut icon: {shortcut_icon}")
                     self._log(f"Shortcut opens: {self.root}")
                 except (OSError, subprocess.SubprocessError) as exc:
                     self._log(f"Could not create desktop shortcut: {exc}")

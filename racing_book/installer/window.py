@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import subprocess
 import sys
 from pathlib import Path
 
@@ -35,11 +34,10 @@ from .logic import (
     default_install_location_hint,
     find_project_root,
     is_valid_install_root,
+    launch_installed_app,
     normalize_chosen_install_dir,
     simple_install_location_hint,
     user_local_install_location,
-    venv_python,
-    venv_pythonw,
 )
 from .worker import InstallWorker
 
@@ -401,43 +399,24 @@ class InstallWizardWindow(QMainWindow):
             QMessageBox.warning(self, "Installation Failed", message)
 
     def _launch_app(self) -> None:
-        root = self._install_root
-
+        standalone_exe = None
         if self.build_checkbox.isChecked():
             build_dir = Path(self.build_path_input.text().strip()).expanduser()
-            standalone_exe = build_dir / "GridNotes" / "GridNotes.exe"
-            if standalone_exe.is_file():
-                subprocess.Popen(
-                    [str(standalone_exe)],
-                    cwd=str(standalone_exe.parent),
-                    stdin=subprocess.DEVNULL,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    start_new_session=True,
-                )
-                self.close()
-                return
+            candidate = build_dir / "GridNotes" / "GridNotes.exe"
+            if candidate.is_file():
+                standalone_exe = candidate
 
-        venv_dir = root / ".venv"
-        py = venv_pythonw(venv_dir)
-        if not py.is_file():
-            py = venv_python(venv_dir)
-        main_py = root / "main.py"
-        if not py.is_file() or not main_py.is_file():
+        ok, message = launch_installed_app(
+            self._install_root,
+            standalone_exe=standalone_exe,
+        )
+        if not ok:
             QMessageBox.warning(
                 self,
                 "Cannot Launch",
-                "Run Install first, or use the Desktop GridNotes icon.",
+                message or "Run Install first, or use the Desktop GridNotes icon.",
             )
             return
-        subprocess.Popen(
-            [str(py), str(main_py)],
-            cwd=str(root),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
         self.close()
 
     def closeEvent(self, event) -> None:

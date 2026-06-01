@@ -32,6 +32,14 @@ def _escape_ps(path: Path) -> str:
     return str(path).replace("'", "''")
 
 
+def windows_icon_location(icon: Path) -> str:
+    """Format a path for WScript Shell Shortcut.IconLocation (path,index)."""
+    resolved = str(icon.resolve())
+    if icon.suffix.lower() in (".ico", ".exe", ".dll"):
+        return f"{resolved},0"
+    return resolved
+
+
 def _create_windows_lnk(
     *,
     shortcut_path: Path,
@@ -43,7 +51,8 @@ def _create_windows_lnk(
 ) -> None:
     icon_stmt = ""
     if icon is not None and icon.is_file():
-        icon_stmt = f"$s.IconLocation = '{_escape_ps(icon)}'; "
+        icon_loc = windows_icon_location(icon).replace("'", "''")
+        icon_stmt = f"$s.IconLocation = '{icon_loc}'; "
 
     args_stmt = ""
     if arguments:
