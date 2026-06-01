@@ -4,6 +4,8 @@ Desktop app for **iRacing driver scouting**: keep personal notes, review race hi
 
 All data stays on your machine in a local SQLite database — no account or cloud sync.
 
+**New users:** step-by-step install instructions are in **[INSTALL.md](INSTALL.md)**.
+
 ## Overview
 
 GridNotes helps you remember who you raced against and whether you want to race with them again.
