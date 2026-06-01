@@ -123,7 +123,7 @@ class InstallWizardWindow(QMainWindow):
         self.python_label.setWordWrap(True)
         layout.addWidget(self.python_label)
 
-        self.desktop_checkbox = QCheckBox("Put a GridNotes icon on my Desktop")
+        self.desktop_checkbox = QCheckBox("Create an icon on my Desktop")
         self.desktop_checkbox.setChecked(True)
         layout.addWidget(self.desktop_checkbox)
 

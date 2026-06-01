@@ -2,7 +2,7 @@
 ; Run automatically via scripts\build_installer.ps1 when Inno Setup 6 is installed.
 
 #define MyAppName "GridNotes"
-#define MyAppVersion "1.2.14"
+#define MyAppVersion "1.2.15"
 #define MyAppPublisher "GridNotes"
 #define MyAppExeName "GridNotes.exe"
 

@@ -150,8 +150,83 @@ def _cleanup_log_path() -> Path:
     return Path(tempfile.gettempdir()) / _CLEANUP_LOG_NAME
 
 
-def _quote_batch_path(path: Path) -> str:
-    return str(path.resolve()).replace('"', '""')
+def _spawn_detached(command: list[str], *, cwd: Path | None = None) -> None:
+    """Start a child process that keeps running after the uninstaller exits."""
+    kwargs: dict = {
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+        "close_fds": True,
+    }
+    if cwd is not None:
+        kwargs["cwd"] = str(cwd)
+
+    if sys.platform == "win32":
+        detached = getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
+        new_group = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
+        no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+        kwargs["creationflags"] = detached | new_group | no_window
+
+    subprocess.Popen(command, **kwargs)
+
+
+def _write_folder_removal_script(script_path: Path) -> None:
+    script_path.write_text(
+        "param(\n"
+        "    [Parameter(Mandatory = $true)][string]$Target,\n"
+        "    [Parameter(Mandatory = $true)][int]$WaitPid,\n"
+        "    [Parameter(Mandatory = $true)][string]$Log\n"
+        ")\n"
+        "$ErrorActionPreference = 'Continue'\n"
+        "function Write-Log([string]$Message) {\n"
+        "    Add-Content -LiteralPath $Log -Value (\"$(Get-Date -Format o) $Message\")\n"
+        "}\n"
+        "Write-Log \"Cleanup started. Target=$Target WaitPid=$WaitPid\"\n"
+        "while (Get-Process -Id $WaitPid -ErrorAction SilentlyContinue) {\n"
+        "    Start-Sleep -Milliseconds 400\n"
+        "}\n"
+        "Start-Sleep -Seconds 2\n"
+        "Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {\n"
+        "    $_.Name -in @('python.exe', 'pythonw.exe') -and $_.CommandLine -and\n"
+        "    ($_.CommandLine -like \"*$Target*\")\n"
+        "} | ForEach-Object {\n"
+        "    Write-Log \"Stopping PID $($_.ProcessId)\"\n"
+        "    Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue\n"
+        "}\n"
+        "Start-Sleep -Seconds 1\n"
+        "for ($attempt = 1; $attempt -le 12; $attempt++) {\n"
+        "    if (-not (Test-Path -LiteralPath $Target)) {\n"
+        "        Write-Log 'OK: install folder removed'\n"
+        "        Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue\n"
+        "        exit 0\n"
+        "    }\n"
+        "    Write-Log \"Remove attempt $attempt\"\n"
+        "    try {\n"
+        "        Remove-Item -LiteralPath $Target -Recurse -Force -ErrorAction Stop\n"
+        "    } catch {\n"
+        "        Write-Log $_.Exception.Message\n"
+        "        cmd /c \"rd /s /q `\"$Target`\"\" 2>&1 | ForEach-Object { Write-Log $_ }\n"
+        "    }\n"
+        "    Start-Sleep -Seconds 2\n"
+        "}\n"
+        "if (Test-Path -LiteralPath $Target) {\n"
+        "    Write-Log 'Trying takeown/icacls then delete'\n"
+        "    cmd /c \"takeown /f `\"$Target`\" /r /d y\" 2>&1 | ForEach-Object { Write-Log $_ }\n"
+        "    cmd /c \"icacls `\"$Target`\" /grant `\"$env:USERNAME`:(F) /t /c\" 2>&1 | ForEach-Object { Write-Log $_ }\n"
+        "    try {\n"
+        "        Remove-Item -LiteralPath $Target -Recurse -Force -ErrorAction Stop\n"
+        "    } catch {\n"
+        "        Write-Log $_.Exception.Message\n"
+        "    }\n"
+        "}\n"
+        "if (Test-Path -LiteralPath $Target) {\n"
+        "    Write-Log \"FAILED: folder still exists: $Target\"\n"
+        "    exit 1\n"
+        "}\n"
+        "Write-Log 'OK: install folder removed'\n"
+        "Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue\n",
+        encoding="utf-8",
+    )
 
 
 def _schedule_install_folder_removal(install_root: Path, *, wait_pid: int) -> Path:
@@ -163,76 +238,38 @@ def _schedule_install_folder_removal(install_root: Path, *, wait_pid: int) -> Pa
     """
     install_root = install_root.resolve()
     log_path = _cleanup_log_path()
-    target = _quote_batch_path(install_root)
-    log_file = _quote_batch_path(log_path)
-    temp_dir = _quote_batch_path(Path(tempfile.gettempdir()))
-    bat_path = Path(tempfile.gettempdir()) / f"gridnotes-remove-{wait_pid}.bat"
+    log_path.write_text(
+        f"Scheduled removal of {install_root} after PID {wait_pid} exits.\n",
+        encoding="utf-8",
+    )
 
     if sys.platform == "win32":
-        bat_path.write_text(
-            "@echo off\r\n"
-            "setlocal EnableExtensions\r\n"
-            f'set "TARGET={target}"\r\n'
-            f'set "LOG={log_file}"\r\n'
-            f"set \"WAITPID={wait_pid}\"\r\n"
-            f'echo === GridNotes folder cleanup %date% %time% ===>>"%LOG%"\r\n'
-            'echo Waiting for uninstall process %WAITPID%...>>"%LOG%"\r\n'
-            ":wait_pid\r\n"
-            'tasklist /FI "PID eq %WAITPID%" 2>nul | find /I "%WAITPID%" >nul\r\n'
-            "if not errorlevel 1 (\r\n"
-            "  timeout /t 1 /nobreak >nul\r\n"
-            "  goto wait_pid\r\n"
-            ")\r\n"
-            "timeout /t 2 /nobreak >nul\r\n"
-            'echo Stopping Python processes under %TARGET%...>>"%LOG%"\r\n'
-            "for /f \"tokens=2\" %%P in ('tasklist /FI \"IMAGENAME eq python.exe\" /FO LIST ^| find \"PID:\"') do (\r\n"
-            "  wmic process where \"ProcessId=%%P\" get CommandLine 2>nul | find /I \"%TARGET%\" >nul && (\r\n"
-            "    taskkill /F /PID %%P >nul 2>&1\r\n"
-            "  )\r\n"
-            ")\r\n"
-            "for /f \"tokens=2\" %%P in ('tasklist /FI \"IMAGENAME eq pythonw.exe\" /FO LIST ^| find \"PID:\"') do (\r\n"
-            "  wmic process where \"ProcessId=%%P\" get CommandLine 2>nul | find /I \"%TARGET%\" >nul && (\r\n"
-            "    taskkill /F /PID %%P >nul 2>&1\r\n"
-            "  )\r\n"
-            ")\r\n"
-            "timeout /t 1 /nobreak >nul\r\n"
-            ":try_remove\r\n"
-            'if not exist "%TARGET%" (\r\n'
-            '  echo OK: folder already gone>>"%LOG%"\r\n'
-            "  goto done\r\n"
-            ")\r\n"
-            'echo Removing %TARGET%...>>"%LOG%"\r\n'
-            'rd /s /q "%TARGET%" 2>>"%LOG%"\r\n'
-            'if exist "%TARGET%" (\r\n'
-            "  powershell -NoProfile -ExecutionPolicy Bypass -Command "
-            f"\"Remove-Item -LiteralPath '{target}' -Recurse -Force -ErrorAction SilentlyContinue\"\r\n"
-            ")\r\n"
-            'if exist "%TARGET%" (\r\n'
-            "  timeout /t 2 /nobreak >nul\r\n"
-            '  rd /s /q "%TARGET%" 2>>"%LOG%"\r\n'
-            ")\r\n"
-            'if exist "%TARGET%" (\r\n'
-            '  echo FAILED: %TARGET% still exists>>"%LOG%"\r\n'
-            ") else (\r\n"
-            '  echo OK: removed %TARGET%>>"%LOG%"\r\n'
-            ")\r\n"
-            ":done\r\n"
-            "del \"%~f0\"\r\n",
-            encoding="utf-8",
-        )
-        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        subprocess.Popen(
+        temp_dir = Path(tempfile.gettempdir())
+        script_path = temp_dir / f"gridnotes-remove-{wait_pid}.ps1"
+        _write_folder_removal_script(script_path)
+        system_root = os.environ.get("SystemRoot", r"C:\Windows")
+        powershell = Path(system_root) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+        if not powershell.is_file():
+            powershell = Path("powershell.exe")
+
+        _spawn_detached(
             [
-                "cmd.exe",
-                "/c",
-                "start",
-                "/min",
-                "",
-                str(bat_path),
+                str(powershell),
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-WindowStyle",
+                "Hidden",
+                "-File",
+                str(script_path),
+                "-Target",
+                str(install_root),
+                "-WaitPid",
+                str(wait_pid),
+                "-Log",
+                str(log_path),
             ],
-            cwd=str(Path(tempfile.gettempdir())),
-            creationflags=flags,
-            close_fds=True,
+            cwd=temp_dir,
         )
         return log_path
 

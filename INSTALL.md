@@ -1,6 +1,6 @@
 # How to install GridNotes
 
-**Version 1.2.14**
+**Version 1.2.15**
 
 GridNotes helps you remember iRacing drivers you raced with and keep private notes.  
 You do **not** need to know how to code. Follow the steps below in order.
@@ -76,7 +76,7 @@ Python is free software GridNotes needs. You are not writing code.
 2. A window titled **Install GridNotes** opens.
 3. Leave the **install folder** as shown (default: your user folder, **no admin**), or use **Choose folder…** for **D:\** (→ `D:\GridNotes`).  
    For **`C:\Program Files`**, use advanced → **Use Program Files** and **right-click** `Install GridNotes.bat` → **Run as administrator**.
-4. Leave **“Put a GridNotes icon on my Desktop”** turned on if you want a desktop icon.
+4. Leave **“Create an icon on my Desktop”** turned on if you want a desktop icon.
 5. Click **Install GridNotes** and wait. A bar will move across the screen; this can take several minutes.
 6. When it says finished, click **Launch GridNotes** (or use the Desktop icon afterward).
 
@@ -198,8 +198,9 @@ Windows blocked writing to **Program Files** without administrator permission.
 
 Both options remove the Desktop shortcut(s) and install folder (for example `D:\GridNotes`).  
 The whole install folder (for example `D:\GridNotes`) is deleted after you click **OK**  
-on the final message and GridNotes exits. If the folder remains, delete it in File  
-Explorer or check `%TEMP%\gridnotes-uninstall.log`.  
+on the final message — GridNotes must fully close first (a background script then  
+removes the folder). Wait about 30 seconds. If `D:\GridNotes` remains, delete it in  
+File Explorer or open `%TEMP%\gridnotes-uninstall.log` for details.  
 Your data stays unless you choose to delete it.
 
 **Note:** GridNotes appears in the Apps list after you install with **`Install GridNotes.bat`**.  

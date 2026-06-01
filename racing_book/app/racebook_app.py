@@ -1,4 +1,5 @@
 import logging
+import os
 
 from PyQt6.QtCore import QEvent, Qt, QTimer, QUrl
 from PyQt6.QtGui import QDesktopServices, QFont, QTextCursor
@@ -1038,8 +1039,7 @@ class RaceBookApp(QMainWindow):
                     "(for example D:\\GridNotes) will be deleted when GridNotes closes."
                 )
             QMessageBox.information(self, "Uninstall", summary)
-            QApplication.instance().quit()
-            return
+            os._exit(0)
 
         log_user_error(result.summary(), context="uninstall")
         QMessageBox.warning(self, "Uninstall", result.summary())

@@ -67,8 +67,10 @@ def main() -> int:
         else:
             print(summary)
 
-    # Exit so the cleanup script can remove .venv and the whole install folder.
-    raise SystemExit(0 if result.ok else 1)
+    # Hard exit so file locks under the install folder (e.g. D:\GridNotes\.venv) are released.
+    import os
+
+    os._exit(0 if result.ok else 1)
 
 
 if __name__ == "__main__":
