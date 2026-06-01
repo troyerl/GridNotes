@@ -68,6 +68,7 @@ class SettingsTab(QWidget):
         super().__init__(parent)
         clear_legacy_api_settings()
         self._last_update_check: UpdateCheckResult | None = None
+        self._settings_baseline: tuple[str, ...] = ()
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -129,6 +130,10 @@ class SettingsTab(QWidget):
 
         body_layout.addWidget(self._content_scroll, stretch=1)
         root.addWidget(body, stretch=1)
+
+        self._connect_settings_change_handlers()
+        self._capture_settings_baseline()
+        self._update_save_button_state()
 
     def _section_hint(self, text: str) -> QLabel:
         label = QLabel(text)
@@ -450,9 +455,44 @@ class SettingsTab(QWidget):
         value = self.theme_combo.currentData()
         return value if value else get_theme_id()
 
+    def _current_settings_snapshot(self) -> tuple[str, ...]:
+        snapshot: list[str] = [
+            self.current_retention_value(),
+            self.current_theme_value(),
+            "1" if self.chk_auto_check_updates.isChecked() else "0",
+        ]
+        if iracing_data_api_auto_import_enabled():
+            snapshot.extend(
+                [
+                    "1" if self.chk_auto_fetch.isChecked() else "0",
+                    self.api_token_input.text().strip(),
+                ]
+            )
+        return tuple(snapshot)
+
+    def _capture_settings_baseline(self) -> None:
+        self._settings_baseline = self._current_settings_snapshot()
+
+    def _settings_have_unsaved_changes(self) -> bool:
+        return self._current_settings_snapshot() != self._settings_baseline
+
+    def _update_save_button_state(self) -> None:
+        self.btn_save_settings.setEnabled(self._settings_have_unsaved_changes())
+
+    def _connect_settings_change_handlers(self) -> None:
+        self.retention_combo.currentIndexChanged.connect(self._on_settings_edited)
+        self.chk_auto_check_updates.stateChanged.connect(self._on_settings_edited)
+        if iracing_data_api_auto_import_enabled():
+            self.chk_auto_fetch.stateChanged.connect(self._on_settings_edited)
+            self.api_token_input.textChanged.connect(self._on_settings_edited)
+
+    def _on_settings_edited(self, *_args: object) -> None:
+        self._update_save_button_state()
+
     def _on_theme_combo_changed(self) -> None:
         theme_id = self.current_theme_value()
         self.theme_changed.emit(theme_id)
+        self._on_settings_edited()
 
     def _update_retention_status_label(self) -> None:
         self.retention_status.setText(
@@ -680,6 +720,8 @@ class SettingsTab(QWidget):
         if iracing_data_api_auto_import_enabled():
             self._save_api_settings()
         self._update_retention_status_label()
+        self._capture_settings_baseline()
+        self._update_save_button_state()
         self.settings_saved.emit()
 
     def show_zero_race_cleanup_result(self, deleted: int) -> None:
