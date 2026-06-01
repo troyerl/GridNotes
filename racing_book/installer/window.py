@@ -441,11 +441,11 @@ class InstallWizardWindow(QMainWindow):
             return
 
         if sys.platform == "win32":
-            app_data = os.environ.get("APPDATA", "").strip()
+            local = os.environ.get("LOCALAPPDATA", "").strip()
             log_hint = (
-                f"{app_data}\\GridNotes\\launch-error.log"
-                if app_data
-                else "%APPDATA%\\GridNotes\\launch-error.log"
+                f"{local}\\GridNotes\\launch-error.log"
+                if local
+                else "%LOCALAPPDATA%\\GridNotes\\launch-error.log"
             )
         else:
             log_hint = str(self._install_root / "launch-error.log")

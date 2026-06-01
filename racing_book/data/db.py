@@ -1,18 +1,8 @@
-import os
 import sqlite3
 import sys
 from pathlib import Path
 
-APP_NAME = "GridNotes"
-LEGACY_APP_NAME = "RacingBook"  # pre-rename data folder
-
-
-def _install_data_dir(name: str) -> Path:
-    if sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / name
-    if sys.platform == "win32":
-        return Path(os.environ.get("APPDATA", Path.home())) / name
-    return Path.home() / ".local" / "share" / name
+from .user_paths import APP_NAME, LEGACY_APP_NAME, data_dir_candidates, resolve_writable_data_dir
 
 
 def _local_install_data_candidates() -> list[Path]:
@@ -46,12 +36,16 @@ def _migrate_file_if_missing(*, source: Path, dest: Path) -> None:
 
 def _get_data_dir() -> Path:
     """Return a stable per-user folder for database, settings, and logs."""
-    base = _install_data_dir(APP_NAME)
-    legacy = _install_data_dir(LEGACY_APP_NAME)
-    if not base.exists() and legacy.exists():
-        import shutil
+    base = resolve_writable_data_dir()
 
-        shutil.copytree(legacy, base)
+    for folder in data_dir_candidates(include_legacy=True):
+        if folder.resolve() == base.resolve():
+            continue
+        legacy_db = folder / "driver_history.db"
+        if legacy_db.is_file():
+            _migrate_file_if_missing(source=legacy_db, dest=base / "driver_history.db")
+        for log_name in ("gridnotes.log", "racingbook.log", "launch-error.log"):
+            _migrate_file_if_missing(source=folder / log_name, dest=base / log_name)
 
     if not getattr(sys, "frozen", False):
         app_db = base / "driver_history.db"
@@ -61,7 +55,6 @@ def _get_data_dir() -> Path:
                 _migrate_file_if_missing(source=local_db, dest=app_db)
                 break
 
-    base.mkdir(parents=True, exist_ok=True)
     return base
 
 
@@ -71,9 +64,7 @@ def get_data_dir_path() -> Path:
 
 def get_launch_log_path() -> Path:
     """User-writable launch diagnostics (install folder may be read-only)."""
-    path = _get_data_dir() / "launch-error.log"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    return path
+    return get_data_dir_path() / "launch-error.log"
 
 
 def get_db_path() -> str:

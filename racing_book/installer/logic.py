@@ -513,9 +513,7 @@ def write_launcher_scripts(root: Path, venv_dir: Path) -> list[Path]:
             "$ErrorActionPreference = 'Continue'\r\n"
             "$root = $PSScriptRoot\r\n"
             "$bat = Join-Path $root 'Run GridNotes.bat'\r\n"
-            "$logDir = Join-Path $env:APPDATA 'GridNotes'\r\n"
-            "if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }\r\n"
-            "$log = Join-Path $logDir 'launch-error.log'\r\n"
+            "$log = Join-Path $env:TEMP 'GridNotes-launch.log'\r\n"
             "if (-not (Test-Path $bat)) { 'Run GridNotes.bat not found' | Out-File $log; exit 1 }\r\n"
             "$p = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/c', $bat) "
             "-WorkingDirectory $root -Wait -PassThru\r\n"
@@ -532,8 +530,7 @@ def write_launcher_scripts(root: Path, venv_dir: Path) -> list[Path]:
             'set "PY=%~dp0.venv\\Scripts\\python.exe"\r\n'
             'set "STARTER=%~dp0gridnotes_start.py"\r\n'
             'set "MAIN=%~dp0main.py"\r\n'
-            'if not exist "%APPDATA%\\GridNotes" mkdir "%APPDATA%\\GridNotes" >nul 2>&1\r\n'
-            'set "LOG=%APPDATA%\\GridNotes\\launch-error.log"\r\n'
+            'set "LOG=%TEMP%\\GridNotes-launch.log"\r\n'
             'echo === GridNotes launch %date% %time% ===>"%LOG%"\r\n'
             'echo Install folder: %CD%>>"%LOG%"\r\n'
             'if not exist "%PY%" (\r\n'
@@ -561,7 +558,8 @@ def write_launcher_scripts(root: Path, venv_dir: Path) -> list[Path]:
             "echo.\r\n"
             "echo GridNotes did not start.\r\n"
             "echo See: %LOG%\r\n"
-            "echo App log (if the app ran): %APPDATA%\\GridNotes\\gridnotes.log\r\n"
+            "echo Also check: %LOCALAPPDATA%\\GridNotes\\launch-error.log\r\n"
+            "echo App log: %LOCALAPPDATA%\\GridNotes\\gridnotes.log or %APPDATA%\\GridNotes\\\r\n"
             "echo.\r\n"
             "type \"%LOG%\"\r\n"
             "echo.\r\n"
@@ -576,8 +574,7 @@ def write_launcher_scripts(root: Path, venv_dir: Path) -> list[Path]:
             "@echo off\r\n"
             "setlocal\r\n"
             'cd /d "%~dp0"\r\n'
-            'if not exist "%APPDATA%\\GridNotes" mkdir "%APPDATA%\\GridNotes" >nul 2>&1\r\n'
-            'set "LOG=%APPDATA%\\GridNotes\\launch-error.log"\r\n'
+            'set "LOG=%TEMP%\\GridNotes-launch.log"\r\n'
             'set "PY=%~dp0.venv\\Scripts\\python.exe"\r\n'
             'echo === GridNotes diagnose %date% %time% ===>"%LOG%"\r\n'
             'echo Folder: %CD%>>"%LOG%"\r\n'

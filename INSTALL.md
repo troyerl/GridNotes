@@ -1,6 +1,6 @@
 # How to install GridNotes
 
-**Version 1.2.10**
+**Version 1.2.11**
 
 GridNotes helps you remember iRacing drivers you raced with and keep private notes.  
 You do **not** need to know how to code. Follow the steps below in order.
@@ -155,6 +155,19 @@ You skipped Step 1 or did not check **Add python.exe to PATH**.
 3. Double-click **`Install GridNotes.bat`** again — do **not** click No on a UAC prompt unless you chose Program Files.  
 4. If Windows SmartScreen warns you, click **More info** → **Run anyway**.
 
+### “Permission denied” writing to AppData or `launch-error.log`
+
+This usually means **`%APPDATA%\GridNotes`** was created by an **administrator** install and your normal user cannot write there.
+
+**Fix (pick one):**
+
+1. **Delete the locked folder** (if you have no important data there):  
+   Remove **`C:\Users\<you>\AppData\Roaming\GridNotes`** (and retry). GridNotes will recreate it under **`%LOCALAPPDATA%\GridNotes`** or **`%TEMP%\GridNotes`**.
+2. **Fix permissions:** Right-click **`AppData\Roaming\GridNotes`** → **Properties** → **Security** → give your user **Full control**.
+3. **Re-install without admin:** Run **`Install GridNotes.bat`** as a normal user (not “Run as administrator”) to **`D:\GridNotes`** or the default user folder.
+
+After updating to the **latest release**, copy fresh **`gridnotes_start.py`** and **`Run GridNotes.bat`** into your install folder, or run the installer again.
+
 ### “Access denied” or `[WinError 5]` during install
 
 Windows blocked writing to **Program Files** without administrator permission.
@@ -182,8 +195,10 @@ This often happens if the installer ran **as administrator** but GridNotes needs
 2. Double-click **`Run GridNotes.bat`** in your install folder (for example `D:\GridNotes\Run GridNotes.bat`).  
    If the window flashes and closes, it will **pause** and show the log path on screen.  
    Or run **`Diagnose GridNotes.bat`** in your install folder to test Python/PyQt6 imports.  
-   On Windows, logs are in **`%APPDATA%\GridNotes\`**:  
-   **`gridnotes.log`** (app) and **`launch-error.log`** (startup problems).  
+   On Windows, logs are usually in **`%LOCALAPPDATA%\GridNotes\`** (or **`%APPDATA%\GridNotes\`**):  
+   **`gridnotes.log`** (app) and **`launch-error.log`** (startup).  
+   If AppData is locked (admin install), GridNotes uses **`%TEMP%\GridNotes\`** instead.  
+   **`Run GridNotes.bat`** also writes **`%TEMP%\GridNotes-launch.log`**.  
    If that file stops after `Install folder: D:\GridNotes`, re-run **`Install GridNotes.bat`** from the latest ZIP (fixes a Windows batch bug that hid the real error).  
 3. Run **`Install GridNotes.bat`** again from your download ZIP folder — choose **D:\** again, finish install, use the new Desktop icon. **Do not** use “Run as administrator” unless you install to C:\Program Files.  
 4. Or double-click **`Open GridNotes.bat`** in your download folder after install.
