@@ -162,6 +162,13 @@ QPushButton#primaryBtn:hover {
     background-color: {{accent_hover}};
 }
 
+QPushButton#primaryBtn:disabled,
+QPushButton#primaryBtn:disabled:hover {
+    background-color: {{bg_elevated}};
+    border-color: {{border}};
+    color: {{text_disabled}};
+}
+
 QPushButton#dangerBtn {
     background-color: transparent;
     color: {{danger_text}};
