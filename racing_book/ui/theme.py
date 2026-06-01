@@ -738,6 +738,35 @@ QWidget#settingsContent QCheckBox::indicator:checked {
     background-color: {{accent}};
 }
 
+QDialog#updateProgressDialog {
+    background-color: {{bg_window}};
+}
+
+QLabel#updateProgressTitle {
+    font-size: 15px;
+    font-weight: 600;
+    color: {{text_heading}};
+}
+
+QProgressBar#updateProgressBar {
+    border: 1px solid {{border}};
+    border-radius: 6px;
+    background-color: {{bg_elevated}};
+    text-align: center;
+    color: {{text_secondary}};
+    min-height: 22px;
+}
+
+QProgressBar#updateProgressBar::chunk {
+    background-color: {{accent}};
+    border-radius: 5px;
+}
+
+QLabel#updateProgressStatus {
+    color: {{text_tab}};
+    font-size: 13px;
+}
+
 QFrame#settingsNavSidebar {
     background-color: {{bg_elevated}};
     border: none;

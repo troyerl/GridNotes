@@ -6,8 +6,11 @@ import logging
 import re
 import subprocess
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+
+ProgressCallback = Callable[[str, int], None]
 
 import requests
 
@@ -261,11 +264,17 @@ def check_for_updates() -> UpdateCheckResult:
     )
 
 
-def apply_source_update(root: Path | None = None) -> tuple[bool, str]:
+def apply_source_update(
+    root: Path | None = None,
+    on_progress: ProgressCallback | None = None,
+) -> tuple[bool, str]:
     """Run git pull --ff-only for a source checkout."""
     root = root or project_root()
     if not is_git_source_tree(root):
         return False, "This install is not a git repository."
+
+    if on_progress is not None:
+        on_progress("Pulling latest code from GitHub…", 25)
 
     try:
         result = subprocess.run(
@@ -284,6 +293,8 @@ def apply_source_update(root: Path | None = None) -> tuple[bool, str]:
         return False, output or "git pull failed."
 
     logger.info("git pull succeeded: %s", output or "(no output)")
+    if on_progress is not None:
+        on_progress("Restarting GridNotes…", 100)
     return True, output or "Updated successfully."
 
 

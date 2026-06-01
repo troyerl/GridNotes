@@ -34,18 +34,23 @@ class UpdateCheckWorker(QThread):
 class ApplyAppUpdateWorker(QThread):
     """Apply a git pull or a portable (ZIP) update."""
 
+    progress = pyqtSignal(str, int)  # status message, percent 0–100
     finished = pyqtSignal(bool, str, bool)  # ok, message, restart_in_process
 
     def __init__(self, result: UpdateCheckResult, parent=None) -> None:
         super().__init__(parent)
         self._result = result
 
+    def _report(self, message: str, percent: int) -> None:
+        self.progress.emit(message, percent)
+
     def run(self) -> None:
         method = self._result.apply_method
         if method == "git":
             logger.info("Applying source update (git pull)")
+            self._report("Starting update…", 5)
             try:
-                ok, message = apply_source_update()
+                ok, message = apply_source_update(on_progress=self._report)
                 self.finished.emit(ok, message, True)
             except Exception as exc:
                 logger.exception("Source update failed")
@@ -64,7 +69,11 @@ class ApplyAppUpdateWorker(QThread):
                 return
             logger.info("Applying portable update to v%s at %s", version, install_root)
             try:
-                ok, message, restart = apply_portable_update(install_root, version)
+                ok, message, restart = apply_portable_update(
+                    install_root,
+                    version,
+                    on_progress=self._report,
+                )
                 self.finished.emit(ok, message, restart)
             except Exception as exc:
                 logger.exception("Portable update failed")

@@ -113,6 +113,7 @@ class RaceBookApp(QMainWindow):
         self._api_test_worker: ApiConnectionTestWorker | None = None
         self._update_check_worker: UpdateCheckWorker | None = None
         self._apply_update_worker: ApplyAppUpdateWorker | None = None
+        self._update_progress_dialog = None
         self._update_check_on_startup = False
         self._api_fetch_worker: SubsessionFetchWorker | None = None
         self._api_fetch_queue: list[int] = []
@@ -997,7 +998,12 @@ class RaceBookApp(QMainWindow):
                 return
             logger.info("Applying application update (%s)", result.apply_method or "unknown")
             self.settings_tab.set_apply_update_busy(True)
+            self._open_update_progress(result.latest_version)
             self._apply_update_worker = ApplyAppUpdateWorker(result, parent=self)
+            self._apply_update_worker.progress.connect(
+                self._on_apply_update_progress,
+                Qt.ConnectionType.QueuedConnection,
+            )
             self._apply_update_worker.finished.connect(self._on_apply_update_finished)
             self._apply_update_worker.start()
             return
@@ -1018,15 +1024,38 @@ class RaceBookApp(QMainWindow):
             "No update is available to apply right now.",
         )
 
+    def _open_update_progress(self, target_version: str | None) -> None:
+        from ..ui.update_progress_dialog import UpdateProgressDialog
+
+        self._close_update_progress()
+        dialog = UpdateProgressDialog(self)
+        dialog.begin(target_version=target_version)
+        dialog.show()
+        self._update_progress_dialog = dialog
+
+    def _close_update_progress(self) -> None:
+        if self._update_progress_dialog is not None:
+            self._update_progress_dialog.close()
+            self._update_progress_dialog = None
+
+    def _on_apply_update_progress(self, message: str, percent: int) -> None:
+        if self._update_progress_dialog is not None:
+            self._update_progress_dialog.set_progress(message, percent)
+
     def _on_apply_update_finished(self, ok: bool, message: str, restart: bool) -> None:
         self.settings_tab.set_apply_update_busy(False)
         if not ok:
+            self._close_update_progress()
             log_user_error(message, context="application update")
             self.settings_tab.show_apply_update_result(False, message)
             QMessageBox.warning(self, "Update Failed", message)
             return
 
         self.settings_tab.show_apply_update_result(True, message)
+        if self._update_progress_dialog is not None:
+            self._update_progress_dialog.mark_complete(
+                "Restarting GridNotes…" if restart else "Closing GridNotes to finish installing…"
+            )
         if restart:
             logger.info("Update applied; restarting application")
             restart_application()

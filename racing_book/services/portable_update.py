@@ -9,7 +9,10 @@ import subprocess
 import sys
 import tempfile
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
+
+ProgressCallback = Callable[[str, int], None]
 
 import requests
 
@@ -79,10 +82,16 @@ def locate_release_source_root(extract_dir: Path) -> Path:
     raise FileNotFoundError(f"No GridNotes source root under {extract_dir}")
 
 
-def download_release_archive(version: str, dest_zip: Path) -> None:
+def download_release_archive(
+    version: str,
+    dest_zip: Path,
+    on_progress: ProgressCallback | None = None,
+) -> None:
     url = release_zipball_url(version)
     dest_zip.parent.mkdir(parents=True, exist_ok=True)
     logger.info("Downloading release archive: %s", url)
+    if on_progress is not None:
+        on_progress("Connecting to GitHub…", 8)
     with requests.get(
         url,
         headers=_GITHUB_HEADERS,
@@ -90,10 +99,27 @@ def download_release_archive(version: str, dest_zip: Path) -> None:
         timeout=REQUEST_TIMEOUT_SEC,
     ) as response:
         response.raise_for_status()
+        total_bytes = int(response.headers.get("content-length", 0) or 0)
+        downloaded = 0
         with dest_zip.open("wb") as handle:
             for chunk in response.iter_content(chunk_size=1024 * 256):
-                if chunk:
-                    handle.write(chunk)
+                if not chunk:
+                    continue
+                handle.write(chunk)
+                downloaded += len(chunk)
+                if on_progress is None:
+                    continue
+                if total_bytes > 0:
+                    fraction = downloaded / total_bytes
+                    percent = 10 + int(50 * fraction)
+                    mb_done = downloaded / (1024 * 1024)
+                    mb_total = total_bytes / (1024 * 1024)
+                    on_progress(
+                        f"Downloading update… ({mb_done:.1f} / {mb_total:.1f} MB)",
+                        percent,
+                    )
+                else:
+                    on_progress("Downloading update…", 35)
 
 
 def extract_release_archive(zip_path: Path, extract_dir: Path) -> Path:
@@ -226,6 +252,7 @@ def apply_portable_update(
     version: str,
     *,
     wait_pid: int | None = None,
+    on_progress: ProgressCallback | None = None,
 ) -> tuple[bool, str, bool]:
     """
     Download tag *version*, apply to *install_root*.
@@ -247,12 +274,19 @@ def apply_portable_update(
     log_path = _update_log_path()
     _append_update_log(f"Portable update to v{version} for {install_root} (pid {pid})")
 
+    def report(message: str, percent: int) -> None:
+        if on_progress is not None:
+            on_progress(message, percent)
+
     try:
+        report("Preparing update…", 5)
         if temp_parent.exists():
             shutil.rmtree(temp_parent, ignore_errors=True)
         temp_parent.mkdir(parents=True, exist_ok=True)
-        download_release_archive(version, zip_path)
+        download_release_archive(version, zip_path, on_progress=on_progress)
+        report("Extracting release…", 65)
         source_root = extract_release_archive(zip_path, extract_dir)
+        report("Preparing files…", 75)
         # Stage a clean tree for robocopy (extract dir may contain extra nesting).
         if staging_dir.exists():
             shutil.rmtree(staging_dir)
@@ -265,6 +299,7 @@ def apply_portable_update(
         return False, f"Could not download the update: {exc}", True
 
     if sys.platform == "win32":
+        report("Installing update (GridNotes will close)…", 88)
         bat_path = temp_parent / "apply-update.bat"
         vbs_path = temp_parent / "apply-update.vbs"
         _write_windows_apply_batch(
@@ -277,6 +312,7 @@ def apply_portable_update(
         _write_windows_apply_launcher(vbs_path, bat_path)
         _append_update_log(f"Scheduled update batch: {bat_path}")
         _launch_windows_updater(bat_path, vbs_path)
+        report("Closing GridNotes to finish installing…", 100)
         return (
             True,
             "GridNotes will close and reopen when the update is ready. "
@@ -284,5 +320,8 @@ def apply_portable_update(
             False,
         )
 
+    report("Installing files…", 85)
     ok, message = _apply_on_unix(staging_dir, install_root)
+    if ok:
+        report("Finishing…", 100)
     return ok, message, True
