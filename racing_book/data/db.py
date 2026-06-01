@@ -332,16 +332,45 @@ def init_db(db_name: str = DB_NAME) -> None:
     conn.close()
 
 
+def _app_settings_table_exists(cursor: sqlite3.Cursor) -> bool:
+    cursor.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='app_settings'"
+    )
+    return cursor.fetchone() is not None
+
+
+def ensure_db_initialized(db_name: str = DB_NAME) -> None:
+    """Create missing tables on older databases (e.g. before app_settings existed)."""
+    conn = connect_db(db_name)
+    try:
+        cursor = conn.cursor()
+        if _app_settings_table_exists(cursor):
+            return
+    finally:
+        conn.close()
+    init_db(db_name)
+
+
 def get_setting(key: str, default: str | None = None, db_name: str = DB_NAME) -> str | None:
+    ensure_db_initialized(db_name)
     conn = connect_db(db_name)
     cursor = conn.cursor()
-    cursor.execute("SELECT value FROM app_settings WHERE key = ?", (key,))
-    row = cursor.fetchone()
+    try:
+        cursor.execute("SELECT value FROM app_settings WHERE key = ?", (key,))
+        row = cursor.fetchone()
+    except sqlite3.OperationalError:
+        conn.close()
+        init_db(db_name)
+        conn = connect_db(db_name)
+        cursor = conn.cursor()
+        cursor.execute("SELECT value FROM app_settings WHERE key = ?", (key,))
+        row = cursor.fetchone()
     conn.close()
     return row[0] if row and row[0] is not None else default
 
 
 def set_setting(key: str, value: str | None, db_name: str = DB_NAME) -> None:
+    ensure_db_initialized(db_name)
     conn = connect_db(db_name)
     cursor = conn.cursor()
     cursor.execute(
