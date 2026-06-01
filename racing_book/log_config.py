@@ -1,4 +1,7 @@
-"""Central logging setup — all errors go to gridnotes.log for support."""
+"""Central logging setup — all errors go to gridnotes.log for support.
+
+User-visible errors (dialogs, status bar, settings) are logged via user_feedback.py.
+"""
 
 from __future__ import annotations
 

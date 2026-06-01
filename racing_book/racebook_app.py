@@ -51,6 +51,13 @@ from .driver_table import (
     set_driver_table_hover_row,
 )
 from .import_worker import ImportJobResult, ImportWorker
+from .iracing_api_fetch_worker import (
+    ApiConnectionTestWorker,
+    SubsessionFetchResult,
+    SubsessionFetchWorker,
+)
+from .feature_flags import iracing_data_api_auto_import_enabled
+from .iracing_data_api_config import is_auto_fetch_enabled
 from .iracing_worker import IRacingWorker
 from .iracing_import import sync_live_session_drivers
 from .live_session import LiveSessionView
@@ -68,6 +75,7 @@ from .theme import (
     configure_widget_scrollbars,
 )
 from .ui_widgets import WrappingLabel
+from .user_feedback import log_user_error, show_critical, show_warning
 from .utils import display_val, sqlite_row_to_int
 
 logger = logging.getLogger(__name__)
@@ -89,6 +97,11 @@ class RaceBookApp(QMainWindow):
         self.selected_cust_id = None
         self.worker = None
         self._import_worker: ImportWorker | None = None
+        self._api_test_worker: ApiConnectionTestWorker | None = None
+        self._api_fetch_worker: SubsessionFetchWorker | None = None
+        self._api_fetch_queue: list[int] = []
+        self._api_fetched_subsession_ids: set[int] = set()
+        self._tracked_race_subsession_id: int = 0
         self._table_refresh_timer = QTimer(self)
         self._table_refresh_timer.setSingleShot(True)
         self._table_refresh_timer.setInterval(750)
@@ -112,7 +125,11 @@ class RaceBookApp(QMainWindow):
         widget.style().unpolish(widget)
         widget.style().polish(widget)
 
-    def _set_status(self, status: str, message: str) -> None:
+    def _set_status(
+        self, status: str, message: str, *, user_error: bool = False
+    ) -> None:
+        if user_error:
+            log_user_error(message, context="status")
         self.status_label.setText(message)
         self._polish_property(self.status_label, "status", status)
 
@@ -370,6 +387,8 @@ class RaceBookApp(QMainWindow):
         self.settings_tab = SettingsTab()
         self.settings_tab.settings_saved.connect(self._on_settings_saved)
         self.settings_tab.zero_race_cleanup_requested.connect(self._cleanup_zero_race_drivers)
+        if iracing_data_api_auto_import_enabled():
+            self.settings_tab.api_test_requested.connect(self._test_iracing_api_connection)
         self.main_tabs.addTab(self.settings_tab, "Settings")
 
         database_panel = QWidget()
@@ -775,7 +794,7 @@ class RaceBookApp(QMainWindow):
         if not getattr(worker, "available", False):
             reason = getattr(worker, "unavailable_reason", "") or "pyirsdk unavailable"
             logger.warning("SDK worker not available: %s", reason)
-            self._set_status(STATUS_OFFLINE, f"Offline — {reason}")
+            self._set_status(STATUS_OFFLINE, f"Offline — {reason}", user_error=True)
             self._update_live_session_filter(active=False, hint=MSG_SESSION_NOT_CONNECTED)
             self.worker = None
             return
@@ -806,6 +825,99 @@ class RaceBookApp(QMainWindow):
             "Drivers are added to your book when the race starts."
         )
 
+    def _test_iracing_api_connection(self, access_token: str) -> None:
+        if not iracing_data_api_auto_import_enabled():
+            return
+        if self._api_test_worker is not None and self._api_test_worker.isRunning():
+            return
+
+        from .iracing_data_api_config import get_access_token
+
+        token = access_token.strip() or get_access_token()
+        logger.info("User requested iRacing Data API connection test")
+        self.settings_tab.set_api_test_busy(True)
+        self._api_test_worker = ApiConnectionTestWorker(
+            access_token=token,
+            parent=self,
+        )
+        self._api_test_worker.finished.connect(self._on_api_test_finished)
+        self._api_test_worker.start()
+
+    def _on_api_test_finished(self, ok: bool, message: str) -> None:
+        self.settings_tab.set_api_test_busy(False)
+        self.settings_tab.show_api_test_result(ok, message)
+
+    def _maybe_auto_fetch_race_results(self, subsession_id: int) -> None:
+        if not iracing_data_api_auto_import_enabled():
+            return
+        if not is_auto_fetch_enabled():
+            return
+        if subsession_id <= 0:
+            return
+        if subsession_id in self._api_fetched_subsession_ids:
+            return
+        if subsession_id in self._api_fetch_queue:
+            return
+        self._api_fetch_queue.append(subsession_id)
+        self._process_api_fetch_queue()
+
+    def _process_api_fetch_queue(self) -> None:
+        if self._api_fetch_worker is not None and self._api_fetch_worker.isRunning():
+            return
+        if not self._api_fetch_queue:
+            return
+
+        subsession_id = self._api_fetch_queue.pop(0)
+        self._api_fetch_worker = SubsessionFetchWorker(subsession_id, parent=self)
+        self._api_fetch_worker.status.connect(self._on_api_fetch_status)
+        self._api_fetch_worker.finished.connect(self._on_api_fetch_finished)
+        self._api_fetch_worker.failed.connect(self._on_api_fetch_failed)
+        self._api_fetch_worker.start()
+
+    def _on_api_fetch_status(self, message: str) -> None:
+        self._set_status(STATUS_CONNECTED, message)
+        if hasattr(self, "settings_tab"):
+            self.settings_tab.show_api_fetch_status(message)
+
+    def _on_api_fetch_finished(self, result: SubsessionFetchResult) -> None:
+        self._api_fetched_subsession_ids.add(result.subsession_id)
+
+        self._invalidate_table_fingerprint()
+        self._refresh_ui_table_now(force=True)
+        if self.selected_cust_id is not None:
+            self._populate_driver_details(self.selected_cust_id)
+
+        parts: list[str] = []
+        if result.results_imported:
+            parts.append(f"{result.results_imported} new")
+        if result.results_updated:
+            parts.append(f"{result.results_updated} updated")
+        if result.results_skipped:
+            parts.append(f"{result.results_skipped} skipped")
+
+        summary = ", ".join(parts) if parts else "no changes"
+        message = (
+            f"Imported session #{result.subsession_id} from iRacing API ({summary})."
+        )
+        self._set_status(STATUS_CONNECTED, message)
+        if hasattr(self, "settings_tab"):
+            self.settings_tab.show_api_fetch_status(message)
+
+        self._api_fetch_worker = None
+        self._process_api_fetch_queue()
+
+    def _on_api_fetch_failed(self, subsession_id: int, message: str) -> None:
+        fail_msg = f"Could not fetch session #{subsession_id}: {message}"
+        if self._sdk_connected:
+            self._set_status(STATUS_CONNECTED, fail_msg, user_error=True)
+        else:
+            self._set_status(STATUS_WAITING, fail_msg, user_error=True)
+        if hasattr(self, "settings_tab"):
+            self.settings_tab.show_api_fetch_status(fail_msg, error=True)
+
+        self._api_fetch_worker = None
+        self._process_api_fetch_queue()
+
     def handle_sdk_connection(self, connected: bool, subsession_id: int, session_kind: str) -> None:
         self._sdk_connected = connected
         if connected:
@@ -825,6 +937,10 @@ class RaceBookApp(QMainWindow):
             self._refresh_live_session_view()
             return
 
+        if self._tracked_race_subsession_id:
+            self._maybe_auto_fetch_race_results(self._tracked_race_subsession_id)
+        self._tracked_race_subsession_id = 0
+
         self.current_subsession_id = 0
         self.current_session_kind = ""
         self.active_cust_ids = set()
@@ -836,8 +952,23 @@ class RaceBookApp(QMainWindow):
         self._refresh_live_session_view()
 
     def handle_sdk_update(self, active_drivers, subsession_id, session_kind):
+        prev_subsession = self.current_subsession_id
+        prev_kind = self.current_session_kind
+
         self.current_subsession_id = subsession_id
         self.current_session_kind = session_kind
+
+        if (
+            is_race_session(prev_kind)
+            and prev_subsession
+            and prev_subsession != subsession_id
+        ):
+            self._maybe_auto_fetch_race_results(prev_subsession)
+
+        if is_race_session(session_kind) and subsession_id:
+            self._tracked_race_subsession_id = subsession_id
+        elif not is_race_session(session_kind):
+            self._tracked_race_subsession_id = 0
 
         self.active_cust_ids = {
             int(d["cust_id"])
@@ -1146,8 +1277,10 @@ class RaceBookApp(QMainWindow):
 
     def save_driver_notes(self):
         if not self.selected_cust_id:
-            QMessageBox.warning(
-                self, "Selection Required", "Please click a driver on the left side first."
+            show_warning(
+                self,
+                "Selection Required",
+                "Please click a driver on the left side first.",
             )
             return
 
@@ -1163,7 +1296,7 @@ class RaceBookApp(QMainWindow):
 
     def set_race_preference(self, pref: int | None):
         if not self.selected_cust_id:
-            QMessageBox.warning(self, "Selection Required", "Please click a driver first.")
+            show_warning(self, "Selection Required", "Please click a driver first.")
             return
 
         cust_id = self.selected_cust_id
@@ -1216,7 +1349,7 @@ class RaceBookApp(QMainWindow):
 
     def _on_import_failed(self, message: str) -> None:
         self._finish_import_ui()
-        QMessageBox.critical(
+        show_critical(
             self,
             "Import Failed",
             f"The import could not be completed.\n\n{message}",
@@ -1256,7 +1389,10 @@ class RaceBookApp(QMainWindow):
             return
 
         if total_results_imported == 0 and total_results_updated == 0:
-            QMessageBox.warning(
+            detail = "\n\nDetails:\n" + "\n".join(errors[:10]) if errors else ""
+            for err in errors:
+                log_user_error(err, context="Import")
+            show_warning(
                 self,
                 "Import Completed (No Results Found)",
                 "No race results were imported from the selected file(s).\n\n"
@@ -1265,7 +1401,7 @@ class RaceBookApp(QMainWindow):
                 "- iRacing 'event_result' JSON (imports Race session), or\n"
                 "- custom {'races': [...]} format.\n\n"
                 "Results with a subsession ID are updated if that session was already imported.\n\n"
-                + ("\n\nDetails:\n" + "\n".join(errors[:10]) if errors else ""),
+                + detail,
             )
             return
 
@@ -1278,6 +1414,8 @@ class RaceBookApp(QMainWindow):
                 "(no subsession ID or duplicate without subsession ID)."
             )
         if errors:
+            for err in errors:
+                log_user_error(err, context="Import")
             detail += "\n\nSome files had issues:\n" + "\n".join(errors[:10])
             if len(errors) > 10:
                 detail += f"\n... and {len(errors) - 10} more."
@@ -1306,6 +1444,10 @@ class RaceBookApp(QMainWindow):
         logger.info("Application closing")
         if self._import_worker is not None and self._import_worker.isRunning():
             self._import_worker.wait(30000)
+        if self._api_fetch_worker is not None and self._api_fetch_worker.isRunning():
+            self._api_fetch_worker.wait(60000)
+        if self._api_test_worker is not None and self._api_test_worker.isRunning():
+            self._api_test_worker.wait(10000)
         if self.worker is not None:
             self.worker.stop()
         if hasattr(self, "_db_conn"):

@@ -443,6 +443,43 @@ QScrollArea#liveSessionScroll {
     border: none;
 }
 
+QFrame#accordionSection {
+    background-color: #1e232a;
+    border: 1px solid #323a46;
+    border-radius: 6px;
+}
+
+QPushButton#accordionHeader {
+    text-align: left;
+    padding: 10px 12px;
+    border: none;
+    border-radius: 6px;
+    background-color: transparent;
+    font-weight: 600;
+    color: #d8dee9;
+}
+
+QPushButton#accordionHeader:hover {
+    background-color: #2a3038;
+}
+
+QPushButton#accordionHeader:checked {
+    background-color: #2a3038;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+QFrame#accordionBody {
+    background-color: #1a1e24;
+    border-top: 1px solid #323a46;
+    border-bottom-left-radius: 6px;
+    border-bottom-right-radius: 6px;
+}
+
+QLabel#sectionHint a {
+    color: #6eb3ff;
+}
+
 QWidget#liveCardsContainer {
     background: transparent;
 }
@@ -599,6 +636,101 @@ QComboBox#settingsCombo {
 QComboBox#settingsCombo::drop-down {
     border: none;
     width: 24px;
+}
+
+QFrame#settingsHeader {
+    background-color: #232831;
+    border-bottom: 1px solid #323a46;
+}
+
+QFrame#settingsBody {
+    background-color: #1a1e24;
+}
+
+QScrollArea#settingsContentScroll {
+    background: transparent;
+    border: none;
+}
+
+QWidget#settingsContent {
+    background: transparent;
+}
+
+QFrame#settingsNavSidebar {
+    background-color: #232831;
+    border: none;
+    border-right: 1px solid #323a46;
+}
+
+QLabel#settingsNavTitle {
+    font-size: 11px;
+    font-weight: 700;
+    color: #7a8494;
+    text-transform: uppercase;
+    padding: 12px 14px 4px 14px;
+}
+
+QScrollArea#settingsNavScroll {
+    background: transparent;
+    border: none;
+}
+
+QWidget#settingsNavList {
+    background: transparent;
+}
+
+QPushButton#settingsNavItem {
+    text-align: left;
+    padding: 10px 12px;
+    border: none;
+    border-radius: 6px;
+    background-color: transparent;
+    color: #b8c0cc;
+    font-weight: 600;
+}
+
+QPushButton#settingsNavItem:hover:!checked {
+    background-color: #252b34;
+    color: #e8eaed;
+}
+
+QPushButton#settingsNavItem:checked {
+    background-color: #2a3038;
+    color: #ffffff;
+    border-left: 3px solid #4a8af4;
+    padding-left: 9px;
+}
+
+QStackedWidget#settingsSectionStack {
+    background: transparent;
+}
+
+QLabel#settingsStatusPill {
+    font-size: 12px;
+    color: #b8c0cc;
+    padding: 6px 10px;
+    border-radius: 6px;
+    background-color: #1a1e24;
+    border: 1px solid #323a46;
+}
+
+QLabel#settingsStatusPill[status="ok"] {
+    color: #6ee7a8;
+    border-color: #2d5a40;
+}
+
+QLabel#settingsStatusPill[status="error"] {
+    color: #f08080;
+    border-color: #5a3030;
+}
+
+QLabel#settingsOAuthNotice {
+    font-size: 13px;
+    color: #e8d4a8;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background-color: #2a2618;
+    border: 1px solid #5a4d28;
 }
 """
 

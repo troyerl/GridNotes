@@ -76,11 +76,15 @@ class ImportWorker(QThread):
                     result.total_results_skipped += results_skipped
 
                     if results_imported == 0 and results_updated == 0 and results_skipped == 0:
-                        result.errors.append(f"{file_path}: no race results found/imported")
+                        msg = f"{file_path}: no race results found/imported"
+                        result.errors.append(msg)
+                        logger.warning("Import: %s", msg)
 
                 except Exception as exc:
                     logger.exception("Import failed for %s", file_path)
-                    result.errors.append(f"{file_path}: {exc}")
+                    msg = f"{file_path}: {exc}"
+                    result.errors.append(msg)
+                    logger.warning("Import: %s", msg)
 
             conn.commit()
 

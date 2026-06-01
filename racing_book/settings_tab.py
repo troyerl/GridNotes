@@ -5,10 +5,15 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QShowEvent
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QComboBox,
+    QFrame,
     QGroupBox,
+    QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -16,6 +21,22 @@ from PyQt6.QtWidgets import (
 from .data_retention import DEFAULT_RETENTION, RETENTION_OPTIONS, SETTING_KEY, retention_label
 from .db import connect_db, get_data_dir_path, get_db_file_size, get_db_path, get_setting, set_setting
 from .driver_cleanup import count_zero_race_drivers
+from .feature_flags import iracing_data_api_auto_import_enabled
+from .iracing_data_api import package_available, package_unavailable_reason
+from .iracing_data_api_config import (
+    clear_legacy_api_settings,
+    get_access_token,
+    is_auto_fetch_enabled,
+    save_api_settings,
+)
+from .iracing_oauth_guide import (
+    OAUTH_REGISTRATION_PAUSED_HTML,
+    combined_oauth_guide_html,
+    oauth_registration_paused_plain,
+)
+from .ui_widgets import Accordion, HtmlHintLabel, SettingsSectionNavigator
+from .theme import configure_scroll_area
+from .user_feedback import log_user_error
 from .utils import format_file_size
 
 
@@ -24,36 +45,169 @@ class SettingsTab(QWidget):
 
     settings_saved = pyqtSignal()
     zero_race_cleanup_requested = pyqtSignal()
+    api_test_requested = pyqtSignal(str)  # access_token
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        clear_legacy_api_settings()
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 14, 14, 14)
-        layout.setSpacing(12)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        header = QFrame()
+        header.setObjectName("settingsHeader")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(14, 12, 14, 10)
+        header_layout.setSpacing(12)
 
         title = QLabel("Settings")
         title.setObjectName("appTitle")
         title.setStyleSheet("font-size: 18px;")
-        layout.addWidget(title)
+        header_layout.addWidget(title)
+        header_layout.addStretch()
+
+        self.btn_save_settings = QPushButton("Save settings")
+        self.btn_save_settings.setObjectName("primaryBtn")
+        self.btn_save_settings.setToolTip(
+            "Save retention, auto-import, and OAuth token settings"
+        )
+        self.btn_save_settings.clicked.connect(self._save_settings)
+        header_layout.addWidget(self.btn_save_settings)
+        root.addWidget(header)
+
+        self._auto_import_page: QWidget | None = None
+
+        self._section_nav = SettingsSectionNavigator()
+        if iracing_data_api_auto_import_enabled():
+            self._auto_import_page = self._build_auto_import_page()
+            self._section_nav.add_section("Auto-import", self._auto_import_page)
+        self._section_nav.add_section("Data", self._build_data_page())
+        self._section_nav.add_section("Maintenance", self._build_maintenance_page())
+
+        body = QFrame()
+        body.setObjectName("settingsBody")
+        body_layout = QHBoxLayout(body)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(0)
+        body_layout.addWidget(self._section_nav.sidebar)
+
+        self._content_scroll = QScrollArea()
+        self._content_scroll.setObjectName("settingsContentScroll")
+        self._content_scroll.setWidgetResizable(True)
+        self._content_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._content_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        configure_scroll_area(self._content_scroll, page_step=96)
+
+        content_host = QWidget()
+        content_host.setObjectName("settingsContent")
+        host_layout = QVBoxLayout(content_host)
+        host_layout.setContentsMargins(20, 12, 20, 20)
+        host_layout.setSpacing(0)
+        host_layout.addWidget(self._section_nav.stack)
+        self._content_scroll.setWidget(content_host)
+
+        body_layout.addWidget(self._content_scroll, stretch=1)
+        root.addWidget(body, stretch=1)
+
+    def _section_hint(self, text: str) -> QLabel:
+        label = QLabel(text)
+        label.setObjectName("sectionHint")
+        label.setWordWrap(True)
+        return label
+
+    def _build_auto_import_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(12)
+
+        layout.addWidget(
+            self._section_hint(
+                "Optional: after a race, auto-import official results via the iRacing "
+                "Data API (Windows + live SDK). Requires an OAuth access token."
+            )
+        )
+
+        self.oauth_paused_notice = HtmlHintLabel(OAUTH_REGISTRATION_PAUSED_HTML)
+        self.oauth_paused_notice.setObjectName("settingsOAuthNotice")
+        layout.addWidget(self.oauth_paused_notice)
+
+        setup_group = QGroupBox("Connection (optional — needs OAuth token)")
+        setup_layout = QVBoxLayout(setup_group)
+        setup_layout.setSpacing(10)
+
+        self.chk_auto_fetch = QCheckBox(
+            "Automatically fetch results when a race session ends"
+        )
+        self.chk_auto_fetch.setChecked(is_auto_fetch_enabled())
+        self.chk_auto_fetch.setToolTip(oauth_registration_paused_plain())
+        setup_layout.addWidget(self.chk_auto_fetch)
+
+        self.api_package_status = QLabel("")
+        self.api_package_status.setObjectName("settingsStatusPill")
+        self.api_package_status.setWordWrap(True)
+        setup_layout.addWidget(self.api_package_status)
+        self._update_api_package_status()
+
+        token_label = QLabel("OAuth access token")
+        token_label.setObjectName("statInlineLabel")
+        setup_layout.addWidget(token_label)
+
+        token_row = QHBoxLayout()
+        token_row.setSpacing(8)
+        self.api_token_input = QLineEdit()
+        self.api_token_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.api_token_input.setPlaceholderText("Paste access_token from iRacing OAuth")
+        self.api_token_input.setText(get_access_token())
+        token_row.addWidget(self.api_token_input, stretch=1)
+
+        self.btn_test_api = QPushButton("Test")
+        self.btn_test_api.setToolTip("Test connection with this token")
+        self.btn_test_api.setFixedWidth(72)
+        self.btn_test_api.clicked.connect(self._request_api_test)
+        token_row.addWidget(self.btn_test_api)
+        setup_layout.addLayout(token_row)
+
+        self.api_status = QLabel("")
+        self.api_status.setObjectName("sectionHint")
+        self.api_status.setWordWrap(True)
+        setup_layout.addWidget(self.api_status)
+
+        layout.addWidget(setup_group)
+
+        guide_accordion = Accordion(exclusive=True)
+        guide_accordion.add_section(
+            "OAuth setup guide (when registration is available)",
+            combined_oauth_guide_html(),
+            expanded=False,
+        )
+        layout.addWidget(guide_accordion)
+        layout.addStretch()
+        return page
+
+    def _build_data_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(12)
 
         retention_group = QGroupBox("Race history retention")
         retention_layout = QVBoxLayout(retention_group)
         retention_layout.setSpacing(10)
 
-        hint = QLabel(
-            "Automatically remove imported race results older than the selected period. "
-            "Driver notes and preferences are kept. Results without a known date are not removed."
+        retention_layout.addWidget(
+            self._section_hint(
+                "Remove imported race results older than the selected period. "
+                "Notes and like/dislike preferences are kept."
+            )
         )
-        hint.setObjectName("sectionHint")
-        hint.setWordWrap(True)
-        retention_layout.addWidget(hint)
 
-        row = QVBoxLayout()
-        row.setSpacing(6)
         row_label = QLabel("Keep race data for")
         row_label.setObjectName("statInlineLabel")
-        row.addWidget(row_label)
+        retention_layout.addWidget(row_label)
 
         self.retention_combo = QComboBox()
         self.retention_combo.setObjectName("settingsCombo")
@@ -62,8 +216,7 @@ class SettingsTab(QWidget):
         current = get_setting(SETTING_KEY, DEFAULT_RETENTION) or DEFAULT_RETENTION
         idx = self.retention_combo.findData(current)
         self.retention_combo.setCurrentIndex(idx if idx >= 0 else 0)
-        row.addWidget(self.retention_combo)
-        retention_layout.addLayout(row)
+        retention_layout.addWidget(self.retention_combo)
 
         self.retention_status = QLabel("")
         self.retention_status.setObjectName("sectionHint")
@@ -71,24 +224,57 @@ class SettingsTab(QWidget):
         retention_layout.addWidget(self.retention_status)
         self._update_retention_status_label()
 
-        self.btn_save_settings = QPushButton("Save settings")
-        self.btn_save_settings.setObjectName("primaryBtn")
-        self.btn_save_settings.clicked.connect(self._save_settings)
-        retention_layout.addWidget(self.btn_save_settings)
-
         layout.addWidget(retention_group)
+
+        storage_group = QGroupBox("Storage location")
+        storage_layout = QVBoxLayout(storage_group)
+        storage_layout.setSpacing(8)
+
+        storage_layout.addWidget(
+            self._section_hint("Local database and settings on this computer:")
+        )
+
+        self.data_dir_label = QLabel(str(get_data_dir_path()))
+        self.data_dir_label.setObjectName("sectionHint")
+        self.data_dir_label.setWordWrap(True)
+        self.data_dir_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        storage_layout.addWidget(self.data_dir_label)
+
+        db_hint = QLabel("Database file")
+        db_hint.setObjectName("statInlineLabel")
+        storage_layout.addWidget(db_hint)
+
+        self.db_path_label = QLabel("")
+        self.db_path_label.setObjectName("statValue")
+        self.db_path_label.setWordWrap(True)
+        self.db_path_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        storage_layout.addWidget(self.db_path_label)
+        self.refresh_storage_info()
+
+        layout.addWidget(storage_group)
+        layout.addStretch()
+        return page
+
+    def _build_maintenance_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(12)
 
         cleanup_group = QGroupBox("Driver cleanup")
         cleanup_layout = QVBoxLayout(cleanup_group)
         cleanup_layout.setSpacing(10)
 
-        cleanup_hint = QLabel(
-            "Remove drivers who have no imported race results. "
-            "This clears live-session placeholders and scouting notes for those drivers."
+        cleanup_layout.addWidget(
+            self._section_hint(
+                "Remove drivers with no imported race results, including live-session "
+                "placeholders and their scouting notes."
+            )
         )
-        cleanup_hint.setObjectName("sectionHint")
-        cleanup_hint.setWordWrap(True)
-        cleanup_layout.addWidget(cleanup_hint)
 
         self.zero_race_status = QLabel("")
         self.zero_race_status.setObjectName("sectionHint")
@@ -101,39 +287,15 @@ class SettingsTab(QWidget):
         cleanup_layout.addWidget(self.btn_remove_zero_race)
 
         layout.addWidget(cleanup_group)
-
-        data_group = QGroupBox("Data storage")
-        data_layout = QVBoxLayout(data_group)
-        data_hint = QLabel("Local database and settings are stored at:")
-        data_hint.setObjectName("sectionHint")
-        data_layout.addWidget(data_hint)
-        self.data_dir_label = QLabel(str(get_data_dir_path()))
-        self.data_dir_label.setObjectName("sectionHint")
-        self.data_dir_label.setWordWrap(True)
-        self.data_dir_label.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-        )
-        data_layout.addWidget(self.data_dir_label)
-
-        db_hint = QLabel("Database file:")
-        db_hint.setObjectName("statInlineLabel")
-        data_layout.addWidget(db_hint)
-        self.db_path_label = QLabel("")
-        self.db_path_label.setObjectName("statValue")
-        self.db_path_label.setWordWrap(True)
-        self.db_path_label.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-        )
-        data_layout.addWidget(self.db_path_label)
-        self.refresh_storage_info()
-        layout.addWidget(data_group)
-
         layout.addStretch()
+        return page
 
     def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)
         self.refresh_storage_info()
         self._update_zero_race_status_label()
+        if iracing_data_api_auto_import_enabled():
+            self._update_api_package_status()
 
     def refresh_storage_info(self) -> None:
         db_path = get_db_path()
@@ -169,8 +331,68 @@ class SettingsTab(QWidget):
     def _request_zero_race_cleanup(self) -> None:
         self.zero_race_cleanup_requested.emit()
 
+    def _update_api_package_status(self) -> None:
+        if package_available():
+            self.api_package_status.setText("Package: iracingdataapi installed")
+            self.api_package_status.setProperty("status", "ok")
+        else:
+            self.api_package_status.setText(package_unavailable_reason())
+            self.api_package_status.setProperty("status", "error")
+        self.api_package_status.style().unpolish(self.api_package_status)
+        self.api_package_status.style().polish(self.api_package_status)
+
+    def _focus_auto_import_tab(self) -> None:
+        if not iracing_data_api_auto_import_enabled() or self._auto_import_page is None:
+            return
+        idx = self._section_nav.index_of_page(self._auto_import_page)
+        if idx >= 0:
+            self._section_nav.set_current_index(idx)
+
+    def _request_api_test(self) -> None:
+        self._focus_auto_import_tab()
+        self.api_test_requested.emit(self.api_token_input.text().strip())
+
+    def set_api_test_busy(self, busy: bool) -> None:
+        self.btn_test_api.setEnabled(not busy)
+        self.api_token_input.setEnabled(not busy)
+        if busy:
+            self.api_status.setText("Testing connection…")
+            self.api_status.setStyleSheet("")
+
+    def show_api_test_result(self, ok: bool, message: str) -> None:
+        if not iracing_data_api_auto_import_enabled():
+            return
+        self._focus_auto_import_tab()
+        self.api_status.setText(message)
+        if not ok:
+            self.api_status.setStyleSheet("color: #f08080;")
+        else:
+            self.api_status.setStyleSheet("color: #6ee7a8;")
+
+    def show_api_fetch_status(self, message: str, *, error: bool = False) -> None:
+        if not iracing_data_api_auto_import_enabled():
+            return
+        self._focus_auto_import_tab()
+        if error:
+            log_user_error(message, context="iRacing Data API auto-fetch")
+        self.api_status.setText(message)
+        if error:
+            self.api_status.setStyleSheet("color: #f08080;")
+        else:
+            self.api_status.setStyleSheet("color: #6ee7a8;")
+
+    def _save_api_settings(self) -> None:
+        if not iracing_data_api_auto_import_enabled():
+            return
+        save_api_settings(
+            enabled=self.chk_auto_fetch.isChecked(),
+            access_token=self.api_token_input.text().strip(),
+        )
+
     def _save_settings(self) -> None:
         set_setting(SETTING_KEY, self.current_retention_value())
+        if iracing_data_api_auto_import_enabled():
+            self._save_api_settings()
         self._update_retention_status_label()
         self.settings_saved.emit()
 
