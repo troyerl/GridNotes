@@ -150,83 +150,139 @@ def _cleanup_log_path() -> Path:
     return Path(tempfile.gettempdir()) / _CLEANUP_LOG_NAME
 
 
-def _spawn_detached(command: list[str], *, cwd: Path | None = None) -> None:
-    """Start a child process that keeps running after the uninstaller exits."""
-    kwargs: dict = {
-        "stdin": subprocess.DEVNULL,
-        "stdout": subprocess.DEVNULL,
-        "stderr": subprocess.DEVNULL,
-        "close_fds": True,
-    }
-    if cwd is not None:
-        kwargs["cwd"] = str(cwd)
-
-    if sys.platform == "win32":
-        detached = getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
-        new_group = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
-        no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
-        kwargs["creationflags"] = detached | new_group | no_window
-
-    subprocess.Popen(command, **kwargs)
+def _append_cleanup_log(log_path: Path, message: str) -> None:
+    try:
+        with log_path.open("a", encoding="utf-8") as handle:
+            handle.write(message)
+            if not message.endswith("\n"):
+                handle.write("\n")
+    except OSError:
+        pass
 
 
-def _write_folder_removal_script(script_path: Path) -> None:
-    script_path.write_text(
-        "param(\n"
-        "    [Parameter(Mandatory = $true)][string]$Target,\n"
-        "    [Parameter(Mandatory = $true)][int]$WaitPid,\n"
-        "    [Parameter(Mandatory = $true)][string]$Log\n"
-        ")\n"
-        "$ErrorActionPreference = 'Continue'\n"
-        "function Write-Log([string]$Message) {\n"
-        "    Add-Content -LiteralPath $Log -Value (\"$(Get-Date -Format o) $Message\")\n"
-        "}\n"
-        "Write-Log \"Cleanup started. Target=$Target WaitPid=$WaitPid\"\n"
-        "while (Get-Process -Id $WaitPid -ErrorAction SilentlyContinue) {\n"
-        "    Start-Sleep -Milliseconds 400\n"
-        "}\n"
-        "Start-Sleep -Seconds 2\n"
-        "Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {\n"
-        "    $_.Name -in @('python.exe', 'pythonw.exe') -and $_.CommandLine -and\n"
-        "    ($_.CommandLine -like \"*$Target*\")\n"
-        "} | ForEach-Object {\n"
-        "    Write-Log \"Stopping PID $($_.ProcessId)\"\n"
-        "    Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue\n"
-        "}\n"
-        "Start-Sleep -Seconds 1\n"
-        "for ($attempt = 1; $attempt -le 12; $attempt++) {\n"
-        "    if (-not (Test-Path -LiteralPath $Target)) {\n"
-        "        Write-Log 'OK: install folder removed'\n"
-        "        Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue\n"
-        "        exit 0\n"
-        "    }\n"
-        "    Write-Log \"Remove attempt $attempt\"\n"
-        "    try {\n"
-        "        Remove-Item -LiteralPath $Target -Recurse -Force -ErrorAction Stop\n"
-        "    } catch {\n"
-        "        Write-Log $_.Exception.Message\n"
-        "        cmd /c \"rd /s /q `\"$Target`\"\" 2>&1 | ForEach-Object { Write-Log $_ }\n"
-        "    }\n"
-        "    Start-Sleep -Seconds 2\n"
-        "}\n"
-        "if (Test-Path -LiteralPath $Target) {\n"
-        "    Write-Log 'Trying takeown/icacls then delete'\n"
-        "    cmd /c \"takeown /f `\"$Target`\" /r /d y\" 2>&1 | ForEach-Object { Write-Log $_ }\n"
-        "    cmd /c \"icacls `\"$Target`\" /grant `\"$env:USERNAME`:(F) /t /c\" 2>&1 | ForEach-Object { Write-Log $_ }\n"
-        "    try {\n"
-        "        Remove-Item -LiteralPath $Target -Recurse -Force -ErrorAction Stop\n"
-        "    } catch {\n"
-        "        Write-Log $_.Exception.Message\n"
-        "    }\n"
-        "}\n"
-        "if (Test-Path -LiteralPath $Target) {\n"
-        "    Write-Log \"FAILED: folder still exists: $Target\"\n"
-        "    exit 1\n"
-        "}\n"
-        "Write-Log 'OK: install folder removed'\n"
-        "Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue\n",
+def _bat_quote(path: Path) -> str:
+    return str(path.resolve())
+
+
+def _write_folder_removal_batch(
+    bat_path: Path,
+    *,
+    install_root: Path,
+    wait_pid: int,
+    log_path: Path,
+) -> None:
+    target = _bat_quote(install_root)
+    log_file = _bat_quote(log_path)
+    bat_path.write_text(
+        "@echo off\r\n"
+        "setlocal EnableExtensions\r\n"
+        f'set "TARGET={target}"\r\n'
+        f'set "LOG={log_file}"\r\n'
+        f"set \"WAITPID={wait_pid}\"\r\n"
+        f'echo [%date% %time%] Cleanup batch started>>"%LOG%"\r\n'
+        f'echo TARGET=%TARGET% WAITPID=%WAITPID%>>"%LOG%"\r\n'
+        ":wait_pid\r\n"
+        'tasklist /FI "PID eq %WAITPID%" 2>nul | find "%WAITPID%" >nul\r\n'
+        "if not errorlevel 1 (\r\n"
+        "  ping -n 2 127.0.0.1 >nul\r\n"
+        "  goto wait_pid\r\n"
+        ")\r\n"
+        'echo [%date% %time%] Uninstall process ended>>"%LOG%"\r\n'
+        "ping -n 3 127.0.0.1 >nul\r\n"
+        ":try_remove\r\n"
+        'if not exist "%TARGET%" goto removed\r\n'
+        'echo [%date% %time%] Removing %TARGET%...>>"%LOG%"\r\n'
+        'rd /s /q "%TARGET%" 2>>"%LOG%"\r\n'
+        'if exist "%TARGET%" (\r\n'
+        "  powershell -NoProfile -ExecutionPolicy Bypass -Command "
+        '"Remove-Item -LiteralPath ''%TARGET%'' -Recurse -Force" >>"%LOG%" 2>&1\r\n'
+        ")\r\n"
+        'if exist "%TARGET%" (\r\n'
+        '  echo [%date% %time%] takeown/icacls>>"%LOG%"\r\n'
+        '  takeown /f "%TARGET%" /r /d y >>"%LOG%" 2>&1\r\n'
+        '  icacls "%TARGET%" /grant "%USERNAME%:(F)" /t /c >>"%LOG%" 2>&1\r\n'
+        '  rd /s /q "%TARGET%" 2>>"%LOG%"\r\n'
+        ")\r\n"
+        'if exist "%TARGET%" (\r\n'
+        '  echo [%date% %time%] FAILED: %TARGET% still exists>>"%LOG%"\r\n'
+        "  goto done\r\n"
+        ")\r\n"
+        ":removed\r\n"
+        'echo [%date% %time%] OK: removed %TARGET%>>"%LOG%"\r\n'
+        ":done\r\n"
+        "del \"%~f0\"\r\n",
         encoding="utf-8",
     )
+
+
+def _write_folder_removal_launcher_vbs(vbs_path: Path, bat_path: Path) -> None:
+    bat_cmd = str(bat_path.resolve())
+    vbs_path.write_text(
+        'Set shell = CreateObject("WScript.Shell")\r\n'
+        f'shell.Run "cmd.exe /c ""{bat_cmd}""", 0, False\r\n',
+        encoding="utf-8",
+    )
+
+
+def _register_runonce_cleanup(bat_path: Path, log_path: Path) -> None:
+    """If the background batch never runs, delete the folder at next sign-in."""
+    if sys.platform != "win32":
+        return
+    import winreg
+
+    command = f'"{bat_path.resolve()}"'
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\RunOnce",
+            0,
+            winreg.KEY_SET_VALUE,
+        ) as key:
+            winreg.SetValueEx(key, "GridNotesCleanup", 0, winreg.REG_SZ, command)
+        _append_cleanup_log(
+            log_path,
+            f"Registered RunOnce backup: {command}",
+        )
+    except OSError as exc:
+        _append_cleanup_log(log_path, f"RunOnce registration failed: {exc}")
+
+
+def _launch_folder_removal_worker(bat_path: Path, vbs_path: Path, log_path: Path) -> None:
+    """Start cleanup via wscript (reliable) with a direct cmd.exe fallback."""
+    system_root = os.environ.get("SystemRoot", r"C:\Windows")
+    wscript = Path(system_root) / "System32" / "wscript.exe"
+    if not wscript.is_file():
+        wscript = Path("wscript.exe")
+
+    launched = False
+    try:
+        subprocess.Popen(
+            [str(wscript), "//B", "//Nologo", str(vbs_path)],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+            cwd=str(bat_path.parent),
+        )
+        launched = True
+        _append_cleanup_log(log_path, f"Started cleanup launcher: {vbs_path}")
+    except OSError as exc:
+        _append_cleanup_log(log_path, f"wscript launch failed: {exc}")
+
+    if not launched:
+        try:
+            subprocess.Popen(
+                ["cmd.exe", "/c", str(bat_path)],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                close_fds=True,
+                cwd=str(bat_path.parent),
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            _append_cleanup_log(log_path, f"Started cleanup batch directly: {bat_path}")
+        except OSError as exc:
+            _append_cleanup_log(log_path, f"cmd launch failed: {exc}")
 
 
 def _schedule_install_folder_removal(install_root: Path, *, wait_pid: int) -> Path:
@@ -238,39 +294,26 @@ def _schedule_install_folder_removal(install_root: Path, *, wait_pid: int) -> Pa
     """
     install_root = install_root.resolve()
     log_path = _cleanup_log_path()
-    log_path.write_text(
-        f"Scheduled removal of {install_root} after PID {wait_pid} exits.\n",
-        encoding="utf-8",
+    _append_cleanup_log(
+        log_path,
+        f"Scheduled removal of {install_root} after PID {wait_pid} exits.",
     )
 
     if sys.platform == "win32":
         temp_dir = Path(tempfile.gettempdir())
-        script_path = temp_dir / f"gridnotes-remove-{wait_pid}.ps1"
-        _write_folder_removal_script(script_path)
-        system_root = os.environ.get("SystemRoot", r"C:\Windows")
-        powershell = Path(system_root) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
-        if not powershell.is_file():
-            powershell = Path("powershell.exe")
-
-        _spawn_detached(
-            [
-                str(powershell),
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-WindowStyle",
-                "Hidden",
-                "-File",
-                str(script_path),
-                "-Target",
-                str(install_root),
-                "-WaitPid",
-                str(wait_pid),
-                "-Log",
-                str(log_path),
-            ],
-            cwd=temp_dir,
+        bat_path = temp_dir / f"gridnotes-remove-{wait_pid}.bat"
+        vbs_path = temp_dir / f"gridnotes-remove-{wait_pid}.vbs"
+        _write_folder_removal_batch(
+            bat_path,
+            install_root=install_root,
+            wait_pid=wait_pid,
+            log_path=log_path,
         )
+        _write_folder_removal_launcher_vbs(vbs_path, bat_path)
+        _append_cleanup_log(log_path, f"Cleanup batch: {bat_path}")
+        _append_cleanup_log(log_path, f"Cleanup launcher: {vbs_path}")
+        _launch_folder_removal_worker(bat_path, vbs_path, log_path)
+        _register_runonce_cleanup(bat_path, log_path)
         return log_path
 
     sh = Path(tempfile.gettempdir()) / f"gridnotes-remove-{wait_pid}.sh"
