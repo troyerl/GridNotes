@@ -18,6 +18,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from .app_update import UpdateCheckResult, is_frozen_build
+from .app_version import __version__
 from .appearance import (
     THEME_OPTIONS,
     get_theme_id,
@@ -51,11 +53,14 @@ class SettingsTab(QWidget):
     settings_saved = pyqtSignal()
     theme_changed = pyqtSignal(str)
     zero_race_cleanup_requested = pyqtSignal()
+    check_updates_requested = pyqtSignal()
+    apply_update_requested = pyqtSignal()
     api_test_requested = pyqtSignal(str)  # access_token
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         clear_legacy_api_settings()
+        self._last_update_check: UpdateCheckResult | None = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -317,6 +322,47 @@ class SettingsTab(QWidget):
         cleanup_layout.addWidget(self.btn_remove_zero_race)
 
         layout.addWidget(cleanup_group)
+
+        updates_group = QGroupBox("Application updates")
+        updates_layout = QVBoxLayout(updates_group)
+        updates_layout.setSpacing(10)
+
+        if is_frozen_build():
+            updates_hint = (
+                "Check GitHub for a newer GridNotes installer. Your driver database "
+                "and settings are kept when you install over an existing version."
+            )
+        else:
+            updates_hint = (
+                "Check for a newer release on GitHub. When running from source, you can "
+                "pull the latest code and restart the app in one step."
+            )
+        updates_layout.addWidget(self._section_hint(updates_hint))
+
+        self.version_label = QLabel(f"Installed version: v{__version__}")
+        self.version_label.setObjectName("statValue")
+        updates_layout.addWidget(self.version_label)
+
+        update_btn_row = QHBoxLayout()
+        update_btn_row.setSpacing(8)
+        self.btn_check_updates = QPushButton("Check for updates")
+        self.btn_check_updates.clicked.connect(self._request_update_check)
+        update_btn_row.addWidget(self.btn_check_updates)
+
+        self.btn_apply_update = QPushButton("Update now")
+        self.btn_apply_update.setObjectName("primaryBtn")
+        self.btn_apply_update.setVisible(False)
+        self.btn_apply_update.clicked.connect(self._request_apply_update)
+        update_btn_row.addWidget(self.btn_apply_update)
+        update_btn_row.addStretch()
+        updates_layout.addLayout(update_btn_row)
+
+        self.update_status = QLabel("")
+        self.update_status.setObjectName("sectionHint")
+        self.update_status.setWordWrap(True)
+        updates_layout.addWidget(self.update_status)
+
+        layout.addWidget(updates_group)
         layout.addStretch()
         return page
 
@@ -368,6 +414,69 @@ class SettingsTab(QWidget):
 
     def _request_zero_race_cleanup(self) -> None:
         self.zero_race_cleanup_requested.emit()
+
+    def _request_update_check(self) -> None:
+        self.check_updates_requested.emit()
+
+    def _request_apply_update(self) -> None:
+        self.apply_update_requested.emit()
+
+    def last_update_check(self) -> UpdateCheckResult | None:
+        return self._last_update_check
+
+    def set_update_check_busy(self, busy: bool) -> None:
+        self.btn_check_updates.setEnabled(not busy)
+        self.btn_apply_update.setEnabled(not busy)
+        if busy:
+            self.update_status.setText("Checking for updates…")
+            self.update_status.setStyleSheet("")
+
+    def set_apply_update_busy(self, busy: bool) -> None:
+        self.btn_check_updates.setEnabled(not busy)
+        self.btn_apply_update.setEnabled(not busy)
+        if busy:
+            self.update_status.setText("Updating…")
+            self.update_status.setStyleSheet("")
+
+    def show_update_check_result(self, result: UpdateCheckResult) -> None:
+        self._last_update_check = result
+        self.update_status.setText(result.message)
+        theme_id = get_theme_id()
+        if result.update_available:
+            self.update_status.setStyleSheet(
+                f"color: {status_message_color(theme_id, ok=False)};"
+            )
+        elif result.ok:
+            self.update_status.setStyleSheet(
+                f"color: {status_message_color(theme_id, ok=True)};"
+            )
+        else:
+            self.update_status.setStyleSheet(
+                f"color: {status_message_color(theme_id, ok=False)};"
+            )
+
+        if not result.update_available:
+            self.btn_apply_update.setVisible(False)
+            return
+
+        self.btn_apply_update.setVisible(True)
+        if result.can_apply_in_place:
+            self.btn_apply_update.setText("Update now")
+            self.btn_apply_update.setToolTip(
+                "Pull the latest code from GitHub and restart GridNotes"
+            )
+        else:
+            self.btn_apply_update.setText("Open download page")
+            self.btn_apply_update.setToolTip(
+                "Open the latest GridNotes release on GitHub in your browser"
+            )
+
+    def show_apply_update_result(self, ok: bool, message: str) -> None:
+        self.update_status.setText(message)
+        theme_id = get_theme_id()
+        self.update_status.setStyleSheet(
+            f"color: {status_message_color(theme_id, ok=ok)};"
+        )
 
     def _update_api_package_status(self) -> None:
         if package_available():

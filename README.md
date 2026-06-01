@@ -27,7 +27,31 @@ Custom JSON should include `subsession_id` (or `session_id`) on each race object
 2. **`{"races": [{"subsession_id": …, "results": […]}]}`**
 3. A top-level **array** of race objects with the same shape.
 
-## Run from source
+## Install from downloaded source (graphical wizard)
+
+If you downloaded or cloned the project folder (not the Windows `.exe` installer), use the built-in setup wizard:
+
+**Windows:** double-click `Install GridNotes.bat`  
+**macOS:** double-click `Install GridNotes.command` (first time: right-click → Open if Gatekeeper blocks it)
+
+Or from a terminal:
+
+```bash
+python install_gui.py
+```
+
+The wizard will:
+
+1. Check that Python 3.10+ is installed  
+2. Create a `.venv` folder in the project  
+3. Install dependencies (with a live progress log)  
+4. Create `Run GridNotes.bat` or `Run GridNotes.command` to start the app  
+
+When finished, click **Launch GridNotes** or use the run script. Your database stays in this folder when running from source.
+
+On Windows, you can optionally check **Also build a standalone Windows app** to run PyInstaller and produce `dist\GridNotes\GridNotes.exe`.
+
+## Run from source (manual)
 
 ```bash
 pip install -r requirements.txt

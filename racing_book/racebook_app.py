@@ -1,7 +1,7 @@
 import logging
 
-from PyQt6.QtCore import QEvent, Qt, QTimer
-from PyQt6.QtGui import QFont, QTextCursor
+from PyQt6.QtCore import QEvent, Qt, QTimer, QUrl
+from PyQt6.QtGui import QDesktopServices, QFont, QTextCursor
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -28,6 +28,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from .app_update import GITHUB_RELEASES_PAGE, restart_application
+from .app_update_worker import ApplySourceUpdateWorker, UpdateCheckWorker
 from .appearance import get_theme_id, normalize_theme_id
 from .data_retention import DEFAULT_RETENTION, SETTING_KEY, purge_expired_race_results
 from .db import connect_db, get_setting, init_db, set_setting
@@ -102,6 +104,8 @@ class RaceBookApp(QMainWindow):
         self.worker = None
         self._import_worker: ImportWorker | None = None
         self._api_test_worker: ApiConnectionTestWorker | None = None
+        self._update_check_worker: UpdateCheckWorker | None = None
+        self._apply_update_worker: ApplySourceUpdateWorker | None = None
         self._api_fetch_worker: SubsessionFetchWorker | None = None
         self._api_fetch_queue: list[int] = []
         self._api_fetched_subsession_ids: set[int] = set()
@@ -395,6 +399,8 @@ class RaceBookApp(QMainWindow):
         self.settings_tab = SettingsTab()
         self.settings_tab.settings_saved.connect(self._on_settings_saved)
         self.settings_tab.theme_changed.connect(self.apply_theme)
+        self.settings_tab.check_updates_requested.connect(self._check_for_app_updates)
+        self.settings_tab.apply_update_requested.connect(self._apply_app_update)
         self.settings_tab.zero_race_cleanup_requested.connect(self._cleanup_zero_race_drivers)
         if iracing_data_api_auto_import_enabled():
             self.settings_tab.api_test_requested.connect(self._test_iracing_api_connection)
@@ -871,6 +877,77 @@ class RaceBookApp(QMainWindow):
     def _on_api_test_finished(self, ok: bool, message: str) -> None:
         self.settings_tab.set_api_test_busy(False)
         self.settings_tab.show_api_test_result(ok, message)
+
+    def _check_for_app_updates(self) -> None:
+        if self._update_check_worker is not None and self._update_check_worker.isRunning():
+            return
+        logger.info("User requested application update check")
+        self.settings_tab.set_update_check_busy(True)
+        self._update_check_worker = UpdateCheckWorker(parent=self)
+        self._update_check_worker.finished.connect(self._on_update_check_finished)
+        self._update_check_worker.start()
+
+    def _on_update_check_finished(self, result) -> None:
+        self.settings_tab.set_update_check_busy(False)
+        self.settings_tab.show_update_check_result(result)
+
+    def _apply_app_update(self) -> None:
+        result = self.settings_tab.last_update_check()
+        if result is None:
+            QMessageBox.information(
+                self,
+                "Check For Updates First",
+                "Click “Check for updates” before applying an update.",
+            )
+            return
+
+        if result.can_apply_in_place:
+            confirm = QMessageBox.question(
+                self,
+                "Update GridNotes?",
+                "Pull the latest code from GitHub and restart the application?\n\n"
+                "Your database and settings will be kept.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if confirm != QMessageBox.StandardButton.Yes:
+                return
+            if self._apply_update_worker is not None and self._apply_update_worker.isRunning():
+                return
+            logger.info("User requested in-place source update")
+            self.settings_tab.set_apply_update_busy(True)
+            self._apply_update_worker = ApplySourceUpdateWorker(parent=self)
+            self._apply_update_worker.finished.connect(self._on_apply_update_finished)
+            self._apply_update_worker.start()
+            return
+
+        if result.update_available or result.download_url:
+            url = QUrl(result.download_url or GITHUB_RELEASES_PAGE)
+            if not QDesktopServices.openUrl(url):
+                QMessageBox.warning(
+                    self,
+                    "Could Not Open Browser",
+                    f"Open this link manually:\n\n{url.toString()}",
+                )
+            return
+
+        QMessageBox.information(
+            self,
+            "No Update Ready",
+            "No update is available to apply right now.",
+        )
+
+    def _on_apply_update_finished(self, ok: bool, message: str) -> None:
+        self.settings_tab.set_apply_update_busy(False)
+        if not ok:
+            log_user_error(message, context="application update")
+            self.settings_tab.show_apply_update_result(False, message)
+            QMessageBox.warning(self, "Update Failed", message)
+            return
+
+        self.settings_tab.show_apply_update_result(True, message)
+        logger.info("Source update applied; restarting application")
+        restart_application()
 
     def _maybe_auto_fetch_race_results(self, subsession_id: int) -> None:
         if not iracing_data_api_auto_import_enabled():
@@ -1473,6 +1550,10 @@ class RaceBookApp(QMainWindow):
             self._api_fetch_worker.wait(60000)
         if self._api_test_worker is not None and self._api_test_worker.isRunning():
             self._api_test_worker.wait(10000)
+        if self._update_check_worker is not None and self._update_check_worker.isRunning():
+            self._update_check_worker.wait(10000)
+        if self._apply_update_worker is not None and self._apply_update_worker.isRunning():
+            self._apply_update_worker.wait(120000)
         if self.worker is not None:
             self.worker.stop()
         if hasattr(self, "_db_conn"):
