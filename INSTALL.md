@@ -1,6 +1,6 @@
 # How to install GridNotes
 
-**Version 1.2.3**
+**Version 1.2.4**
 
 GridNotes helps you remember iRacing drivers you raced with and keep private notes.  
 You do **not** need to know how to code. Follow the steps below in order.
@@ -8,6 +8,15 @@ You do **not** need to know how to code. Follow the steps below in order.
 ---
 
 ## Start here
+
+**In your download folder you should see two `.bat` files:**
+
+| File | What it does |
+|------|----------------|
+| **`Install GridNotes.bat`** | **Installer** — run **once** to set up GridNotes (not the app itself). |
+| **`Open GridNotes.bat`** | **Opens GridNotes** after you have installed (or finds your install folder). |
+
+After install, use the **GridNotes** icon on your **Desktop**. The app does **not** run from the ZIP/download folder.
 
 Answer one question: **What did you download?**
 
@@ -51,24 +60,27 @@ Python is free software GridNotes needs. You are not writing code.
 
 1. Open your **Downloads** folder, **Desktop**, or anywhere you saved the project.
 2. If it is a **.zip** file, **right-click** it → **Extract All** → **Extract**.
-3. Open the extracted folder. You should see **`Install GridNotes.bat`** (Windows).  
-   You can move or delete this folder **after** install — GridNotes runs from the install location, not from here.
+3. Open the extracted folder. You should see **`Install GridNotes.bat`** and **`Open GridNotes.bat`** (Windows).  
+   **`Install GridNotes.bat` is only the installer**, not the app. You can move or delete this folder **after** install — GridNotes runs from the install location, not from here.
 
 #### Step 3 — Run the install helper
 
 1. **Double-click** `Install GridNotes.bat`.  
-   If Windows asks for permission, click **Yes** (GridNotes installs to **Program Files** like other apps).
+   **Installing to your D: drive does not require administrator** — pick `D:\` in the wizard (it becomes `D:\GridNotes`).  
+   For **C:\Program Files** only, you may need to **right-click** `Install GridNotes.bat` → **Run as administrator**.
 2. A window titled **Install GridNotes** opens.
 3. Leave the **install folder** as shown (default: **Program Files**). Use **Choose folder…** to pick another drive or folder — GridNotes is installed in a **GridNotes** folder there (for example choose `D:\` → installs to `D:\GridNotes`, or `D:\Program Files` → `D:\Program Files\GridNotes`).
 4. Leave **“Put a GridNotes icon on my Desktop”** turned on if you want a desktop icon.
 5. Click **Install GridNotes** and wait. A bar will move across the screen; this can take several minutes.
-6. When it says finished, click **Launch GridNotes**.
+6. When it says finished, click **Launch GridNotes** (or use the Desktop icon afterward).
 
 #### Step 4 — Open GridNotes later
 
-Use the **GridNotes** icon on your **Desktop** (recommended). It opens the copy installed on your PC, not the download folder.
+Use any of these (they all start the **installed** app, not the installer):
 
-You can also run **`Run GridNotes.bat`** in the install folder (see below).
+- The **GridNotes** icon on your **Desktop** (recommended), or  
+- **`Open GridNotes.bat`** in your download folder, or  
+- **`Launch GridNotes.vbs`** in your install folder (see below).
 
 **Where did it install?**  
 Usually here on Windows:
@@ -133,10 +145,12 @@ You skipped Step 1 or did not check **Add python.exe to PATH**.
 
 ### Desktop icon or “Launch GridNotes” does nothing
 
-1. Open your **install folder** (for example `C:\Program Files\GridNotes` or `D:\GridNotes`).  
-2. Double-click **`Launch GridNotes.vbs`**. If the app opens, the install is fine but the shortcut is outdated.  
-3. Run **`Install GridNotes.bat`** again from your download folder (same options as before) to recreate the Desktop shortcut.  
-4. If step 2 also fails, open **`gridnotes.log`** in your install folder (or `%APPDATA%\GridNotes\` when using the Setup installer) for error details.
+This often happens if the installer ran **as administrator** but GridNotes needs to run as **you** (common when installing to **D:\GridNotes**).
+
+1. Open your **install folder** (for example `D:\GridNotes`).  
+2. Double-click **`Run GridNotes.bat`**. If you see an error box or **`launch-error.log`**, read that file.  
+3. Run **`Install GridNotes.bat`** again from your download ZIP folder — choose **D:\** again, finish install, use the new Desktop icon. **Do not** use “Run as administrator” unless you install to C:\Program Files.  
+4. Or double-click **`Open GridNotes.bat`** in your download folder after install.
 
 ### GridNotes does not see iRacing
 

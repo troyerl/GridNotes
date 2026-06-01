@@ -35,6 +35,7 @@ _COPY_NAMES = (
 _COPY_OPTIONAL_NAMES = (
     "Install GridNotes.bat",
     "Install GridNotes.command",
+    "Open GridNotes.bat",
     "Run GridNotes.bat",
     "Run GridNotes.command",
 )
@@ -315,6 +316,21 @@ def check_python() -> tuple[bool, str]:
     return True, f"Using {sys.executable} (Python {version[0]}.{version[1]}.{version[2]})"
 
 
+def install_location_pointer_file() -> Path:
+    """Where we store the path to the last successful install (for Open GridNotes.bat)."""
+    local = os.environ.get("LOCALAPPDATA", "").strip()
+    if local:
+        return Path(local) / "GridNotes" / "install-path.txt"
+    return Path.home() / "AppData" / "Local" / "GridNotes" / "install-path.txt"
+
+
+def save_install_location(install_root: Path) -> None:
+    path = install_location_pointer_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(str(install_root.resolve()), encoding="utf-8")
+    logger.info("Saved install location pointer: %s", path)
+
+
 def windows_vbs_launcher_path(root: Path) -> Path:
     return root.resolve() / "Launch GridNotes.vbs"
 
@@ -330,12 +346,32 @@ def write_launcher_scripts(root: Path, venv_dir: Path) -> list[Path]:
         run_bat = root / "Run GridNotes.bat"
         run_bat.write_text(
             "@echo off\r\n"
+            "setlocal\r\n"
             'cd /d "%~dp0"\r\n'
-            'if exist "%~dp0.venv\\Scripts\\pythonw.exe" (\r\n'
-            '  "%~dp0.venv\\Scripts\\pythonw.exe" "%~dp0main.py"\r\n'
-            ") else (\r\n"
-            '  "%~dp0.venv\\Scripts\\python.exe" "%~dp0main.py"\r\n'
-            ")\r\n",
+            'set "PYW=%~dp0.venv\\Scripts\\pythonw.exe"\r\n'
+            'set "PY=%~dp0.venv\\Scripts\\python.exe"\r\n'
+            'set "MAIN=%~dp0main.py"\r\n'
+            'set "LOG=%~dp0launch-error.log"\r\n'
+            'if not exist "%MAIN%" (\r\n'
+            '  echo main.py not found>>"%LOG%"\r\n'
+            "  goto :fail\r\n"
+            ")\r\n"
+            'if not exist "%PYW%" set "PYW=%PY%"\r\n'
+            'if not exist "%PY%" (\r\n'
+            '  echo Python missing in .venv>>"%LOG%"\r\n'
+            "  goto :fail\r\n"
+            ")\r\n"
+            'del /q "%LOG%" 2>nul\r\n'
+            '"%PYW%" "%MAIN%" 2>>"%LOG%"\r\n'
+            "if not errorlevel 1 exit /b 0\r\n"
+            'echo pythonw failed, retrying with python.exe>>"%LOG%"\r\n'
+            '"%PY%" -c "import PyQt6" 2>>"%LOG%"\r\n'
+            "if errorlevel 1 goto :fail\r\n"
+            'start "GridNotes" "%PY%" "%MAIN%"\r\n'
+            "exit /b 0\r\n"
+            ":fail\r\n"
+            "msg * GridNotes could not start. Check launch-error.log in the install folder.\r\n"
+            "exit /b 1\r\n",
             encoding="utf-8",
         )
         created.append(run_bat)
@@ -386,12 +422,12 @@ def preferred_shortcut_target(
         return dist_exe.resolve(), dist_exe.parent.resolve(), None
 
     if sys.platform == "win32":
-        vbs = windows_vbs_launcher_path(root)
-        if vbs.is_file():
-            return vbs, root, None
         run_bat = root / "Run GridNotes.bat"
         if run_bat.is_file():
             return run_bat, root, None
+        vbs = windows_vbs_launcher_path(root)
+        if vbs.is_file():
+            return vbs, root, None
 
     pyw = venv_pythonw(venv_dir)
     if pyw.is_file():
@@ -400,6 +436,62 @@ def preferred_shortcut_target(
     py = venv_python(venv_dir)
     main_py = (root / "main.py").resolve()
     return py.resolve(), root, f'"{main_py}"'
+
+
+def _windows_start_file(install_root: Path, launcher: Path) -> None:
+    """Start a launcher in the install folder (works when the installer was elevated)."""
+    subprocess.Popen(
+        [
+            "cmd.exe",
+            "/c",
+            "start",
+            "",
+            "/D",
+            str(install_root),
+            str(launcher.name),
+        ],
+        cwd=str(install_root),
+    )
+
+
+def validate_install_for_launch(install_root: Path) -> tuple[bool, str]:
+    """Verify the install folder can import GridNotes dependencies before launch."""
+    install_root = install_root.resolve()
+    main_py = install_root / "main.py"
+    if not main_py.is_file():
+        return False, f"main.py is missing in:\n{install_root}"
+
+    venv_dir = install_root / VENV_DIR_NAME
+    py = venv_python(venv_dir)
+    if not py.is_file():
+        return (
+            False,
+            f"The virtual environment is incomplete.\n"
+            f"Expected Python at:\n{py}\n\n"
+            "Run Install GridNotes.bat again.",
+        )
+
+    try:
+        result = subprocess.run(
+            [str(py), "-c", "import PyQt6"],
+            cwd=str(install_root),
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except (subprocess.SubprocessError, OSError) as exc:
+        return False, f"Could not verify the install:\n{exc}"
+
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        return (
+            False,
+            "GridNotes dependencies did not install correctly.\n\n"
+            f"{detail}\n\n"
+            "Run Install GridNotes.bat again. If this keeps failing, install "
+            "Python 3.12 or 3.13 from python.org (3.14 can be problematic).",
+        )
+    return True, ""
 
 
 def launch_installed_app(
@@ -429,26 +521,18 @@ def launch_installed_app(
             return False, str(exc)
 
     if sys.platform == "win32":
-        vbs = windows_vbs_launcher_path(install_root)
-        if vbs.is_file():
+        run_bat = install_root / "Run GridNotes.bat"
+        if run_bat.is_file():
             try:
-                subprocess.Popen(
-                    ["wscript.exe", "//B", str(vbs)],
-                    cwd=str(install_root),
-                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                )
+                _windows_start_file(install_root, run_bat)
                 return True, ""
             except OSError as exc:
                 return False, str(exc)
 
-        run_bat = install_root / "Run GridNotes.bat"
-        if run_bat.is_file():
+        vbs = windows_vbs_launcher_path(install_root)
+        if vbs.is_file():
             try:
-                subprocess.Popen(
-                    ["cmd.exe", "/c", str(run_bat)],
-                    cwd=str(install_root),
-                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                )
+                _windows_start_file(install_root, vbs)
                 return True, ""
             except OSError as exc:
                 return False, str(exc)
@@ -665,6 +749,8 @@ class InstallRunner:
                 except (OSError, subprocess.SubprocessError) as exc:
                     self._log(f"Could not create desktop shortcut: {exc}")
 
+            save_install_location(self.root)
+
             self._step("Finished", 100)
             if self.build_standalone:
                 if dist_exe.is_file():
@@ -681,16 +767,21 @@ class InstallRunner:
                         "Check the log for PyInstaller errors."
                     )
             else:
-                shortcut_note = (
-                    "Open GridNotes from the Desktop icon."
-                    if self.create_desktop_shortcut
-                    else f'Use “Launch GridNotes” or “{launchers[0].name if launchers else "Run GridNotes.bat"}”.'
-                )
+                if self.create_desktop_shortcut:
+                    shortcut_note = (
+                        "To open GridNotes: use the “GridNotes” icon on your Desktop.\n"
+                        "Or double-click “Open GridNotes.bat” in your download folder."
+                    )
+                else:
+                    shortcut_note = (
+                        f'Open “Launch GridNotes.vbs” in:\n{self.root}\n'
+                        "Or use “Open GridNotes.bat” in your download folder."
+                    )
                 summary = (
                     "Installation complete.\n\n"
-                    f"Install folder: {self.root}\n"
-                    f"{shortcut_note}\n"
-                    "You can move or delete your download folder; GridNotes runs from the install folder."
+                    f"Install folder: {self.root}\n\n"
+                    f"{shortcut_note}\n\n"
+                    "“Install GridNotes.bat” was only the installer — do not use it to run the app."
                 )
             return True, summary
         except RuntimeError as exc:

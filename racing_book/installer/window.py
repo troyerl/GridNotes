@@ -36,6 +36,7 @@ from .logic import (
     is_valid_install_root,
     launch_installed_app,
     normalize_chosen_install_dir,
+    validate_install_for_launch,
     simple_install_location_hint,
     user_local_install_location,
 )
@@ -406,6 +407,11 @@ class InstallWizardWindow(QMainWindow):
             if candidate.is_file():
                 standalone_exe = candidate
 
+        ok, message = validate_install_for_launch(self._install_root)
+        if not ok:
+            QMessageBox.warning(self, "Cannot Launch", message)
+            return
+
         ok, message = launch_installed_app(
             self._install_root,
             standalone_exe=standalone_exe,
@@ -417,6 +423,14 @@ class InstallWizardWindow(QMainWindow):
                 message or "Run Install first, or use the Desktop GridNotes icon.",
             )
             return
+
+        QMessageBox.information(
+            self,
+            "GridNotes Starting",
+            "GridNotes is starting.\n\n"
+            f"If no window appears, open:\n{self._install_root}\\launch-error.log\n\n"
+            "Or double-click Run GridNotes.bat in that folder.",
+        )
         self.close()
 
     def closeEvent(self, event) -> None:
