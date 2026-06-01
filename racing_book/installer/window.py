@@ -35,6 +35,7 @@ from .logic import (
     default_install_location_hint,
     find_project_root,
     is_valid_install_root,
+    normalize_chosen_install_dir,
     simple_install_location_hint,
     user_local_install_location,
     venv_python,
@@ -262,11 +263,13 @@ class InstallWizardWindow(QMainWindow):
         )
         if not chosen:
             return
-        self.install_path_input.setText(chosen)
+        install_dir = normalize_chosen_install_dir(
+            Path(chosen),
+            source_root=self._source_root,
+        )
+        self.install_path_input.setText(str(install_dir))
         if self.build_checkbox.isChecked():
-            self.build_path_input.setText(
-                str(default_build_output_dir(Path(chosen)))
-            )
+            self.build_path_input.setText(str(default_build_output_dir(install_dir)))
 
     def _browse_build_dir(self) -> None:
         start = self.build_path_input.text().strip() or str(
@@ -285,7 +288,10 @@ class InstallWizardWindow(QMainWindow):
         if not text:
             QMessageBox.warning(self, "Install location", "Choose a folder to install into.")
             return None
-        path = Path(text).expanduser()
+        path = normalize_chosen_install_dir(
+            Path(text),
+            source_root=self._source_root,
+        )
         valid, reason = is_valid_install_root(path)
         if not valid:
             QMessageBox.warning(self, "Install location", reason)

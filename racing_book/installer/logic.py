@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 MIN_PYTHON = (3, 10)
 VENV_DIR_NAME = ".venv"
+APP_INSTALL_DIRNAME = "GridNotes"
 REQUIREMENTS_FILE = "requirements.txt"
 REQUIREMENTS_BUILD_FILE = "requirements-build.txt"
 
@@ -128,7 +129,30 @@ def program_files_install_location() -> Path | None:
     program_files = os.environ.get("ProgramFiles", r"C:\Program Files").strip()
     if not program_files:
         return None
-    return Path(program_files) / "GridNotes"
+    return Path(program_files) / APP_INSTALL_DIRNAME
+
+
+def normalize_chosen_install_dir(
+    chosen: Path,
+    *,
+    source_root: Path | None = None,
+) -> Path:
+    """
+    When the user picks a drive or parent folder, install into a GridNotes subfolder.
+
+    Examples: D:\\ → D:\\GridNotes; D:\\Program Files → D:\\Program Files\\GridNotes.
+    Paths that already end with GridNotes, or match the download folder, are unchanged.
+    """
+    chosen = chosen.expanduser()
+    if source_root is not None:
+        try:
+            if chosen.resolve() == source_root.resolve():
+                return chosen
+        except OSError:
+            pass
+    if chosen.name.lower() == APP_INSTALL_DIRNAME.lower():
+        return chosen
+    return chosen / APP_INSTALL_DIRNAME
 
 
 def simple_install_location_hint() -> str:
@@ -136,7 +160,8 @@ def simple_install_location_hint() -> str:
     if sys.platform == "win32":
         return (
             "Leave this as-is for a normal install (like other Windows apps). "
-            "Use Choose folder… only if you want another drive (for example D:\\Program Files\\GridNotes). "
+            "Use Choose folder… to pick another drive or folder — GridNotes will be installed "
+            "in a GridNotes folder there (for example D:\\ → D:\\GridNotes). "
             "After install, open GridNotes from the Desktop icon — not from your download folder."
         )
     return (
