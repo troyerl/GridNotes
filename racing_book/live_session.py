@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .safety_index import SafetyIndex, empty_safety, tier_color_hex, tier_label, unknown_history_message
-from .session_kind import SESSION_KIND_RACE, is_race_session, session_kind_label
+from .session_kind import session_kind_label
 from .theme import configure_scroll_area
 
 
@@ -216,30 +216,21 @@ class LiveSessionView(QWidget):
         connected: bool,
         subsession_id: int,
         driver_count: int,
-        session_kind: str = SESSION_KIND_RACE,
+        session_kind: str = "race",
+        persist_drivers: bool = True,
     ) -> None:
-        if connected and not is_race_session(session_kind):
+        if connected:
+            self.offline_label.setVisible(False)
+            self.scroll.setVisible(True)
             label = session_kind_label(session_kind)
-            self.offline_label.setText(
-                f"Connected — {label}. Live driver scouting is available during races only."
-            )
-            self.offline_label.setVisible(True)
-            self.scroll.setVisible(False)
             if subsession_id:
                 self.session_label.setText(f"Session #{subsession_id} · {label}")
             else:
                 self.session_label.setText(label)
-            self.count_label.setText("")
-            return
-
-        if connected:
-            self.offline_label.setVisible(False)
-            self.scroll.setVisible(True)
-            if subsession_id:
-                self.session_label.setText(f"Session #{subsession_id}")
+            if persist_drivers:
+                self.count_label.setText(f"{driver_count} drivers")
             else:
-                self.session_label.setText("Connected")
-            self.count_label.setText(f"{driver_count} drivers")
+                self.count_label.setText(f"{driver_count} drivers · scouting only (not saved yet)")
         else:
             self.offline_label.setVisible(True)
             self.scroll.setVisible(False)

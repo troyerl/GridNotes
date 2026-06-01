@@ -55,7 +55,7 @@ from .iracing_worker import IRacingWorker
 from .iracing_import import sync_live_session_drivers
 from .live_session import LiveSessionView
 from .queries import driver_detail_sql, table_data_for_cust_ids_sql, table_data_sql
-from .session_kind import is_race_session, session_kind_label
+from .session_kind import is_live_scouting_session, is_race_session, session_kind_label
 from .safety_index import SafetyIndex, empty_safety, safety_tooltip
 from .safety_widgets import SafetyIndexPanel
 from .settings_tab import SettingsTab
@@ -249,15 +249,16 @@ class RaceBookApp(QMainWindow):
     def _refresh_live_session_view(self) -> None:
         if not hasattr(self, "live_session_view"):
             return
-        race_session = is_race_session(self.current_session_kind)
-        driver_count = len(self.active_cust_ids) if race_session else 0
+        driver_count = len(self.active_cust_ids)
+        scouting = is_live_scouting_session(self.current_session_kind)
         self.live_session_view.set_session_info(
             connected=self._sdk_connected,
             subsession_id=self.current_subsession_id,
             driver_count=driver_count,
             session_kind=self.current_session_kind,
+            persist_drivers=is_race_session(self.current_session_kind),
         )
-        if self._sdk_connected and race_session:
+        if self._sdk_connected and scouting and self.active_cust_ids:
             self.live_session_view.rebuild_if_changed(self._build_live_session_entries())
 
     def _on_live_driver_clicked(self, cust_id: int) -> None:
@@ -408,7 +409,8 @@ class RaceBookApp(QMainWindow):
         self.chk_current_race_only = QCheckBox("Current session only")
         self.chk_current_race_only.setChecked(False)
         self.chk_current_race_only.setToolTip(
-            "Show only drivers in the current iRacing session (including before race results are imported)"
+            "Show only drivers in the current iRacing session. "
+            "During practice and qualifying this is scouting only — drivers are saved when the race starts."
         )
         self.chk_current_race_only.stateChanged.connect(self.apply_driver_filters)
         live_session_row.addWidget(self.chk_current_race_only)
@@ -785,32 +787,41 @@ class RaceBookApp(QMainWindow):
         self.worker.start()
         self._update_live_session_filter(active=False, hint=MSG_SESSION_NOT_CONNECTED)
 
+    def _session_status_label(self, driver_count: int) -> str:
+        kind_label = session_kind_label(self.current_session_kind)
+        if is_race_session(self.current_session_kind):
+            if self.current_subsession_id:
+                return f"Live — session #{self.current_subsession_id} · {driver_count} drivers"
+            return f"Live — race · {driver_count} drivers"
+        if self.current_subsession_id:
+            return f"Live — session #{self.current_subsession_id} · {kind_label} · {driver_count} drivers (scouting only)"
+        return f"Live — {kind_label} · {driver_count} drivers (scouting only)"
+
+    def _session_filter_hint(self) -> str:
+        if is_race_session(self.current_session_kind):
+            return ""
+        kind_label = session_kind_label(self.current_session_kind)
+        return (
+            f"{kind_label} — live scouting enabled. "
+            "Drivers are added to your book when the race starts."
+        )
+
     def handle_sdk_connection(self, connected: bool, subsession_id: int, session_kind: str) -> None:
         self._sdk_connected = connected
         if connected:
             self.current_session_kind = session_kind
             self.current_subsession_id = subsession_id
-            if is_race_session(session_kind):
-                label = (
-                    f"Live — session #{subsession_id}"
-                    if subsession_id
-                    else "Live — race session"
-                )
-                self._update_live_session_filter(active=True, hint="")
+            driver_count = len(self.active_cust_ids)
+            self._set_status(
+                STATUS_CONNECTED,
+                self._session_status_label(driver_count) if driver_count else f"Live — {session_kind_label(session_kind)}",
+            )
+            if is_live_scouting_session(session_kind):
+                self._update_live_session_filter(active=True, hint=self._session_filter_hint())
             else:
-                label = f"Live — {session_kind_label(session_kind)} (race session only)"
                 self.active_cust_ids = set()
                 self.active_driver_names = {}
-                self._update_live_session_filter(
-                    active=False,
-                    hint=(
-                        f"Current session is {session_kind_label(session_kind)}. "
-                        "Driver sync is available during races only."
-                    ),
-                )
-                if hasattr(self, "chk_current_race_only"):
-                    self.chk_current_race_only.setChecked(False)
-            self._set_status(STATUS_CONNECTED, label)
+                self._update_live_session_filter(active=False, hint="Unsupported session type for live scouting.")
             self._refresh_live_session_view()
             return
 
@@ -828,31 +839,6 @@ class RaceBookApp(QMainWindow):
         self.current_subsession_id = subsession_id
         self.current_session_kind = session_kind
 
-        if not is_race_session(session_kind):
-            self.active_cust_ids = set()
-            self.active_driver_names = {}
-            status = f"Live — {session_kind_label(session_kind)} (race session only)"
-            self._set_status(STATUS_CONNECTED, status)
-            self._update_live_session_filter(
-                active=False,
-                hint=(
-                    f"Current session is {session_kind_label(session_kind)}. "
-                    "Driver sync is available during races only."
-                ),
-            )
-            if hasattr(self, "chk_current_race_only"):
-                self.chk_current_race_only.setChecked(False)
-            self._refresh_live_session_view()
-            return
-
-        driver_count = len(active_drivers)
-        if subsession_id:
-            status = f"Live — session #{subsession_id} · {driver_count} drivers"
-        else:
-            status = f"Live — race session · {driver_count} drivers"
-        self._set_status(STATUS_CONNECTED, status)
-        self._update_live_session_filter(active=True, hint="")
-
         self.active_cust_ids = {
             int(d["cust_id"])
             for d in active_drivers
@@ -863,11 +849,26 @@ class RaceBookApp(QMainWindow):
             for d in active_drivers
             if d.get("cust_id") is not None
         }
-        cursor = self._db_conn.cursor()
-        added_ids = sync_live_session_drivers(cursor, active_drivers)
-        if added_ids:
-            self._db_conn.commit()
-            self._insert_table_rows_for_cust_ids(added_ids)
+        driver_count = len(self.active_cust_ids)
+
+        if not is_live_scouting_session(session_kind):
+            self.active_cust_ids = set()
+            self.active_driver_names = {}
+            self._set_status(STATUS_CONNECTED, f"Live — {session_kind_label(session_kind)}")
+            self._update_live_session_filter(active=False, hint="Unsupported session type for live scouting.")
+            self._refresh_live_session_view()
+            return
+
+        self._set_status(STATUS_CONNECTED, self._session_status_label(driver_count))
+        self._update_live_session_filter(active=True, hint=self._session_filter_hint())
+
+        if is_race_session(session_kind):
+            cursor = self._db_conn.cursor()
+            added_ids = sync_live_session_drivers(cursor, active_drivers)
+            if added_ids:
+                self._db_conn.commit()
+                self._insert_table_rows_for_cust_ids(added_ids)
+
         if (
             hasattr(self, "chk_current_race_only")
             and self.chk_current_race_only.isChecked()

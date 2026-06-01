@@ -50,6 +50,16 @@ def is_race_session(kind: str | None) -> bool:
     return kind == SESSION_KIND_RACE
 
 
+def is_live_scouting_session(kind: str | None) -> bool:
+    """Practice, qualifying, and race sessions can show live driver cards."""
+    return kind in (
+        SESSION_KIND_RACE,
+        SESSION_KIND_QUALIFY,
+        SESSION_KIND_PRACTICE,
+        SESSION_KIND_OTHER,
+    )
+
+
 def current_session_kind(ir) -> str:
     """Best-effort session kind from live SDK data."""
     session_num = 0
