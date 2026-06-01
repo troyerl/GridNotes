@@ -201,7 +201,7 @@ class InstallWizardWindow(QMainWindow):
 
         self.details_toggle = QCheckBox("Show installation details (technical)")
         self.details_toggle.setChecked(False)
-        self.details_toggle.toggled.connect(self.log_view.setVisible)
+        self.details_toggle.toggled.connect(self._on_details_toggled)
         layout.addWidget(self.details_toggle)
         layout.addWidget(self.log_view, stretch=1)
 
@@ -228,6 +228,9 @@ class InstallWizardWindow(QMainWindow):
 
         if not ok:
             self.step_label.setText("Install Python first (see steps above).")
+
+    def _on_details_toggled(self, checked: bool) -> None:
+        self.log_view.setVisible(checked)
 
     def _on_advanced_toggled(self, checked: bool) -> None:
         self.advanced_panel.setVisible(checked)
@@ -383,8 +386,7 @@ class InstallWizardWindow(QMainWindow):
         self._install_succeeded = False
         self._set_busy(True)
         self.step_label.setText("Installing… please wait.")
-        self.log_view.setVisible(True)
-        self.details_toggle.setChecked(True)
+        self.log_view.setVisible(self.details_toggle.isChecked())
 
         self._worker = InstallWorker(
             source_root=self._source_root,

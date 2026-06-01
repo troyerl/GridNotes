@@ -14,18 +14,47 @@ logger = logging.getLogger(__name__)
 APP_SHORTCUT_NAME = "GridNotes"
 
 
-def desktop_directory() -> Path:
+def desktop_directories() -> list[Path]:
+    """All Desktop folders that might hold a GridNotes shortcut (Windows checks several)."""
+    seen: set[Path] = set()
+    directories: list[Path] = []
+
+    def add(path: Path) -> None:
+        try:
+            resolved = path.expanduser().resolve()
+        except OSError:
+            resolved = path
+        if resolved in seen or not resolved.is_dir():
+            return
+        seen.add(resolved)
+        directories.append(resolved)
+
     home = Path.home()
     if sys.platform == "win32":
-        userprofile = Path(os.environ.get("USERPROFILE", home))
+        userprofile = Path(os.environ.get("USERPROFILE", str(home)))
         for candidate in (
             userprofile / "Desktop",
             userprofile / "OneDrive" / "Desktop",
+            userprofile / "OneDrive - Personal" / "Desktop",
         ):
-            if candidate.is_dir():
-                return candidate
-        return userprofile / "Desktop"
-    return home / "Desktop"
+            add(candidate)
+        public = os.environ.get("PUBLIC", "").strip()
+        if public:
+            add(Path(public) / "Desktop")
+    else:
+        add(home / "Desktop")
+
+    return directories
+
+
+def desktop_directory() -> Path:
+    """Primary Desktop folder (first match)."""
+    directories = desktop_directories()
+    if directories:
+        return directories[0]
+    if sys.platform == "win32":
+        return Path(os.environ.get("USERPROFILE", Path.home())) / "Desktop"
+    return Path.home() / "Desktop"
 
 
 def _escape_ps(path: Path) -> str:
@@ -117,17 +146,42 @@ def create_desktop_shortcut(
     raise OSError(f"Cannot create a desktop shortcut for {target} on this platform.")
 
 
+def find_desktop_shortcuts(name: str = APP_SHORTCUT_NAME) -> list[Path]:
+    """Return every GridNotes shortcut file on the Desktop(s)."""
+    found: list[Path] = []
+    seen: set[Path] = set()
+    if sys.platform == "win32":
+        filenames = (f"{name}.lnk", "GridNotes.lnk")
+    else:
+        filenames = ("Run GridNotes.command", f"{name}.command", "GridNotes.command")
+
+    for desktop in desktop_directories():
+        for filename in filenames:
+            path = desktop / filename
+            try:
+                resolved = path.resolve()
+            except OSError:
+                resolved = path
+            if resolved in seen or not resolved.is_file():
+                continue
+            seen.add(resolved)
+            found.append(resolved)
+    return found
+
+
+def remove_all_desktop_shortcuts(name: str = APP_SHORTCUT_NAME) -> list[Path]:
+    """Remove GridNotes shortcuts from every known Desktop folder."""
+    removed: list[Path] = []
+    for path in find_desktop_shortcuts(name):
+        try:
+            path.unlink()
+            logger.info("Removed desktop shortcut: %s", path)
+            removed.append(path)
+        except OSError as exc:
+            logger.warning("Could not remove shortcut %s: %s", path, exc)
+    return removed
+
+
 def remove_desktop_shortcut(name: str = APP_SHORTCUT_NAME) -> bool:
     """Remove the GridNotes desktop shortcut if it exists."""
-    desktop = desktop_directory()
-    if sys.platform == "win32":
-        path = desktop / f"{name}.lnk"
-    else:
-        path = desktop / "Run GridNotes.command"
-        if not path.is_file():
-            path = desktop / f"{name}.command"
-    if path.is_file():
-        path.unlink()
-        logger.info("Removed desktop shortcut: %s", path)
-        return True
-    return False
+    return bool(remove_all_desktop_shortcuts(name))

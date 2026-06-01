@@ -1011,9 +1011,9 @@ class RaceBookApp(QMainWindow):
         restart_application()
 
     def _uninstall_application(self, remove_user_data: bool) -> None:
-        from ..installer.uninstall import perform_uninstall, read_registered_install_root
+        from ..installer.uninstall import perform_uninstall, resolve_install_root
 
-        install_root = read_registered_install_root()
+        install_root = resolve_install_root()
         if hasattr(self.settings_tab, "btn_uninstall"):
             self.settings_tab.btn_uninstall.setEnabled(False)
 

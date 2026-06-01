@@ -3,19 +3,25 @@
 from __future__ import annotations
 
 import logging
+import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .logic import install_location_pointer_file
-from .shortcuts import APP_SHORTCUT_NAME, desktop_directory, remove_desktop_shortcut
+from .logic import find_project_root, install_location_pointer_file
+from .shortcuts import remove_all_desktop_shortcuts
+from .windows_apps import unregister_windows_uninstall
+
 from ..data.db import get_data_dir_path
 from ..data.user_paths import data_dir_candidates
 
 logger = logging.getLogger(__name__)
+
+_CLEANUP_LOG_NAME = "gridnotes-uninstall.log"
 
 
 @dataclass
@@ -31,63 +37,182 @@ class UninstallResult:
         return "\n\n".join(self.messages)
 
 
-def read_registered_install_root() -> Path | None:
-    """Install folder recorded by Install GridNotes.bat (if any)."""
+def _looks_like_install_root(path: Path) -> bool:
+    if not path.is_dir():
+        return False
+    if not (path / "main.py").is_file():
+        return False
+    return any(
+        (path / marker).exists()
+        for marker in (".venv", "gridnotes_start.py", "Launch GridNotes.vbs", "Run GridNotes.bat")
+    )
+
+
+def _detect_install_root_from_runtime() -> Path | None:
+    if getattr(sys, "frozen", False):
+        candidate = Path(sys.executable).resolve().parent
+        if _looks_like_install_root(candidate):
+            return candidate
+
+    if sys.argv:
+        arg0 = Path(sys.argv[0]).resolve()
+        if arg0.name in ("gridnotes_start.py", "main.py") and _looks_like_install_root(arg0.parent):
+            return arg0.parent
+        if arg0.name.lower() in ("python.exe", "pythonw.exe") and arg0.parent.name == "Scripts":
+            install_root = arg0.parent.parent.parent
+            if _looks_like_install_root(install_root):
+                return install_root
+
+    try:
+        root = find_project_root()
+        if _looks_like_install_root(root):
+            return root.resolve()
+    except Exception:
+        pass
+    return None
+
+
+def _known_install_candidates() -> list[Path]:
+    candidates: list[Path] = []
+    if sys.platform != "win32":
+        return candidates
+
+    for letter in "DEFGHIJKLMNOPQRSTUVWXYZ":
+        candidates.append(Path(f"{letter}:\\GridNotes"))
+
+    local = os.environ.get("LOCALAPPDATA", "").strip()
+    if local:
+        candidates.append(Path(local) / "Programs" / "GridNotes")
+
+    for key in ("PROGRAMFILES", "PROGRAMFILES(X86)"):
+        value = os.environ.get(key, "").strip()
+        if value:
+            candidates.append(Path(value) / "GridNotes")
+
+    return candidates
+
+
+def resolve_install_root() -> Path | None:
+    """Find the installed GridNotes folder (pointer file, running app, or common paths)."""
     pointer = install_location_pointer_file()
-    if not pointer.is_file():
-        return None
-    text = pointer.read_text(encoding="utf-8").strip()
-    if not text:
-        return None
-    root = Path(text)
-    if not root.is_dir():
-        return None
-    if not (root / "main.py").is_file():
-        return None
-    if not (root / ".venv").is_dir() and not (root / "gridnotes_start.py").is_file():
-        return None
-    return root.resolve()
+    if pointer.is_file():
+        text = pointer.read_text(encoding="utf-8").strip()
+        if text:
+            registered = Path(text)
+            if _looks_like_install_root(registered):
+                return registered.resolve()
+
+    runtime = _detect_install_root_from_runtime()
+    if runtime is not None:
+        return runtime
+
+    for candidate in _known_install_candidates():
+        if _looks_like_install_root(candidate):
+            return candidate.resolve()
+
+    return None
+
+
+def read_registered_install_root() -> Path | None:
+    """Backward-compatible alias for :func:`resolve_install_root`."""
+    return resolve_install_root()
+
+
+def _runtime_paths() -> list[Path]:
+    paths: list[Path] = []
+    if getattr(sys, "frozen", False):
+        paths.append(Path(sys.executable).resolve())
+    if sys.argv:
+        paths.append(Path(sys.argv[0]).resolve())
+    try:
+        paths.append(Path.cwd().resolve())
+    except OSError:
+        pass
+    return paths
 
 
 def _running_from_directory(directory: Path) -> bool:
     directory = directory.resolve()
-    try:
-        if getattr(sys, "frozen", False):
-            return Path(sys.executable).resolve().is_relative_to(directory)
-        return Path(__file__).resolve().is_relative_to(directory)
-    except (ValueError, OSError):
-        return False
+    for path in _runtime_paths():
+        try:
+            if path.is_relative_to(directory):
+                return True
+        except (ValueError, OSError):
+            continue
+    return False
 
 
-def _schedule_install_folder_removal(install_root: Path) -> None:
+def _cleanup_log_path() -> Path:
+    return Path(tempfile.gettempdir()) / _CLEANUP_LOG_NAME
+
+
+def _schedule_install_folder_removal(install_root: Path) -> Path:
     """Delete install folder after this process exits (venv files may be locked)."""
     install_root = install_root.resolve()
+    log_path = _cleanup_log_path()
+    log_ps = str(log_path).replace("'", "''")
+    target_ps = str(install_root).replace("'", "''")
+
     if sys.platform == "win32":
-        bat = Path(tempfile.gettempdir()) / "gridnotes-uninstall-cleanup.bat"
-        bat.write_text(
-            "@echo off\r\n"
-            "timeout /t 2 /nobreak >nul\r\n"
-            f'if exist "{install_root}" rd /s /q "{install_root}"\r\n'
-            "del \"%~f0\"\r\n",
-            encoding="utf-8",
+        script = (
+            f"$log = '{log_ps}'\n"
+            f"$target = '{target_ps}'\n"
+            "Add-Content -LiteralPath $log \"Cleanup started $(Get-Date)\"\n"
+            "Start-Sleep -Seconds 8\n"
+            "Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | "
+            "Where-Object { $_.Name -match 'python(w)?\\.exe' -and $_.CommandLine -and "
+            "($_.CommandLine -like \"*$target*\") } | "
+            "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }\n"
+            "Start-Sleep -Seconds 2\n"
+            "if (Test-Path -LiteralPath $target) {\n"
+            "  Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction SilentlyContinue\n"
+            "}\n"
+            "if (Test-Path -LiteralPath $target) {\n"
+            "  Add-Content -LiteralPath $log \"FAILED: folder still exists: $target\"\n"
+            "} else {\n"
+            "  Add-Content -LiteralPath $log \"OK: removed $target\"\n"
+            "}\n"
         )
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         subprocess.Popen(
-            ["cmd.exe", "/c", str(bat)],
+            [
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-WindowStyle",
+                "Hidden",
+                "-Command",
+                script,
+            ],
             creationflags=flags,
         )
-        return
+        return log_path
 
     sh = Path(tempfile.gettempdir()) / "gridnotes-uninstall-cleanup.sh"
     sh.write_text(
         "#!/bin/bash\n"
-        "sleep 2\n"
+        "sleep 8\n"
         f'rm -rf "{install_root}"\n'
+        f'echo "OK: removed {install_root}" >> "{log_path}"\n'
         'rm -f "$0"\n',
         encoding="utf-8",
     )
     sh.chmod(0o755)
     subprocess.Popen(["/bin/bash", str(sh)])
+    return log_path
+
+
+def _chmod_and_retry(func, path: str, exc_info) -> None:
+    if not os.access(path, os.W_OK):
+        os.chmod(path, stat.S_IWUSR | stat.S_IREAD)
+        func(path)
+    else:
+        raise exc_info[1]
+
+
+def _force_rmtree(path: Path) -> None:
+    shutil.rmtree(path, onerror=_chmod_and_retry)
 
 
 def _remove_install_pointer() -> None:
@@ -101,20 +226,21 @@ def _remove_install_folder(install_root: Path) -> tuple[bool, str, bool]:
     if not install_root.is_dir():
         return True, "Install folder was already removed.", False
 
-    must_defer = _running_from_directory(install_root)
-    if not must_defer:
+    running_from_install = _running_from_directory(install_root)
+    if not running_from_install:
         try:
-            shutil.rmtree(install_root)
-            return True, f"Removed install folder:\n{install_root}", False
+            _force_rmtree(install_root)
+            if not install_root.is_dir():
+                return True, f"Removed install folder:\n{install_root}", False
         except OSError as exc:
             logger.warning("Immediate install removal failed: %s", exc)
-            must_defer = True
 
-    _schedule_install_folder_removal(install_root)
+    log_path = _schedule_install_folder_removal(install_root)
     return (
         True,
         "Install folder will be removed after GridNotes closes:\n"
-        f"{install_root}",
+        f"{install_root}\n\n"
+        f"If it remains, delete that folder manually or check:\n{log_path}",
         True,
     )
 
@@ -140,7 +266,7 @@ def _remove_user_data() -> tuple[bool, str]:
             continue
         seen.add(resolved)
         try:
-            shutil.rmtree(resolved)
+            _force_rmtree(resolved)
             removed_any = True
             messages.append(f"Removed:\n{resolved}")
         except OSError as exc:
@@ -166,27 +292,36 @@ def perform_uninstall(
     """Uninstall GridNotes. Call after closing the database connection."""
     result = UninstallResult(ok=True)
 
-    try:
-        if remove_desktop_shortcut():
-            result.shortcut_removed = True
-            result.messages.append("Removed the Desktop shortcut.")
-        else:
-            desktop = desktop_directory()
-            hint = desktop / f"{APP_SHORTCUT_NAME}.lnk"
-            if sys.platform != "win32":
-                hint = desktop / "Run GridNotes.command"
-            result.messages.append(f"No Desktop shortcut found ({hint}).")
-    except OSError as exc:
-        result.ok = False
-        result.messages.append(f"Could not remove Desktop shortcut:\n{exc}")
+    removed_shortcuts = remove_all_desktop_shortcuts()
+    if removed_shortcuts:
+        result.shortcut_removed = True
+        lines = "\n".join(f"  • {path}" for path in removed_shortcuts)
+        result.messages.append(f"Removed Desktop shortcut(s):\n{lines}")
+    else:
+        result.messages.append(
+            "No Desktop shortcut was found (checked Desktop and OneDrive Desktop)."
+        )
 
     if install_root is not None:
         _remove_install_pointer()
         ok, message, deferred = _remove_install_folder(install_root)
-        result.install_removed = ok
+        result.install_removed = ok and not deferred and not install_root.is_dir()
         result.install_removal_deferred = deferred
         result.messages.append(message)
         if not ok:
+            result.ok = False
+        elif not deferred and install_root.is_dir():
+            result.ok = False
+            result.messages.append(
+                f"Install folder could not be removed:\n{install_root}\n"
+                "Close GridNotes and delete this folder manually."
+            )
+    else:
+        result.messages.append(
+            "Could not find the install folder automatically. "
+            "Delete your GridNotes install folder manually (for example D:\\GridNotes)."
+        )
+        if not result.shortcut_removed and not remove_user_data:
             result.ok = False
 
     if remove_user_data:
@@ -195,11 +330,8 @@ def perform_uninstall(
         result.messages.append(message)
         if not ok:
             result.ok = False
-    elif install_root is None and not result.shortcut_removed:
-        result.ok = False
-        result.messages.append(
-            "Nothing to uninstall. GridNotes may be running from source without "
-            "using Install GridNotes.bat."
-        )
+
+    unregister_windows_uninstall(install_root)
+    result.messages.append("Removed GridNotes from Windows Settings → Apps.")
 
     return result

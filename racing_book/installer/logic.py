@@ -536,6 +536,52 @@ def write_windows_vbs_launcher(root: Path, venv_dir: Path) -> Path:
     return path
 
 
+def write_uninstaller_scripts(root: Path, venv_dir: Path) -> list[Path]:
+    """Create Uninstall GridNotes.bat/.vbs for Windows Settings → Apps."""
+    root = root.resolve()
+    py = venv_python(venv_dir)
+    created: list[Path] = []
+
+    uninstall_bat = root / "Uninstall GridNotes.bat"
+    uninstall_bat.write_text(
+        "@echo off\r\n"
+        "setlocal EnableExtensions\r\n"
+        'cd /d "%~dp0"\r\n'
+        f'set "PY={py}"\r\n'
+        'if not exist "%PY%" (\r\n'
+        '  echo GridNotes uninstall failed: missing .venv Python.\r\n'
+        "  pause\r\n"
+        "  exit /b 1\r\n"
+        ")\r\n"
+        '"%PY%" -m racing_book.installer.uninstall_cli %*\r\n'
+        "exit /b %ERRORLEVEL%\r\n",
+        encoding="utf-8",
+    )
+    created.append(uninstall_bat)
+
+    uninstall_vbs = root / "Uninstall GridNotes.vbs"
+    uninstall_vbs.write_text(
+        'Set fso = CreateObject("Scripting.FileSystemObject")\r\n'
+        'root = fso.GetParentFolderName(WScript.ScriptFullName)\r\n'
+        'bat = root & "\\Uninstall GridNotes.bat"\r\n'
+        'Set shell = CreateObject("WScript.Shell")\r\n'
+        'shell.CurrentDirectory = root\r\n'
+        'If Not fso.FileExists(bat) Then\r\n'
+        '  MsgBox "Uninstall GridNotes.bat is missing.", vbCritical, "GridNotes"\r\n'
+        '  WScript.Quit 1\r\n'
+        'End If\r\n'
+        'args = ""\r\n'
+        'For i = 0 To WScript.Arguments.Count - 1\r\n'
+        '  args = args & " " & Chr(34) & WScript.Arguments(i) & Chr(34)\r\n'
+        'Next\r\n'
+        'exitCode = shell.Run(Chr(34) & bat & Chr(34) & args, 0, True)\r\n'
+        'WScript.Quit exitCode\r\n',
+        encoding="utf-8",
+    )
+    created.append(uninstall_vbs)
+    return created
+
+
 def _launch_with_pythonw(install_root: Path, venv_dir: Path) -> tuple[bool, str]:
     """Start GridNotes without a console window."""
     pyw = venv_pythonw(venv_dir)
@@ -655,6 +701,8 @@ def write_launcher_scripts(root: Path, venv_dir: Path) -> list[Path]:
         )
         created.append(diagnose_bat)
         created.append(write_windows_vbs_launcher(root, venv_dir))
+        for path in write_uninstaller_scripts(root, venv_dir):
+            created.append(path)
         created.append(starter)
     else:
         run_sh = root / "Run GridNotes.command"
@@ -999,6 +1047,15 @@ class InstallRunner:
                     self._log(f"Could not create desktop shortcut: {exc}")
 
             save_install_location(self.root)
+
+            if sys.platform == "win32":
+                try:
+                    from .windows_apps import register_windows_uninstall
+
+                    register_windows_uninstall(self.root)
+                    self._log("Registered in Windows Settings → Apps")
+                except OSError as exc:
+                    self._log(f"Could not register in Windows Apps list: {exc}")
 
             self._step("Finished", 100)
             if self.build_standalone:

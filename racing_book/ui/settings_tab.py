@@ -32,7 +32,7 @@ from .appearance import (
 )
 from ..data.data_retention import DEFAULT_RETENTION, RETENTION_OPTIONS, SETTING_KEY, retention_label
 from ..data.db import connect_db, get_data_dir_path, get_db_file_size, get_db_path, get_setting, set_setting
-from ..installer.uninstall import read_registered_install_root
+from ..installer.uninstall import resolve_install_root
 from ..data.driver_cleanup import count_zero_race_drivers
 from ..app.feature_flags import iracing_data_api_auto_import_enabled
 from ..iracing.iracing_data_api import package_available, package_unavailable_reason
@@ -389,8 +389,9 @@ class SettingsTab(QWidget):
 
         uninstall_layout.addWidget(
             self._section_hint(
-                "Remove GridNotes from this computer. Your install folder and Desktop "
-                "shortcut are removed. Optionally delete your notes and database."
+                "Remove GridNotes from this computer. Same as Settings → Apps → "
+                "GridNotes → Uninstall. Your install folder and Desktop shortcut are "
+                "removed. Optionally delete your notes and database."
             )
         )
 
@@ -481,7 +482,7 @@ class SettingsTab(QWidget):
         self.apply_update_requested.emit()
 
     def refresh_uninstall_info(self) -> None:
-        install_root = read_registered_install_root()
+        install_root = resolve_install_root()
         data_dir = get_data_dir_path()
         self.chk_uninstall_remove_data.setToolTip(
             f"Removes everything under:\n{data_dir}"
@@ -502,7 +503,7 @@ class SettingsTab(QWidget):
         return self.chk_uninstall_remove_data.isChecked()
 
     def _request_uninstall(self) -> None:
-        install_root = read_registered_install_root()
+        install_root = resolve_install_root()
         remove_data = self.uninstall_remove_user_data()
         data_dir = get_data_dir_path()
 

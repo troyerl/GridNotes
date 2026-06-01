@@ -1,6 +1,6 @@
 # How to install GridNotes
 
-**Version 1.2.12**
+**Version 1.2.13**
 
 GridNotes helps you remember iRacing drivers you raced with and keep private notes.  
 You do **not** need to know how to code. Follow the steps below in order.
@@ -184,12 +184,25 @@ Windows blocked writing to **Program Files** without administrator permission.
 
 ### How do I uninstall GridNotes?
 
+**Option A — Windows Settings (recommended)**
+
+1. Open **Settings** → **Apps** → **Installed apps** (or **Apps & features**).
+2. Find **GridNotes** → **Uninstall**.
+3. Answer whether to delete your notes and database.
+
+**Option B — Inside GridNotes**
+
 1. Open GridNotes → **Settings** → **Maintenance** → **Uninstall**.
 2. Optionally check **Also delete my notes, database, and settings**.
 3. Click **Uninstall GridNotes…** and confirm.
 
-This removes the Desktop shortcut and your install folder (for example `D:\GridNotes`).  
+Both options remove the Desktop shortcut(s) and install folder (for example `D:\GridNotes`).  
+The install folder is deleted after GridNotes closes. If anything remains, delete  
+`D:\GridNotes` manually or check `%TEMP%\gridnotes-uninstall.log`.  
 Your data stays unless you choose to delete it.
+
+**Note:** GridNotes appears in the Apps list after you install with **`Install GridNotes.bat`**.  
+The **`GridNotes-Setup.exe`** installer registers automatically as well.
 
 ### I closed the app — how do I open it again?
 
