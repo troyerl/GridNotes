@@ -608,33 +608,47 @@ QProgressBar#safetyComponentBar::chunk {
 
 QTabWidget#mainTabs::pane {
     border: 1px solid {{border}};
-    border-radius: 8px;
+    border-radius: 0 8px 8px 8px;
     background-color: {{bg_window}};
     top: -1px;
 }
 
+QTabWidget#mainTabs > QTabBar {
+    background: transparent;
+    border: none;
+}
+
 QTabWidget#mainTabs > QTabBar::tab {
     background-color: {{bg_elevated}};
-    color: {{text_secondary}};
+    color: {{text_muted}};
     border: 1px solid {{border}};
     border-bottom: none;
     border-top-left-radius: 8px;
     border-top-right-radius: 8px;
-    padding: 10px 20px;
-    margin-right: 4px;
+    padding: 12px 28px;
+    margin-right: 6px;
     font-weight: 600;
-    min-width: 80px;
+    font-size: 14px;
+    min-width: 108px;
 }
 
 QTabWidget#mainTabs > QTabBar::tab:selected {
-    background-color: {{bg_window}};
-    color: {{text_heading}};
-    border-bottom: 1px solid {{bg_window}};
+    background-color: {{accent}};
+    color: {{text_on_accent}};
+    border-color: {{accent}};
+    font-weight: 700;
+    font-size: 14px;
+}
+
+QTabWidget#mainTabs > QTabBar::tab:selected:hover {
+    background-color: {{accent_hover}};
+    border-color: {{accent_hover}};
 }
 
 QTabWidget#mainTabs > QTabBar::tab:hover:!selected {
-    background-color: {{bg_header}};
+    background-color: {{bg_button_hover}};
     color: {{text_primary}};
+    border-color: {{border_strong}};
 }
 
 QWidget#settingsContent QLineEdit {

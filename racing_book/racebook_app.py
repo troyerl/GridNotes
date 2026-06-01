@@ -377,6 +377,10 @@ class RaceBookApp(QMainWindow):
 
         self.main_tabs = QTabWidget()
         self.main_tabs.setObjectName("mainTabs")
+        self.main_tabs.setDocumentMode(True)
+        main_tab_bar = self.main_tabs.tabBar()
+        main_tab_bar.setDrawBase(False)
+        main_tab_bar.setExpanding(False)
         root_layout.addWidget(self.main_tabs, stretch=1)
 
         drivers_tab = QWidget()
