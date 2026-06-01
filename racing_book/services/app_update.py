@@ -21,6 +21,7 @@ GITHUB_RELEASES_API = (
     f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest"
 )
 GITHUB_RELEASES_PAGE = f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest"
+AUTO_CHECK_UPDATES_KEY = "auto_check_updates_on_startup"
 REQUEST_TIMEOUT_SEC = 15
 _GITHUB_HEADERS = {
     "Accept": "application/vnd.github+json",

@@ -28,7 +28,13 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from ..services.app_update import GITHUB_RELEASES_PAGE, restart_application
+from ..services.app_update import (
+    AUTO_CHECK_UPDATES_KEY,
+    GITHUB_RELEASES_PAGE,
+    UpdateCheckResult,
+    is_frozen_build,
+    restart_application,
+)
 from ..services.app_update_worker import ApplySourceUpdateWorker, UpdateCheckWorker
 from ..ui.appearance import get_theme_id, normalize_theme_id
 from ..data.data_retention import DEFAULT_RETENTION, SETTING_KEY, purge_expired_race_results
@@ -106,6 +112,7 @@ class RaceBookApp(QMainWindow):
         self._api_test_worker: ApiConnectionTestWorker | None = None
         self._update_check_worker: UpdateCheckWorker | None = None
         self._apply_update_worker: ApplySourceUpdateWorker | None = None
+        self._update_check_on_startup = False
         self._api_fetch_worker: SubsessionFetchWorker | None = None
         self._api_fetch_queue: list[int] = []
         self._api_fetched_subsession_ids: set[int] = set()
@@ -127,6 +134,8 @@ class RaceBookApp(QMainWindow):
         self._run_data_retention_purge()
         self.init_ui()
         self.start_sdk_worker()
+        if get_setting(AUTO_CHECK_UPDATES_KEY, "0") == "1":
+            QTimer.singleShot(800, self._check_for_app_updates_on_startup)
 
     def _polish_property(self, widget: QWidget, name: str, value) -> None:
         widget.setProperty(name, value)
@@ -878,20 +887,70 @@ class RaceBookApp(QMainWindow):
         self.settings_tab.set_api_test_busy(False)
         self.settings_tab.show_api_test_result(ok, message)
 
-    def _check_for_app_updates(self) -> None:
+    def _check_for_app_updates_on_startup(self) -> None:
+        self._check_for_app_updates(on_startup=True)
+
+    def _check_for_app_updates(self, *, on_startup: bool = False) -> None:
         if self._update_check_worker is not None and self._update_check_worker.isRunning():
             return
-        logger.info("User requested application update check")
-        self.settings_tab.set_update_check_busy(True)
+        self._update_check_on_startup = on_startup
+        if on_startup:
+            logger.info("Automatic application update check on startup")
+        else:
+            logger.info("User requested application update check")
+            self.settings_tab.set_update_check_busy(True)
         self._update_check_worker = UpdateCheckWorker(parent=self)
         self._update_check_worker.finished.connect(self._on_update_check_finished)
         self._update_check_worker.start()
 
-    def _on_update_check_finished(self, result) -> None:
+    def _on_update_check_finished(self, result: UpdateCheckResult) -> None:
+        if self._update_check_on_startup:
+            self._update_check_on_startup = False
+            self._handle_startup_update_check(result)
+            return
         self.settings_tab.set_update_check_busy(False)
         self.settings_tab.show_update_check_result(result)
 
-    def _apply_app_update(self) -> None:
+    def _handle_startup_update_check(self, result: UpdateCheckResult) -> None:
+        if not result.update_available:
+            logger.info("Startup update check: already up to date")
+            return
+
+        self.settings_tab.show_update_check_result(result)
+        version_label = f"v{result.latest_version}" if result.latest_version else "a newer version"
+
+        if result.can_apply_in_place:
+            prompt = (
+                f"{version_label} of GridNotes is available.\n\n"
+                "Install the update now? GridNotes will download the latest code "
+                "and restart.\n\n"
+                "Your database and settings will be kept."
+            )
+        elif is_frozen_build():
+            prompt = (
+                f"{version_label} of GridNotes is available.\n\n"
+                "Open the download page to get the latest installer?"
+            )
+        else:
+            prompt = (
+                f"{version_label} of GridNotes is available.\n\n"
+                "Open the download page for update instructions?"
+            )
+
+        confirm = QMessageBox.question(
+            self,
+            "Update Available",
+            prompt,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            logger.info("User declined startup update")
+            return
+
+        self._apply_app_update(skip_confirm=True)
+
+    def _apply_app_update(self, *, skip_confirm: bool = False) -> None:
         result = self.settings_tab.last_update_check()
         if result is None:
             QMessageBox.information(
@@ -902,19 +961,20 @@ class RaceBookApp(QMainWindow):
             return
 
         if result.can_apply_in_place:
-            confirm = QMessageBox.question(
-                self,
-                "Update GridNotes?",
-                "Pull the latest code from GitHub and restart the application?\n\n"
-                "Your database and settings will be kept.",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
-            )
-            if confirm != QMessageBox.StandardButton.Yes:
-                return
+            if not skip_confirm:
+                confirm = QMessageBox.question(
+                    self,
+                    "Update GridNotes?",
+                    "Pull the latest code from GitHub and restart the application?\n\n"
+                    "Your database and settings will be kept.",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if confirm != QMessageBox.StandardButton.Yes:
+                    return
             if self._apply_update_worker is not None and self._apply_update_worker.isRunning():
                 return
-            logger.info("User requested in-place source update")
+            logger.info("Applying in-place source update")
             self.settings_tab.set_apply_update_busy(True)
             self._apply_update_worker = ApplySourceUpdateWorker(parent=self)
             self._apply_update_worker.finished.connect(self._on_apply_update_finished)

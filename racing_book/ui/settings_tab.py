@@ -18,7 +18,11 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from ..services.app_update import UpdateCheckResult, is_frozen_build
+from ..services.app_update import (
+    AUTO_CHECK_UPDATES_KEY,
+    UpdateCheckResult,
+    is_frozen_build,
+)
 from ..app.app_version import __version__
 from .appearance import (
     THEME_OPTIONS,
@@ -81,7 +85,7 @@ class SettingsTab(QWidget):
         self.btn_save_settings = QPushButton("Save settings")
         self.btn_save_settings.setObjectName("primaryBtn")
         self.btn_save_settings.setToolTip(
-            "Save retention, auto-import, and OAuth token settings"
+            "Save appearance, retention, update, and OAuth token settings"
         )
         self.btn_save_settings.clicked.connect(self._save_settings)
         header_layout.addWidget(self.btn_save_settings)
@@ -339,6 +343,18 @@ class SettingsTab(QWidget):
             )
         updates_layout.addWidget(self._section_hint(updates_hint))
 
+        self.chk_auto_check_updates = QCheckBox(
+            "Check for updates automatically when GridNotes opens"
+        )
+        self.chk_auto_check_updates.setChecked(
+            get_setting(AUTO_CHECK_UPDATES_KEY, "0") == "1"
+        )
+        self.chk_auto_check_updates.setToolTip(
+            "When an update is available, GridNotes will ask whether to install it "
+            "when you open the app. Takes effect after you save settings and restart."
+        )
+        updates_layout.addWidget(self.chk_auto_check_updates)
+
         self.version_label = QLabel(f"Installed version: v{__version__}")
         self.version_label.setObjectName("statValue")
         updates_layout.addWidget(self.version_label)
@@ -539,6 +555,10 @@ class SettingsTab(QWidget):
     def _save_settings(self) -> None:
         set_setting(SETTING_KEY, self.current_retention_value())
         set_theme_id(self.current_theme_value())
+        set_setting(
+            AUTO_CHECK_UPDATES_KEY,
+            "1" if self.chk_auto_check_updates.isChecked() else "0",
+        )
         if iracing_data_api_auto_import_enabled():
             self._save_api_settings()
         self._update_retention_status_label()
