@@ -1,5 +1,7 @@
 # GridNotes
 
+**Version 1.1.0**
+
 Desktop app for **iRacing driver scouting**: keep personal notes, review race history and stats, and optionally see who is in your current session while iRacing is running (Windows).
 
 All data stays on your machine in a local SQLite database — no account or cloud sync.
@@ -29,9 +31,9 @@ Custom JSON should include `subsession_id` (or `session_id`) on each race object
 2. **`{"races": [{"subsession_id": …, "results": […]}]}`**
 3. A top-level **array** of race objects with the same shape.
 
-## Install from downloaded source (graphical wizard)
+## Install from downloaded source (graphical wizard, v1.1.0+)
 
-If you downloaded or cloned the project folder (not the Windows `.exe` installer), use the built-in setup wizard:
+If you downloaded or cloned the project folder (not the Windows `.exe` installer), use the built-in setup wizard. Full details: **[INSTALL.md](INSTALL.md)**.
 
 **Windows:** double-click `Install GridNotes.bat`  
 **macOS:** double-click `Install GridNotes.command` (first time: right-click → Open if Gatekeeper blocks it)
@@ -45,13 +47,13 @@ python install_gui.py
 The wizard will:
 
 1. Check that Python 3.10+ is installed  
-2. Create a `.venv` folder in the project  
-3. Install dependencies (with a live progress log)  
-4. Create `Run GridNotes.bat` or `Run GridNotes.command` to start the app  
+2. Let you choose an **install location** (copies source there if you pick a new folder)  
+3. Create a `.venv` and install dependencies (with a live progress log)  
+4. Optionally **build a standalone app** to a **build output folder** you choose (Windows)  
+5. Optionally add a **Desktop shortcut**  
+6. Create `Run GridNotes.bat` or `Run GridNotes.command` in the install folder  
 
-When finished, click **Launch GridNotes** or use the run script. Your database stays in this folder when running from source.
-
-On Windows, you can optionally check **Also build a standalone Windows app** to run PyInstaller and produce `dist\GridNotes\GridNotes.exe`.
+When finished, click **Launch GridNotes**, use the run script, or the Desktop shortcut. Your database stays in the install folder when running from source.
 
 ## Run from source (manual)
 

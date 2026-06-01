@@ -1,5 +1,7 @@
 # Installing GridNotes
 
+**Current version: 1.1.0**
+
 GridNotes is a desktop app for iRacing driver scouting. All data stays on your computer.
 
 This guide is for **new users**. Pick the section that matches what you downloaded.
@@ -12,16 +14,16 @@ This guide is for **new users**. Pick the section that matches what you download
 |-----------|--------|
 | `GridNotes-Setup.exe` | [Path A — Windows installer](#path-a--windows-installer-easiest) |
 | `GridNotes.exe` inside a zip folder | [Path A — Windows installer](#path-a--windows-installer-easiest) (unzip first) |
-| A project folder with `Install GridNotes.bat` | [Path B — Install from source](#path-b--install-from-source-code) |
+| A folder with `Install GridNotes.bat` or `Install GridNotes.command` | [Path B — Graphical install wizard](#path-b--graphical-install-wizard) |
 
 ---
 
 ## Path A — Windows installer (easiest)
 
-**No Python required.**
+**No Python required.** Best for users who receive a pre-built app.
 
 1. **Get the app**
-   - Download `GridNotes-Setup.exe` from a release, or
+   - Download `GridNotes-Setup.exe` from a [GitHub release](https://github.com/troyerl/race_book/releases), or
    - Download and unzip `GridNotes-Windows.zip`.
 
 2. **Install or run**
@@ -31,125 +33,181 @@ This guide is for **new users**. Pick the section that matches what you download
 3. **Open GridNotes**
    - Use the Start menu or desktop shortcut (if you created one during setup).
 
-4. **First steps in the app**
-   - Use **Controls → Import race JSON** to load iRacing race results.
+4. **First steps**
+   - **Controls → Import race JSON** to load iRacing race results.
    - Click a driver in the table to add notes or like/dislike.
 
 **Where your data is stored**
 
 ```
-%APPDATA%\GridNotes\
+%APPDATA%\GridNotes\driver_history.db
 ```
 
-Your database file is `driver_history.db` in that folder. Updates to the app do not delete it.
+Installing a newer `.exe` over an older one does **not** delete your database.
 
 ---
 
-## Path B — Install from source code
+## Path B — Graphical install wizard
 
-Use this if you downloaded the GitHub project (ZIP) or cloned the repository. You will use the graphical install wizard in the project folder.
+Use this when you downloaded the **source code** (GitHub ZIP or git clone). You do **not** need to use `pip` or the terminal yourself—the wizard does it for you.
 
-### Windows
+### Before you start
 
-1. **Install Python 3.10 or newer**
-   - Download from [python.org/downloads](https://www.python.org/downloads/).
-   - On the installer’s first screen, enable **“Add python.exe to PATH”**.
-   - Complete the installation.
+1. Install **Python 3.10 or newer**
+   - [python.org/downloads](https://www.python.org/downloads/)
+   - **Windows:** on the first installer screen, check **“Add python.exe to PATH”**.
 
-2. **Get the GridNotes folder**
-   - Download the repository ZIP from GitHub and unzip it, or clone with Git.
-   - You should see files such as `main.py`, `Install GridNotes.bat`, and `requirements.txt`.
+2. Unzip or clone the project so you have a folder containing:
+   - `Install GridNotes.bat` (Windows) or `Install GridNotes.command` (macOS)
+   - `install_gui.py`, `main.py`, `requirements.txt`
 
-3. **Run the install wizard**
-   - Open the GridNotes folder.
-   - Double-click **`Install GridNotes.bat`**.
-   - Click **Install** and wait for the progress bar to finish (internet required).
+### Start the wizard
 
-4. **Start the app**
-   - Click **Launch GridNotes** in the wizard, or
-   - Double-click **`Run GridNotes.bat`** anytime later.
+| Platform | Action |
+|----------|--------|
+| **Windows** | Double-click **`Install GridNotes.bat`** |
+| **macOS** | Double-click **`Install GridNotes.command`** (if blocked: right-click → **Open** → **Open**) |
+| **Any** | In that folder: `python install_gui.py` (or `python3` on Mac) |
 
-**Optional:** Check **“Also build a standalone Windows app”** in the wizard to create `dist\GridNotes\GridNotes.exe`. This takes several minutes and is not required to run the app.
+### Wizard options (version 1.1.0+)
 
-### macOS
+| Option | What it does |
+|--------|----------------|
+| **Install location** | Where GridNotes is copied and where `.venv` and your database live. See [default folders](#default-install-folders) below. |
+| **Browse…** | Pick any folder you prefer. |
+| **Program Files** (Windows only) | Sets install path to `C:\Program Files\GridNotes`. You may need to run **`Install GridNotes.bat` as administrator**. |
+| **Create a shortcut on the Desktop** | Adds a Desktop shortcut (`.lnk` on Windows, launcher on Mac). On by default. |
+| **Build a standalone Windows app** | Runs PyInstaller; optional, takes several minutes. |
+| **Build output folder** | Where `GridNotes.exe` is written (default: `{install folder}\dist`). Only when the build option is checked. |
+| **Install** | Copies files (if needed), creates `.venv`, installs packages, creates `Run GridNotes.bat` / `.command`. |
 
-Live iRacing session features require Windows. On Mac you can still import JSON, view stats, and keep notes.
+When installation finishes, click **Launch GridNotes**, use the **Desktop** shortcut, or run the launcher script in your **install folder** (not necessarily the original download folder).
 
-1. **Install Python 3.10+** from [python.org](https://www.python.org/downloads/) or Homebrew.
+### Default install folders
 
-2. **Get and open the GridNotes folder** (same as Windows step 2).
+These are filled in automatically; you can change them with **Browse…**.
 
-3. **Run the install wizard**
-   - Double-click **`Install GridNotes.command`**.
-   - If macOS says the file can’t be opened: right-click → **Open** → **Open** again.
+| Platform | Default path | Notes |
+|----------|--------------|--------|
+| **Windows** | `%LOCALAPPDATA%\Programs\GridNotes` | Per-user “Programs” folder; **no admin password** |
+| **Windows** (optional) | `C:\Program Files\GridNotes` | All users; use **Program Files** button + run installer **as administrator** |
+| **macOS** | `~/Applications/GridNotes` | Your user Applications folder; no admin password |
+| **Linux** | `~/.local/share/GridNotes` | Standard user app data location |
 
-4. **Install and launch**
-   - Click **Install**, then **Launch GridNotes**, or use **`Run GridNotes.command`** later.
+**Important:** If you accept the default, your data file is:
 
-**Where your data is stored (source install)**
+```
+{install location}\driver_history.db
+```
 
-`driver_history.db` in the GridNotes project folder (same folder as `main.py`).
+For example on Windows:
+
+```
+C:\Users\YourName\AppData\Local\Programs\GridNotes\driver_history.db
+```
+
+The original **download/ZIP folder is not modified** unless you leave the install location pointing there.
+
+### Windows quick steps
+
+1. Install Python 3.10+ with **Add to PATH**.
+2. Double-click **`Install GridNotes.bat`**.
+3. Confirm **Install location** (default is fine for most people).
+4. Leave **Desktop shortcut** checked if you want one.
+5. Click **Install** → wait for the log to finish → **Launch GridNotes**.
+
+### macOS quick steps
+
+1. Install Python 3.10+.
+2. Double-click **`Install GridNotes.command`**.
+3. Confirm **Install location** (`~/Applications/GridNotes` by default).
+4. Click **Install** → **Launch GridNotes**.
+
+Live iRacing session scouting requires **Windows** with iRacing running. On Mac you can still import JSON and use notes/stats.
 
 ---
 
 ## After installation (all users)
 
 1. **Import race history** — **Controls → Import race JSON**  
-   Supports iRacing `event_result` exports and the JSON formats described in [README.md](README.md).
+   See [README.md](README.md) for supported JSON formats.
 
-2. **Scout drivers** — Select a row to open notes, like/dislike, and safety stats.
+2. **Scout drivers** — Select a row for notes, like/dislike, and safety stats.
 
-3. **Settings** — Open the **Settings** tab for appearance, data retention, and more. Click **Save settings** after changes.
+3. **Settings** — **Settings** tab: appearance (light/dark), data retention, etc. Click **Save settings** after changes.
 
-4. **Live session (Windows only)** — With iRacing running, use **Live Mode** and **Current session only** to focus on drivers in your lobby. Full race history still comes from JSON import.
+4. **Live session (Windows only)** — With iRacing running: **Live Mode** and **Current session only**.
 
-5. **Check for updates (source installs)** — **Settings → Maintenance → Check for updates**. If updates are available, use **Update now** to pull the latest code and restart (or open the download page for a packaged build).
+5. **Updates (source installs)** — **Settings → Maintenance → Check for updates** → **Update now** to pull latest code and restart, or open the download page for a packaged build.
+
+---
+
+## Where is my data?
+
+| How you installed | Database | Log file |
+|-------------------|----------|----------|
+| `GridNotes-Setup.exe` / portable `.exe` | `%APPDATA%\GridNotes\driver_history.db` | `%APPDATA%\GridNotes\gridnotes.log` |
+| Install wizard (default location) | `{install location}\driver_history.db` | `{install location}\gridnotes.log` |
+| `python main.py` in download folder without wizard | `driver_history.db` next to `main.py` | `gridnotes.log` in same folder |
 
 ---
 
 ## Troubleshooting
 
-### “Python was not found” (Path B on Windows)
+### “Python was not found” (Path B, Windows)
 
-- Reinstall Python from [python.org](https://www.python.org/downloads/).
-- Enable **“Add python.exe to PATH”**.
-- Close and reopen the GridNotes folder, then run `Install GridNotes.bat` again.
+- Reinstall Python with **“Add python.exe to PATH”**.
+- Close the folder, reopen it, run **`Install GridNotes.bat`** again.
 
 ### Install wizard won’t start
 
-From a terminal in the project folder:
+From the project folder:
 
 ```bash
 python install_gui.py
 ```
 
-On Mac, use `python3` instead of `python` if needed.
+On Mac use `python3` if `python` is missing.
+
+### “Access denied” or install fails (Program Files)
+
+- Use the default **`%LOCALAPPDATA%\Programs\GridNotes`** (no admin), or  
+- Right-click **`Install GridNotes.bat`** → **Run as administrator** when using `C:\Program Files\GridNotes`.
+
+### Desktop shortcut missing
+
+- Run the wizard again with **Create a shortcut on the Desktop** checked, or  
+- Use **`Run GridNotes.bat`** / **`Run GridNotes.command`** in your install folder.
+
+### Standalone build failed
+
+- Open the install log in the wizard for PyInstaller errors.
+- You can still run GridNotes from source via **`Run GridNotes.bat`** without building `.exe`.
 
 ### App won’t connect to iRacing
 
-- Live SDK features work on **Windows** with **iRacing running** and you in a session.
-- Importing race results does **not** require the SDK — use **Import race JSON**.
+- Live SDK needs **Windows**, **iRacing running**, and you in a session.
+- Race history import uses **Import race JSON** only—no SDK required.
 
-### Something else went wrong
+### Something else
 
-Check the log file:
-
-| How you run GridNotes | Log file |
-|-----------------------|----------|
-| Installed `.exe` / Setup | `%APPDATA%\GridNotes\gridnotes.log` |
-| From source (`Run GridNotes.bat`) | `gridnotes.log` in the project folder |
-
-The log is cleared each time the app starts.
+Check the log (see [Where is my data?](#where-is-my-data)). The log is cleared each time the app starts.
 
 ---
 
-## Building an installer (advanced, for developers)
+## Building a Windows installer (developers)
 
-If you are packaging GridNotes for others on Windows, see [README.md — Build a Windows installer](README.md#build-a-windows-installer).
+To produce `GridNotes-Setup.exe` for others, on a Windows PC with Python 3.10+:
+
+```bat
+scripts\build_installer.bat
+```
+
+See [README.md — Build a Windows installer](README.md#build-a-windows-installer). Bump `racing_book/app_version.py` and `scripts/racing_book.iss` when releasing a new version.
 
 ---
 
 ## More help
 
-- Feature overview and JSON formats: [README.md](README.md)
-- Run from source without the wizard: [README.md — Run from source](README.md#run-from-source-manual)
+- Features and JSON formats: [README.md](README.md)
+- Manual install (no wizard): [README.md — Run from source](README.md#run-from-source-manual)

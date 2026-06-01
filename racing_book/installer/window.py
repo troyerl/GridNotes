@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from pathlib import Path
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QFileDialog,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMessageBox,
     QProgressBar,
@@ -25,20 +28,30 @@ from ..appearance import THEME_DARK_ID
 from ..app_icon import load_app_icon
 from ..theme import apply_app_theme, configure_widget_scrollbars
 
-from .logic import check_python, find_project_root, venv_python
+from .logic import (
+    check_python,
+    default_build_output_dir,
+    default_install_location,
+    default_install_location_hint,
+    find_project_root,
+    is_valid_install_root,
+    program_files_install_location,
+    venv_python,
+)
 from .worker import InstallWorker
 
 
 class InstallWizardWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self._root = find_project_root()
+        self._source_root = find_project_root()
+        self._install_root = default_install_location()
         self._worker: InstallWorker | None = None
         self._install_succeeded = False
 
         self.setWindowTitle("Install GridNotes")
-        self.setMinimumSize(640, 520)
-        self.resize(720, 560)
+        self.setMinimumSize(680, 620)
+        self.resize(760, 660)
 
         icon = load_app_icon()
         if icon is not None:
@@ -55,21 +68,38 @@ class InstallWizardWindow(QMainWindow):
         layout.addWidget(title)
 
         intro = QLabel(
-            "This wizard sets up GridNotes on your computer from the downloaded source code. "
-            "It creates a private Python environment in this folder, installs dependencies, "
-            "and adds a shortcut you can use to launch the app."
+            "Set up GridNotes from the downloaded source code. Choose where to install, "
+            "optionally build a standalone app to a folder you pick, and add a desktop shortcut."
         )
         intro.setObjectName("sectionHint")
         intro.setWordWrap(True)
         layout.addWidget(intro)
 
-        self.folder_label = QLabel(f"Install location:\n{self._root}")
-        self.folder_label.setObjectName("statValue")
-        self.folder_label.setWordWrap(True)
-        self.folder_label.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
+        install_label = QLabel("Install location")
+        install_label.setObjectName("statInlineLabel")
+        layout.addWidget(install_label)
+
+        install_row = QHBoxLayout()
+        install_row.setSpacing(8)
+        self.install_path_input = QLineEdit(str(self._install_root))
+        self.install_path_input.setPlaceholderText("Folder where GridNotes will be installed")
+        install_row.addWidget(self.install_path_input, stretch=1)
+        self.btn_browse_install = QPushButton("Browse…")
+        self.btn_browse_install.clicked.connect(self._browse_install_dir)
+        install_row.addWidget(self.btn_browse_install)
+        self.btn_program_files = QPushButton("Program Files")
+        self.btn_program_files.setVisible(sys.platform == "win32")
+        self.btn_program_files.setToolTip(
+            "Use C:\\Program Files\\GridNotes (may require running the installer as administrator)"
         )
-        layout.addWidget(self.folder_label)
+        self.btn_program_files.clicked.connect(self._use_program_files_location)
+        install_row.addWidget(self.btn_program_files)
+        layout.addLayout(install_row)
+
+        install_hint = QLabel(default_install_location_hint())
+        install_hint.setObjectName("sectionHint")
+        install_hint.setWordWrap(True)
+        layout.addWidget(install_hint)
 
         ok, python_message = check_python()
         self.python_label = QLabel(python_message)
@@ -78,14 +108,34 @@ class InstallWizardWindow(QMainWindow):
         layout.addWidget(self.python_label)
 
         self.build_checkbox = QCheckBox(
-            "Also build a standalone Windows app (GridNotes.exe in dist/)"
+            "Build a standalone Windows app (GridNotes.exe)"
         )
         self.build_checkbox.setVisible(sys.platform == "win32")
         self.build_checkbox.setToolTip(
-            "Requires PyInstaller and takes several minutes. "
-            "Skip this if you only want to run from source."
+            "Runs PyInstaller and writes the built app to the folder below."
         )
+        self.build_checkbox.toggled.connect(self._on_build_toggled)
         layout.addWidget(self.build_checkbox)
+
+        build_label = QLabel("Build output folder")
+        build_label.setObjectName("statInlineLabel")
+        layout.addWidget(build_label)
+
+        build_row = QHBoxLayout()
+        build_row.setSpacing(8)
+        self.build_path_input = QLineEdit(str(default_build_output_dir(self._install_root)))
+        self.build_path_input.setPlaceholderText("Folder for GridNotes.exe and bundled files")
+        self.build_path_input.setEnabled(False)
+        build_row.addWidget(self.build_path_input, stretch=1)
+        self.btn_browse_build = QPushButton("Browse…")
+        self.btn_browse_build.setEnabled(False)
+        self.btn_browse_build.clicked.connect(self._browse_build_dir)
+        build_row.addWidget(self.btn_browse_build)
+        layout.addLayout(build_row)
+
+        self.desktop_checkbox = QCheckBox("Create a shortcut on the Desktop")
+        self.desktop_checkbox.setChecked(True)
+        layout.addWidget(self.desktop_checkbox)
 
         self.step_label = QLabel("Ready to install.")
         self.step_label.setObjectName("statInlineLabel")
@@ -132,6 +182,72 @@ class InstallWizardWindow(QMainWindow):
                 "Fix the Python version issue above, then restart this installer."
             )
 
+    def _on_build_toggled(self, checked: bool) -> None:
+        self.build_path_input.setEnabled(checked)
+        self.btn_browse_build.setEnabled(checked)
+        if checked and not self.build_path_input.text().strip():
+            self.build_path_input.setText(
+                str(default_build_output_dir(Path(self.install_path_input.text().strip())))
+            )
+
+    def _use_program_files_location(self) -> None:
+        pf = program_files_install_location()
+        if pf is None:
+            return
+        self.install_path_input.setText(str(pf))
+        if self.build_checkbox.isChecked():
+            self.build_path_input.setText(str(default_build_output_dir(pf)))
+
+    def _browse_install_dir(self) -> None:
+        start = self.install_path_input.text().strip() or str(self._source_root)
+        chosen = QFileDialog.getExistingDirectory(
+            self,
+            "Choose install location",
+            start,
+        )
+        if not chosen:
+            return
+        self.install_path_input.setText(chosen)
+        if self.build_checkbox.isChecked():
+            self.build_path_input.setText(
+                str(default_build_output_dir(Path(chosen)))
+            )
+
+    def _browse_build_dir(self) -> None:
+        start = self.build_path_input.text().strip() or str(
+            default_build_output_dir(Path(self.install_path_input.text().strip()))
+        )
+        chosen = QFileDialog.getExistingDirectory(
+            self,
+            "Choose build output folder",
+            start,
+        )
+        if chosen:
+            self.build_path_input.setText(chosen)
+
+    def _resolved_install_root(self) -> Path | None:
+        text = self.install_path_input.text().strip()
+        if not text:
+            QMessageBox.warning(self, "Install location", "Choose a folder to install into.")
+            return None
+        path = Path(text).expanduser()
+        valid, reason = is_valid_install_root(path)
+        if not valid:
+            QMessageBox.warning(self, "Install location", reason)
+            return None
+        return path
+
+    def _resolved_build_output_dir(self) -> Path | None:
+        text = self.build_path_input.text().strip()
+        if not text:
+            QMessageBox.warning(
+                self,
+                "Build output folder",
+                "Choose a folder for the standalone build.",
+            )
+            return None
+        return Path(text).expanduser()
+
     def append_log(self, line: str) -> None:
         self.log_view.append(line)
         self.log_view.verticalScrollBar().setValue(
@@ -141,6 +257,12 @@ class InstallWizardWindow(QMainWindow):
     def _set_busy(self, busy: bool) -> None:
         self.btn_install.setEnabled(not busy)
         self.build_checkbox.setEnabled(not busy)
+        self.install_path_input.setEnabled(not busy)
+        self.btn_browse_install.setEnabled(not busy)
+        self.btn_program_files.setEnabled(not busy)
+        self.build_path_input.setEnabled(not busy and self.build_checkbox.isChecked())
+        self.btn_browse_build.setEnabled(not busy and self.build_checkbox.isChecked())
+        self.desktop_checkbox.setEnabled(not busy)
         self.btn_cancel.setText("Cancel" if busy else "Close")
         if busy:
             self.btn_launch.setVisible(False)
@@ -149,6 +271,34 @@ class InstallWizardWindow(QMainWindow):
         if self._worker is not None and self._worker.isRunning():
             return
 
+        install_root = self._resolved_install_root()
+        if install_root is None:
+            return
+
+        build_output_dir = None
+        if self.build_checkbox.isChecked():
+            build_output_dir = self._resolved_build_output_dir()
+            if build_output_dir is None:
+                return
+
+        if (
+            install_root.resolve() != self._source_root.resolve()
+            and install_root.exists()
+            and any(install_root.iterdir())
+        ):
+            res = QMessageBox.question(
+                self,
+                "Install into this folder?",
+                f"{install_root}\n\n"
+                "This folder is not empty. GridNotes will copy files here and may "
+                "overwrite existing files with the same names. Continue?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if res != QMessageBox.StandardButton.Yes:
+                return
+
+        self._install_root = install_root.resolve()
         self.log_view.clear()
         self.progress.setValue(0)
         self._install_succeeded = False
@@ -156,8 +306,11 @@ class InstallWizardWindow(QMainWindow):
         self.step_label.setText("Installing…")
 
         self._worker = InstallWorker(
-            root=self._root,
+            source_root=self._source_root,
+            install_root=self._install_root,
             build_standalone=self.build_checkbox.isChecked(),
+            build_output_dir=build_output_dir,
+            create_desktop_shortcut=self.desktop_checkbox.isChecked(),
             parent=self,
         )
         self._worker.step_changed.connect(self.step_label.setText)
@@ -182,18 +335,35 @@ class InstallWizardWindow(QMainWindow):
             QMessageBox.warning(self, "Installation Failed", message)
 
     def _launch_app(self) -> None:
-        py = venv_python(self._root / ".venv")
-        main_py = self._root / "main.py"
+        root = self._install_root
+
+        if self.build_checkbox.isChecked():
+            build_dir = Path(self.build_path_input.text().strip()).expanduser()
+            standalone_exe = build_dir / "GridNotes" / "GridNotes.exe"
+            if standalone_exe.is_file():
+                subprocess.Popen(
+                    [str(standalone_exe)],
+                    cwd=str(standalone_exe.parent),
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+                self.close()
+                return
+
+        py = venv_python(root / ".venv")
+        main_py = root / "main.py"
         if not py.is_file() or not main_py.is_file():
             QMessageBox.warning(
                 self,
                 "Cannot Launch",
-                "Run Install first, or use Run GridNotes.bat / Run GridNotes.command.",
+                "Run Install first, or use the launcher in your install folder.",
             )
             return
         subprocess.Popen(
             [str(py), str(main_py)],
-            cwd=str(self._root),
+            cwd=str(root),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,

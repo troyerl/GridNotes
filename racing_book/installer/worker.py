@@ -18,13 +18,19 @@ class InstallWorker(QThread):
     def __init__(
         self,
         *,
-        root: Path | None = None,
+        source_root: Path | None = None,
+        install_root: Path | None = None,
         build_standalone: bool = False,
+        build_output_dir: Path | None = None,
+        create_desktop_shortcut: bool = False,
         parent=None,
     ) -> None:
         super().__init__(parent)
-        self._root = root or find_project_root()
+        self._source_root = source_root or find_project_root()
+        self._install_root = install_root or self._source_root
         self._build_standalone = build_standalone
+        self._build_output_dir = build_output_dir
+        self._create_desktop_shortcut = create_desktop_shortcut
         self._cancel_requested = False
 
     def request_cancel(self) -> None:
@@ -32,8 +38,11 @@ class InstallWorker(QThread):
 
     def run(self) -> None:
         runner = InstallRunner(
-            self._root,
+            self._source_root,
+            self._install_root,
             build_standalone=self._build_standalone,
+            build_output_dir=self._build_output_dir,
+            create_desktop_shortcut=self._create_desktop_shortcut,
             on_log=self.log_line.emit,
             on_step=self.step_changed.emit,
             on_progress=self.progress_changed.emit,
