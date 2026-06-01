@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
@@ -31,6 +32,7 @@ from .appearance import (
 )
 from ..data.data_retention import DEFAULT_RETENTION, RETENTION_OPTIONS, SETTING_KEY, retention_label
 from ..data.db import connect_db, get_data_dir_path, get_db_file_size, get_db_path, get_setting, set_setting
+from ..installer.uninstall import read_registered_install_root
 from ..data.driver_cleanup import count_zero_race_drivers
 from ..app.feature_flags import iracing_data_api_auto_import_enabled
 from ..iracing.iracing_data_api import package_available, package_unavailable_reason
@@ -59,6 +61,7 @@ class SettingsTab(QWidget):
     zero_race_cleanup_requested = pyqtSignal()
     check_updates_requested = pyqtSignal()
     apply_update_requested = pyqtSignal()
+    uninstall_requested = pyqtSignal(bool)  # remove_user_data
     api_test_requested = pyqtSignal(str)  # access_token
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -379,12 +382,52 @@ class SettingsTab(QWidget):
         updates_layout.addWidget(self.update_status)
 
         layout.addWidget(updates_group)
+
+        uninstall_group = QGroupBox("Uninstall")
+        uninstall_layout = QVBoxLayout(uninstall_group)
+        uninstall_layout.setSpacing(10)
+
+        uninstall_layout.addWidget(
+            self._section_hint(
+                "Remove GridNotes from this computer. Your install folder and Desktop "
+                "shortcut are removed. Optionally delete your notes and database."
+            )
+        )
+
+        self.uninstall_install_label = QLabel("")
+        self.uninstall_install_label.setObjectName("sectionHint")
+        self.uninstall_install_label.setWordWrap(True)
+        self.uninstall_install_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        uninstall_layout.addWidget(self.uninstall_install_label)
+
+        self.chk_uninstall_remove_data = QCheckBox(
+            "Also delete my notes, database, and settings"
+        )
+        self.chk_uninstall_remove_data.setToolTip(
+            f"Removes everything under:\n{get_data_dir_path()}"
+        )
+        uninstall_layout.addWidget(self.chk_uninstall_remove_data)
+
+        self.btn_uninstall = QPushButton("Uninstall GridNotes…")
+        self.btn_uninstall.setObjectName("dangerBtn")
+        self.btn_uninstall.clicked.connect(self._request_uninstall)
+        uninstall_layout.addWidget(self.btn_uninstall)
+
+        self.uninstall_status = QLabel("")
+        self.uninstall_status.setObjectName("sectionHint")
+        self.uninstall_status.setWordWrap(True)
+        uninstall_layout.addWidget(self.uninstall_status)
+
+        layout.addWidget(uninstall_group)
         layout.addStretch()
         return page
 
     def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)
         self.refresh_storage_info()
+        self.refresh_uninstall_info()
         self._update_zero_race_status_label()
         if iracing_data_api_auto_import_enabled():
             self._update_api_package_status()
@@ -436,6 +479,74 @@ class SettingsTab(QWidget):
 
     def _request_apply_update(self) -> None:
         self.apply_update_requested.emit()
+
+    def refresh_uninstall_info(self) -> None:
+        install_root = read_registered_install_root()
+        data_dir = get_data_dir_path()
+        self.chk_uninstall_remove_data.setToolTip(
+            f"Removes everything under:\n{data_dir}"
+        )
+        if install_root is not None:
+            self.uninstall_install_label.setText(
+                f"Installed copy:\n{install_root}\n\nUser data:\n{data_dir}"
+            )
+            self.btn_uninstall.setEnabled(True)
+        else:
+            self.uninstall_install_label.setText(
+                "No install folder was registered with Install GridNotes.bat.\n\n"
+                f"You can still remove your user data:\n{data_dir}"
+            )
+            self.btn_uninstall.setEnabled(True)
+
+    def uninstall_remove_user_data(self) -> bool:
+        return self.chk_uninstall_remove_data.isChecked()
+
+    def _request_uninstall(self) -> None:
+        install_root = read_registered_install_root()
+        remove_data = self.uninstall_remove_user_data()
+        data_dir = get_data_dir_path()
+
+        if install_root is None and not remove_data:
+            QMessageBox.information(
+                self,
+                "Uninstall",
+                "Turn on “Also delete my notes, database, and settings” to remove "
+                "your GridNotes data, or run Install GridNotes.bat from your download "
+                "folder if you need to remove an installed copy.",
+            )
+            return
+
+        lines = ["This cannot be undone.", ""]
+        if install_root is not None:
+            lines.append(f"• Remove install folder:\n  {install_root}")
+            lines.append("• Remove Desktop shortcut")
+        if remove_data:
+            lines.append(f"• Delete your data:\n  {data_dir}")
+        else:
+            lines.append(f"• Keep your data:\n  {data_dir}")
+        lines.append("")
+        lines.append("GridNotes will close when you continue.")
+
+        if (
+            QMessageBox.question(
+                self,
+                "Uninstall GridNotes?",
+                "\n".join(lines),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            != QMessageBox.StandardButton.Yes
+        ):
+            return
+
+        self.uninstall_requested.emit(remove_data)
+
+    def show_uninstall_result(self, ok: bool, message: str) -> None:
+        self.uninstall_status.setText(message)
+        theme_id = get_theme_id()
+        self.uninstall_status.setStyleSheet(
+            f"color: {status_message_color(theme_id, ok=ok)};"
+        )
 
     def last_update_check(self) -> UpdateCheckResult | None:
         return self._last_update_check

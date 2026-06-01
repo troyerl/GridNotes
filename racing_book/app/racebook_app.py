@@ -411,6 +411,7 @@ class RaceBookApp(QMainWindow):
         self.settings_tab.check_updates_requested.connect(self._check_for_app_updates)
         self.settings_tab.apply_update_requested.connect(self._apply_app_update)
         self.settings_tab.zero_race_cleanup_requested.connect(self._cleanup_zero_race_drivers)
+        self.settings_tab.uninstall_requested.connect(self._uninstall_application)
         if iracing_data_api_auto_import_enabled():
             self.settings_tab.api_test_requested.connect(self._test_iracing_api_connection)
         self.main_tabs.addTab(self.settings_tab, "Settings")
@@ -1008,6 +1009,41 @@ class RaceBookApp(QMainWindow):
         self.settings_tab.show_apply_update_result(True, message)
         logger.info("Source update applied; restarting application")
         restart_application()
+
+    def _uninstall_application(self, remove_user_data: bool) -> None:
+        from ..installer.uninstall import perform_uninstall, read_registered_install_root
+
+        install_root = read_registered_install_root()
+        if hasattr(self.settings_tab, "btn_uninstall"):
+            self.settings_tab.btn_uninstall.setEnabled(False)
+
+        if hasattr(self, "_db_conn"):
+            try:
+                self._db_conn.close()
+            except Exception:
+                pass
+            del self._db_conn
+
+        result = perform_uninstall(
+            install_root=install_root,
+            remove_user_data=remove_user_data,
+        )
+        self.settings_tab.show_uninstall_result(result.ok, result.summary())
+
+        if result.ok:
+            QMessageBox.information(
+                self,
+                "Uninstall",
+                result.summary() + "\n\nGridNotes will now close.",
+            )
+            QApplication.instance().quit()
+            return
+
+        log_user_error(result.summary(), context="uninstall")
+        QMessageBox.warning(self, "Uninstall", result.summary())
+        if hasattr(self.settings_tab, "btn_uninstall"):
+            self.settings_tab.btn_uninstall.setEnabled(True)
+        self._db_conn = connect_db()
 
     def _maybe_auto_fetch_race_results(self, subsession_id: int) -> None:
         if not iracing_data_api_auto_import_enabled():

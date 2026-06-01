@@ -37,6 +37,7 @@ _COPY_NAMES = (
 _COPY_OPTIONAL_NAMES = (
     "Install GridNotes.bat",
     "Install GridNotes.command",
+    "Launch GridNotes.vbs",
     "Open GridNotes.bat",
     "Run GridNotes.bat",
     "Run GridNotes.command",
@@ -498,6 +499,66 @@ def write_gridnotes_start_script(root: Path) -> Path:
     return path
 
 
+def _vbs_quote(path: Path) -> str:
+    return str(path.resolve()).replace("\\", "\\\\")
+
+
+def write_windows_vbs_launcher(root: Path, venv_dir: Path) -> Path:
+    """Silent double-click launcher (no console window)."""
+    path = windows_vbs_launcher_path(root)
+    pyw = venv_pythonw(venv_dir)
+    starter = gridnotes_start_script_path(root)
+    main_py = (root / "main.py").resolve()
+    script = (
+        'Set fso = CreateObject("Scripting.FileSystemObject")\r\n'
+        'root = fso.GetParentFolderName(WScript.ScriptFullName)\r\n'
+        f'pyw = "{_vbs_quote(pyw)}"\r\n'
+        f'starter = "{_vbs_quote(starter)}"\r\n'
+        f'mainPy = "{_vbs_quote(main_py)}"\r\n'
+        'Set shell = CreateObject("WScript.Shell")\r\n'
+        'shell.CurrentDirectory = root\r\n'
+        'If Not fso.FileExists(pyw) Then\r\n'
+        '  MsgBox "GridNotes is not installed correctly." & vbCrLf & vbCrLf'
+        '  & "Run Install GridNotes.bat from your download folder.", vbCritical, "GridNotes"\r\n'
+        '  WScript.Quit 1\r\n'
+        'End If\r\n'
+        'If fso.FileExists(starter) Then\r\n'
+        '  cmd = Chr(34) & pyw & Chr(34) & " " & Chr(34) & starter & Chr(34)\r\n'
+        'ElseIf fso.FileExists(mainPy) Then\r\n'
+        '  cmd = Chr(34) & pyw & Chr(34) & " " & Chr(34) & mainPy & Chr(34)\r\n'
+        'Else\r\n'
+        '  MsgBox "main.py is missing in the install folder.", vbCritical, "GridNotes"\r\n'
+        '  WScript.Quit 1\r\n'
+        'End If\r\n'
+        'shell.Run cmd, 0, False\r\n'
+    )
+    path.write_text(script, encoding="utf-8")
+    return path
+
+
+def _launch_with_pythonw(install_root: Path, venv_dir: Path) -> tuple[bool, str]:
+    """Start GridNotes without a console window."""
+    pyw = venv_pythonw(venv_dir)
+    if not pyw.is_file():
+        return False, f"Virtual environment is missing pythonw.exe under:\n{venv_dir}"
+
+    starter = gridnotes_start_script_path(install_root)
+    script = starter if starter.is_file() else install_root / "main.py"
+    if not script.is_file():
+        return False, f"Could not find gridnotes_start.py or main.py in:\n{install_root}"
+
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    try:
+        subprocess.Popen(
+            [str(pyw), str(script)],
+            cwd=str(install_root),
+            creationflags=flags,
+        )
+    except OSError as exc:
+        return False, str(exc)
+    return True, ""
+
+
 def write_launcher_scripts(root: Path, venv_dir: Path) -> list[Path]:
     """Create double-click launchers in the install folder."""
     created: list[Path] = []
@@ -593,6 +654,7 @@ def write_launcher_scripts(root: Path, venv_dir: Path) -> list[Path]:
             encoding="utf-8",
         )
         created.append(diagnose_bat)
+        created.append(write_windows_vbs_launcher(root, venv_dir))
         created.append(starter)
     else:
         run_sh = root / "Run GridNotes.command"
@@ -621,12 +683,15 @@ def preferred_shortcut_target(
         return dist_exe.resolve(), dist_exe.parent.resolve(), None
 
     if sys.platform == "win32":
-        run_bat = root / "Run GridNotes.bat"
-        if run_bat.is_file():
-            return run_bat, root, None
         vbs = windows_vbs_launcher_path(root)
         if vbs.is_file():
             return vbs, root, None
+
+        pyw = venv_pythonw(venv_dir)
+        if pyw.is_file():
+            starter = gridnotes_start_script_path(root)
+            script = starter if starter.is_file() else (root / "main.py")
+            return pyw.resolve(), root, f'"{script.resolve()}"'
 
     pyw = venv_pythonw(venv_dir)
     if pyw.is_file():
@@ -635,14 +700,6 @@ def preferred_shortcut_target(
     py = venv_python(venv_dir)
     main_py = (root / "main.py").resolve()
     return py.resolve(), root, f'"{main_py}"'
-
-
-def _windows_start_file(install_root: Path, launcher: Path) -> None:
-    """Start a launcher and wait so startup errors surface in the console/log."""
-    subprocess.Popen(
-        ["cmd.exe", "/c", str(launcher)],
-        cwd=str(install_root),
-    )
 
 
 def validate_install_for_launch(install_root: Path) -> tuple[bool, str]:
@@ -715,21 +772,7 @@ def launch_installed_app(
             return False, str(exc)
 
     if sys.platform == "win32":
-        run_bat = install_root / "Run GridNotes.bat"
-        if run_bat.is_file():
-            try:
-                _windows_start_file(install_root, run_bat)
-                return True, ""
-            except OSError as exc:
-                return False, str(exc)
-
-        vbs = windows_vbs_launcher_path(install_root)
-        if vbs.is_file():
-            try:
-                _windows_start_file(install_root, vbs)
-                return True, ""
-            except OSError as exc:
-                return False, str(exc)
+        return _launch_with_pythonw(install_root, venv_dir)
 
     py = venv_pythonw(venv_dir)
     if not py.is_file():
@@ -740,7 +783,6 @@ def launch_installed_app(
         subprocess.Popen(
             [str(py), str(main_py)],
             cwd=str(install_root),
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         return True, ""
     except OSError as exc:

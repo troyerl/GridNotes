@@ -1,16 +1,15 @@
 @echo off
 setlocal EnableExtensions
-title Open GridNotes
 
-:: Opens the installed copy (not the installer). Run Install GridNotes.bat first.
+:: Opens the installed copy silently (no console). Run Install GridNotes.bat first.
 
 set "POINTER=%LOCALAPPDATA%\GridNotes\install-path.txt"
 if exist "%POINTER%" (
   set "INSTALL_DIR="
   for /f "usebackq delims=" %%I in ("%POINTER%") do set "INSTALL_DIR=%%I"
-  if defined INSTALL_DIR if exist "%INSTALL_DIR%\Run GridNotes.bat" (
-    call "%INSTALL_DIR%\Run GridNotes.bat"
-    exit /b %ERRORLEVEL%
+  if defined INSTALL_DIR if exist "%INSTALL_DIR%\Launch GridNotes.vbs" (
+    start "" wscript.exe "%INSTALL_DIR%\Launch GridNotes.vbs"
+    exit /b 0
   )
 )
 
@@ -20,9 +19,9 @@ for %%D in (
   "D:\GridNotes"
   "D:\Program Files\GridNotes"
 ) do (
-  if exist "%%~D\Run GridNotes.bat" (
-    call "%%~D\Run GridNotes.bat"
-    exit /b %ERRORLEVEL%
+  if exist "%%~D\Launch GridNotes.vbs" (
+    start "" wscript.exe "%%~D\Launch GridNotes.vbs"
+    exit /b 0
   )
 )
 
@@ -31,7 +30,9 @@ echo  GridNotes could not be found.
 echo.
 echo  1. Run "Install GridNotes.bat" from your download folder first.
 echo  2. After install, use the Desktop icon "GridNotes"
-echo     or open your install folder (e.g. D:\GridNotes) and run "Run GridNotes.bat"
+echo     or "Launch GridNotes.vbs" in your install folder (e.g. D:\GridNotes)
+echo.
+echo  For troubleshooting with a console, use "Run GridNotes.bat" in the install folder.
 echo.
 pause
 exit /b 1

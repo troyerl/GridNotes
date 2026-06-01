@@ -115,3 +115,19 @@ def create_desktop_shortcut(
         return dest
 
     raise OSError(f"Cannot create a desktop shortcut for {target} on this platform.")
+
+
+def remove_desktop_shortcut(name: str = APP_SHORTCUT_NAME) -> bool:
+    """Remove the GridNotes desktop shortcut if it exists."""
+    desktop = desktop_directory()
+    if sys.platform == "win32":
+        path = desktop / f"{name}.lnk"
+    else:
+        path = desktop / "Run GridNotes.command"
+        if not path.is_file():
+            path = desktop / f"{name}.command"
+    if path.is_file():
+        path.unlink()
+        logger.info("Removed desktop shortcut: %s", path)
+        return True
+    return False

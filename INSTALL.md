@@ -1,6 +1,6 @@
 # How to install GridNotes
 
-**Version 1.2.11**
+**Version 1.2.12**
 
 GridNotes helps you remember iRacing drivers you raced with and keep private notes.  
 You do **not** need to know how to code. Follow the steps below in order.
@@ -182,17 +182,28 @@ Windows blocked writing to **Program Files** without administrator permission.
 
 **For D: drive:** use **Choose folder…** in the wizard — no admin needed.
 
+### How do I uninstall GridNotes?
+
+1. Open GridNotes → **Settings** → **Maintenance** → **Uninstall**.
+2. Optionally check **Also delete my notes, database, and settings**.
+3. Click **Uninstall GridNotes…** and confirm.
+
+This removes the Desktop shortcut and your install folder (for example `D:\GridNotes`).  
+Your data stays unless you choose to delete it.
+
 ### I closed the app — how do I open it again?
 
 - Double-click the **Desktop** icon **GridNotes**, or  
-- Go to your install folder and double-click **`Launch GridNotes.vbs`** or **`Run GridNotes.bat`**.
+- Use the **Desktop** icon **GridNotes** (no console window), or double-click **`Launch GridNotes.vbs`** in your install folder.  
+  Use **`Run GridNotes.bat`** only when troubleshooting (shows a console).
 
 ### Desktop icon or “Launch GridNotes” does nothing
 
 This often happens if the installer ran **as administrator** but GridNotes needs to run as **you** (common when installing to **D:\GridNotes**).
 
 1. Open your **install folder** (for example `D:\GridNotes`).  
-2. Double-click **`Run GridNotes.bat`** in your install folder (for example `D:\GridNotes\Run GridNotes.bat`).  
+2. Double-click the **Desktop** icon **GridNotes**, or **`Launch GridNotes.vbs`** in your install folder.  
+   Use **`Run GridNotes.bat`** only if you need a console for errors.  
    If the window flashes and closes, it will **pause** and show the log path on screen.  
    Or run **`Diagnose GridNotes.bat`** in your install folder to test Python/PyQt6 imports.  
    On Windows, logs are usually in **`%LOCALAPPDATA%\GridNotes\`** (or **`%APPDATA%\GridNotes\`**):  
