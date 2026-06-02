@@ -29,9 +29,9 @@ Install **[Inno Setup 6](https://jrsoftware.org/isinfo.php)** (free), then run `
 
 ## Automatic builds on GitHub
 
-When you push a version tag (for example `v1.0.20`), the **Release** workflow on GitHub Actions:
+When you push a version tag (for example `v1.0.21`), the **Release** workflow on GitHub Actions:
 
-1. Copies the matching section from **`docs/RELEASE_NOTES.md`** (heading `## v1.0.20 — …`) into the GitHub Release description.
+1. Copies the matching section from **`docs/RELEASE_NOTES.md`** (heading `## v1.0.21 — …`) into the GitHub Release description.
 2. Runs `scripts/build_installer.ps1` on Windows.
 3. Uploads `GridNotes-Setup.exe` and `GridNotes-Windows.zip` to that release when the build succeeds.
 

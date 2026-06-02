@@ -22,7 +22,7 @@ def normalize_version(tag_or_version: str) -> str:
 def extract_release_notes(version: str, path: Path = NOTES_PATH) -> str:
     version = normalize_version(version)
     if not version:
-        raise ValueError("missing version (e.g. v1.0.20)")
+        raise ValueError("missing version (e.g. v1.0.21)")
 
     if not path.is_file():
         raise FileNotFoundError(f"Release notes file not found: {path}")
@@ -59,7 +59,7 @@ def main(argv: list[str] | None = None) -> int:
     args = argv if argv is not None else sys.argv[1:]
     if not args:
         print(
-            "Usage: extract_release_notes.py <tag>  (e.g. v1.0.20)",
+            "Usage: extract_release_notes.py <tag>  (e.g. v1.0.21)",
             file=sys.stderr,
         )
         return 1

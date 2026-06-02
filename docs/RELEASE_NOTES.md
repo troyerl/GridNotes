@@ -4,7 +4,15 @@ GridNotes is a desktop app for **iRacing driver scouting**. It keeps your notes,
 
 New versions are listed below with the newest first.
 
-When you push a tag (for example `v1.0.20`), the GitHub **Release** workflow uses the matching `## v…` section from this file as the release description on GitHub.
+When you push a tag (for example `v1.0.21`), the GitHub **Release** workflow uses the matching `## v…` section from this file as the release description on GitHub.
+
+---
+
+## v1.0.21 — 2026-06-02
+
+### Improved
+
+- **GitHub Releases** — Pushing a version tag now uses the matching section from this file (`docs/RELEASE_NOTES.md`) as the release description on GitHub, instead of auto-generated commit lists.
 
 ---
 
