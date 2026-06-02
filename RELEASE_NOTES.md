@@ -6,6 +6,18 @@ New versions are listed below with the newest first. When publishing on GitHub, 
 
 ---
 
+## v1.0.9 — 2026-05-29
+
+### Fixed
+
+- **Version in Settings and Windows Apps stayed on 1.0.2 (or another old release)** — in-app updates now write `.gridnotes-version` in your install folder and register **DisplayVersion** for the version you actually installed. GridNotes also refreshes the Windows Apps entry on each launch (HKCU and HKLM when allowed).
+
+### Improved
+
+- Settings shows **Installed version** from the install folder, not only the bundled `app_version.py` in memory.
+
+---
+
 ## v1.0.8 — 2026-05-29
 
 ### Fixed

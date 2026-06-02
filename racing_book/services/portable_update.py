@@ -185,6 +185,7 @@ def _write_windows_apply_batch(
     install_root: Path,
     wait_pid: int,
     log_path: Path,
+    release_version: str,
 ) -> None:
     src = str(source_root.resolve())
     dest = str(install_root.resolve())
@@ -220,12 +221,14 @@ def _write_windows_apply_batch(
         ")\r\n"
         'echo [%date% %time%] Upgrading dependencies...>>"%LOG%"\r\n'
         '"%PY%" -m pip install -q -r "%DEST%\\requirements.txt" >>"%LOG%" 2>&1\r\n'
+        'echo [%date% %time%] Writing installed version...>>"%LOG%"\r\n'
+        f'echo {release_version}>"%DEST%\\.gridnotes-version"\r\n'
         'echo [%date% %time%] Registering Windows Apps entry...>>"%LOG%"\r\n'
         f'cd /d "{dest}"\r\n'
-        '"%PY%" -c "from racing_book.installer.windows_apps import register_windows_uninstall; '
-        "from racing_book.app.app_version import __version__; "
-        'register_windows_uninstall(__import__(\'pathlib\').Path(r\'%DEST%\'), __version__)" '
-        '>>"%LOG%" 2>&1\r\n'
+        f'"%PY%" -c "from pathlib import Path; '
+        f"from racing_book.installer.windows_apps import register_windows_uninstall; "
+        f"register_windows_uninstall(Path(r'%DEST%'), '{release_version}')\" "
+        f'>>"%LOG%" 2>&1\r\n'
         'echo [%date% %time%] Refreshing launch scripts...>>"%LOG%"\r\n'
         '"%PY%" -c "from pathlib import Path; from racing_book.installer.logic import '
         "write_gridnotes_start_script, write_windows_vbs_launcher, "
@@ -252,9 +255,14 @@ def _write_windows_apply_launcher(vbs_path: Path, bat_path: Path) -> None:
     )
 
 
-def _apply_on_unix(source_root: Path, install_root: Path) -> tuple[bool, str]:
+def _apply_on_unix(
+    source_root: Path, install_root: Path, *, release_version: str
+) -> tuple[bool, str]:
     try:
         copy_source_to_install_root(source_root, install_root)
+        from ..app.app_version import write_installed_version
+
+        write_installed_version(install_root, release_version)
         py = venv_python(install_root / VENV_DIR_NAME)
         result = subprocess.run(
             [str(py), "-m", "pip", "install", "-r", str(install_root / "requirements.txt")],
@@ -338,6 +346,7 @@ def apply_portable_update(
             install_root=install_root,
             wait_pid=pid,
             log_path=log_path,
+            release_version=version,
         )
         _write_windows_apply_launcher(vbs_path, bat_path)
         _append_update_log(f"Scheduled update batch: {bat_path}")
@@ -351,7 +360,7 @@ def apply_portable_update(
         )
 
     report("Installing files…", 85)
-    ok, message = _apply_on_unix(staging_dir, install_root)
+    ok, message = _apply_on_unix(staging_dir, install_root, release_version=version)
     if ok:
         report("Reopening GridNotes…", 95)
         if not relaunch_gridnotes(install_root):

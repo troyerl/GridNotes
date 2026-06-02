@@ -24,7 +24,7 @@ from ..services.app_update import (
     UpdateCheckResult,
     is_frozen_build,
 )
-from ..app.app_version import __version__
+from ..app.app_version import installed_version
 from .appearance import (
     THEME_OPTIONS,
     get_theme_id,
@@ -364,7 +364,8 @@ class SettingsTab(QWidget):
         )
         updates_layout.addWidget(self.chk_auto_check_updates)
 
-        self.version_label = QLabel(f"Installed version: v{__version__}")
+        self.version_label = QLabel()
+        self._refresh_installed_version_label()
         self.version_label.setObjectName("statValue")
         updates_layout.addWidget(self.version_label)
 
@@ -515,6 +516,13 @@ class SettingsTab(QWidget):
 
     def _request_zero_race_cleanup(self) -> None:
         self.zero_race_cleanup_requested.emit()
+
+    def _refresh_installed_version_label(self) -> None:
+        self.version_label.setText(f"Installed version: v{installed_version()}")
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self._refresh_installed_version_label()
 
     def _request_update_check(self) -> None:
         self.check_updates_requested.emit()

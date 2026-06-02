@@ -21,12 +21,12 @@ class UpdateCheckWorker(QThread):
             result = check_for_updates()
         except Exception as exc:
             logger.exception("Application update check failed")
-            from ..app.app_version import __version__
+            from ..app.app_version import installed_version
 
             result = UpdateCheckResult(
                 ok=False,
                 message=f"Update check failed: {exc}",
-                current_version=__version__,
+                current_version=installed_version(),
             )
         self.finished.emit(result)
 

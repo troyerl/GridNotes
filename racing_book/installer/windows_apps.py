@@ -49,7 +49,7 @@ def register_windows_uninstall(install_root: Path, version: str | None = None) -
 
     import winreg
 
-    from ..app.app_version import __version__
+    from ..app.app_version import installed_version, write_installed_version
 
     install_root = install_root.resolve()
     launcher = uninstall_launcher_path(install_root)
@@ -57,8 +57,8 @@ def register_windows_uninstall(install_root: Path, version: str | None = None) -
         logger.warning("Skipping Apps list registration; missing %s", launcher)
         return
 
-    version = (version or __version__).strip()
-    hive = _registry_hive(install_root)
+    version = (version or installed_version()).strip()
+    write_installed_version(install_root, version)
     uninstall_string = uninstall_command_line(install_root)
     quiet_uninstall = f"{uninstall_string} /quiet"
 
@@ -74,28 +74,48 @@ def register_windows_uninstall(install_root: Path, version: str | None = None) -
     except OSError:
         pass
 
-    try:
-        with winreg.CreateKey(hive, UNINSTALL_SUBKEY) as key:
-            winreg.SetValueEx(key, "DisplayName", 0, winreg.REG_SZ, "GridNotes")
-            winreg.SetValueEx(key, "DisplayVersion", 0, winreg.REG_SZ, version)
-            winreg.SetValueEx(key, "Publisher", 0, winreg.REG_SZ, "GridNotes")
-            winreg.SetValueEx(key, "InstallLocation", 0, winreg.REG_SZ, str(install_root))
-            winreg.SetValueEx(key, "UninstallString", 0, winreg.REG_SZ, uninstall_string)
-            winreg.SetValueEx(key, "QuietUninstallString", 0, winreg.REG_SZ, quiet_uninstall)
-            winreg.SetValueEx(key, "DisplayIcon", 0, winreg.REG_SZ, display_icon)
-            winreg.SetValueEx(key, "NoModify", 0, winreg.REG_DWORD, 1)
-            winreg.SetValueEx(key, "NoRepair", 0, winreg.REG_DWORD, 1)
-            if estimated_size_kb:
+    registered: list[str] = []
+    for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+        try:
+            with winreg.CreateKey(hive, UNINSTALL_SUBKEY) as key:
+                winreg.SetValueEx(key, "DisplayName", 0, winreg.REG_SZ, "GridNotes")
+                winreg.SetValueEx(key, "DisplayVersion", 0, winreg.REG_SZ, version)
+                winreg.SetValueEx(key, "Publisher", 0, winreg.REG_SZ, "GridNotes")
                 winreg.SetValueEx(
-                    key, "EstimatedSize", 0, winreg.REG_DWORD, estimated_size_kb
+                    key, "InstallLocation", 0, winreg.REG_SZ, str(install_root)
                 )
+                winreg.SetValueEx(
+                    key, "UninstallString", 0, winreg.REG_SZ, uninstall_string
+                )
+                winreg.SetValueEx(
+                    key, "QuietUninstallString", 0, winreg.REG_SZ, quiet_uninstall
+                )
+                winreg.SetValueEx(key, "DisplayIcon", 0, winreg.REG_SZ, display_icon)
+                winreg.SetValueEx(key, "NoModify", 0, winreg.REG_DWORD, 1)
+                winreg.SetValueEx(key, "NoRepair", 0, winreg.REG_DWORD, 1)
+                if estimated_size_kb:
+                    winreg.SetValueEx(
+                        key, "EstimatedSize", 0, winreg.REG_DWORD, estimated_size_kb
+                    )
+            registered.append(
+                "HKLM" if hive == winreg.HKEY_LOCAL_MACHINE else "HKCU"
+            )
+        except OSError as exc:
+            logger.debug(
+                "Could not register GridNotes in Windows Apps list (hive=%s): %s",
+                hive,
+                exc,
+            )
+
+    if registered:
         logger.info(
-            "Registered GridNotes in Windows Apps list (hive=%s, path=%s)",
-            hive,
+            "Registered GridNotes v%s in Windows Apps list (%s, path=%s)",
+            version,
+            ", ".join(registered),
             install_root,
         )
-    except OSError as exc:
-        logger.warning("Could not register GridNotes in Windows Apps list: %s", exc)
+    else:
+        logger.warning("Could not register GridNotes in Windows Apps list")
 
 
 def unregister_windows_uninstall(install_root: Path | None = None) -> None:

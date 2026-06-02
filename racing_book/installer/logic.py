@@ -1259,10 +1259,12 @@ class InstallRunner:
 
             if sys.platform == "win32":
                 try:
+                    from ..app.app_version import __version__, write_installed_version
                     from .windows_apps import register_windows_uninstall
 
-                    register_windows_uninstall(self.root)
-                    self._log("Registered in Windows Settings → Apps")
+                    write_installed_version(self.root, __version__)
+                    register_windows_uninstall(self.root, __version__)
+                    self._log(f"Registered in Windows Settings → Apps (v{__version__})")
                 except OSError as exc:
                     self._log(f"Could not register in Windows Apps list: {exc}")
 

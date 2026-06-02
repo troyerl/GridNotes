@@ -14,7 +14,7 @@ ProgressCallback = Callable[[str, int], None]
 
 import requests
 
-from ..app.app_version import __version__, is_newer_version
+from ..app.app_version import installed_version, is_newer_version
 
 logger = logging.getLogger(__name__)
 
@@ -182,7 +182,7 @@ def check_github_release() -> tuple[bool, str, str | None, str | None, str | Non
 
 def check_for_updates() -> UpdateCheckResult:
     """Check GitHub releases and, for source installs, whether git pull has updates."""
-    current = __version__
+    current = installed_version()
     release_ok, release_message, latest, download_url, notes = check_github_release()
 
     can_apply = False

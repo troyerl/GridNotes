@@ -142,9 +142,24 @@ class RaceBookApp(QMainWindow):
         self._db_conn = connect_db()
         self._run_data_retention_purge()
         self.init_ui()
+        self._sync_windows_install_metadata()
         self.start_sdk_worker()
         if get_setting(AUTO_CHECK_UPDATES_KEY, "0") == "1":
             QTimer.singleShot(800, self._check_for_app_updates_on_startup)
+
+    def _sync_windows_install_metadata(self) -> None:
+        """Keep Settings → Apps DisplayVersion in sync with the installed release."""
+        if sys.platform != "win32":
+            return
+        try:
+            from ..installer.uninstall import resolve_install_root
+            from ..installer.windows_apps import register_windows_uninstall
+
+            install_root = resolve_install_root()
+            if install_root is not None:
+                register_windows_uninstall(install_root)
+        except Exception:
+            pass
 
     def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)
