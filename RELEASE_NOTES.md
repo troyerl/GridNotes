@@ -6,6 +6,15 @@ New versions are listed below with the newest first. When publishing on GitHub, 
 
 ---
 
+## v1.0.10 — 2026-05-29
+
+### Fixed
+
+- **`failed to locate pyvenv.cfg` when running `D:\GridNotes\GridNotes.exe`** — the branded launcher now lives in **`.venv\Scripts\GridNotes.exe`** (next to `pythonw`), where the virtual environment expects it. Install removes the broken copy from the install root.
+- Shortcuts and **Launch GridNotes.vbs** point at the Scripts launcher automatically.
+
+---
+
 ## v1.0.9 — 2026-05-29
 
 ### Fixed

@@ -234,16 +234,37 @@ def ensure_icon_ico(root: Path, python: Path | None = None) -> Path | None:
     return ico if ico.is_file() else None
 
 
-def windows_launcher_exe_path(root: Path) -> Path:
-    return root.resolve() / "GridNotes.exe"
+def windows_launcher_exe_path(root: Path, venv_dir: Path | None = None) -> Path:
+    """
+    Branded launcher beside pythonw in the venv (needs .venv\\pyvenv.cfg one level up).
+
+    A copy in the install root breaks with "failed to locate pyvenv.cfg".
+    """
+    root = root.resolve()
+    if sys.platform == "win32":
+        venv = (venv_dir or (root / VENV_DIR_NAME)).resolve()
+        return venv / "Scripts" / "GridNotes.exe"
+    return root / "GridNotes.exe"
+
+
+def _remove_legacy_install_root_launcher(install_root: Path) -> None:
+    """Remove broken GridNotes.exe copied to the install root in older releases."""
+    legacy = install_root.resolve() / "GridNotes.exe"
+    if not legacy.is_file():
+        return
+    try:
+        legacy.unlink()
+        logger.info("Removed legacy install-root launcher: %s", legacy)
+    except OSError as exc:
+        logger.warning("Could not remove legacy %s: %s", legacy, exc)
 
 
 def build_windows_launcher_exe(install_root: Path, python: Path) -> Path | None:
     """
-    Create GridNotes.exe as a copy of pythonw with the GridNotes icon embedded.
+    Create GridNotes.exe as a copy of pythonw (in .venv\\Scripts) with icon embedded.
 
     The UI runs in this process (via gridnotes_start.py arguments), so the taskbar
-    shows the GridNotes icon instead of a separate pythonw child process.
+    shows the GridNotes icon and Python finds pyvenv.cfg in the venv.
     """
     if sys.platform != "win32":
         return None
@@ -251,8 +272,9 @@ def build_windows_launcher_exe(install_root: Path, python: Path) -> Path | None:
     from .windows_launcher import embed_icon_in_exe, ensure_rcedit
 
     install_root = install_root.resolve()
-    exe = windows_launcher_exe_path(install_root)
-    pyw = venv_pythonw(install_root / VENV_DIR_NAME)
+    venv_dir = install_root / VENV_DIR_NAME
+    exe = windows_launcher_exe_path(install_root, venv_dir)
+    pyw = venv_pythonw(venv_dir)
     if not pyw.is_file():
         logger.warning("pythonw.exe missing; cannot build GridNotes.exe")
         return None
@@ -262,11 +284,14 @@ def build_windows_launcher_exe(install_root: Path, python: Path) -> Path | None:
         logger.warning("icon.ico missing; cannot brand GridNotes.exe")
         return None
 
+    exe.parent.mkdir(parents=True, exist_ok=True)
     try:
         shutil.copy2(pyw, exe)
     except OSError as exc:
         logger.warning("Could not copy pythonw to GridNotes.exe: %s", exc)
         return None
+
+    _remove_legacy_install_root_launcher(install_root)
 
     rcedit = ensure_rcedit(install_root)
     if rcedit is not None:

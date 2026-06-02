@@ -224,10 +224,14 @@ def _shortcut_should_point_at_launcher_exe(
     if lowered.endswith("pythonw.exe") or lowered.endswith("python.exe"):
         return True
     try:
-        if Path(target).resolve() == launcher_exe.resolve():
+        resolved_target = Path(target).resolve()
+        if resolved_target == launcher_exe.resolve():
             starter = install_root.resolve() / "gridnotes_start.py"
             if starter.is_file():
                 return str(starter.resolve()).lower() not in (arguments or "").lower()
+        legacy_root_exe = install_root.resolve() / "GridNotes.exe"
+        if resolved_target == legacy_root_exe:
+            return True
     except OSError:
         pass
     return False
