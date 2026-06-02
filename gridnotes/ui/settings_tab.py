@@ -32,6 +32,14 @@ from .appearance import (
     set_theme_id,
 )
 from ..data.data_retention import DEFAULT_RETENTION, RETENTION_OPTIONS, SETTING_KEY, retention_label
+from ..data.note_tags import (
+    DEFAULT_NOTE_TAGS,
+    MAX_CHIP_LABEL_LENGTH,
+    MAX_DESCRIPTION_LENGTH,
+    NoteTag,
+    load_note_tags,
+    save_note_tags,
+)
 from ..data.db import connect_db, get_data_dir_path, get_db_file_size, get_db_path, get_setting, set_setting
 from ..installer.uninstall import resolve_install_root
 from ..data.driver_cleanup import count_zero_race_drivers
@@ -97,7 +105,7 @@ class SettingsTab(QWidget):
         self.btn_save_settings = QPushButton("Save settings")
         self.btn_save_settings.setObjectName("primaryBtn")
         self.btn_save_settings.setToolTip(
-            "Save appearance, retention, update, and OAuth token settings"
+            "Save appearance, retention, quick note tags, update, and OAuth token settings"
         )
         self.btn_save_settings.clicked.connect(self._save_settings)
         header_layout.addWidget(self.btn_save_settings)
@@ -171,6 +179,12 @@ class SettingsTab(QWidget):
         set_accessible(self.btn_open_logs, "Open logs folder")
         set_accessible(self.btn_export_backup, "Back up database")
         set_accessible(self.btn_import_backup, "Restore from backup")
+        if hasattr(self, "btn_add_note_tag"):
+            set_accessible(
+                self.btn_add_note_tag,
+                "Add quick note tag",
+                "Add another scouting note tag button.",
+            )
         set_accessible(
             self.btn_uninstall,
             "Uninstall GridNotes",
@@ -335,6 +349,8 @@ class SettingsTab(QWidget):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(12)
 
+        layout.addWidget(self._build_note_tags_group())
+
         retention_group = QGroupBox("Race history retention")
         retention_layout = QVBoxLayout(retention_group)
         retention_layout.setSpacing(10)
@@ -443,6 +459,147 @@ class SettingsTab(QWidget):
         layout.addWidget(storage_group)
         layout.addStretch()
         return page
+
+    def _build_note_tags_group(self) -> QGroupBox:
+        group = QGroupBox("Quick note tags")
+        layout = QVBoxLayout(group)
+        layout.setSpacing(10)
+        layout.addWidget(
+            self._section_hint(
+                "Customize the buttons under Scouting notes. Set a short chip label "
+                f"(up to {MAX_CHIP_LABEL_LENGTH} characters) and optionally a longer "
+                "note to append when clicked. Leave the note blank to append the chip "
+                "label itself."
+            )
+        )
+
+        header = QHBoxLayout()
+        header.setSpacing(8)
+        chip_header = QLabel("Chip label")
+        chip_header.setObjectName("statInlineLabel")
+        header.addWidget(chip_header, stretch=2)
+        note_header = QLabel("Note to append (optional)")
+        note_header.setObjectName("statInlineLabel")
+        header.addWidget(note_header, stretch=3)
+        header.addSpacing(72)
+        layout.addLayout(header)
+
+        self._note_tag_rows: list[tuple[QLineEdit, QLineEdit]] = []
+        self._note_tags_list_host = QWidget()
+        self._note_tags_list_layout = QVBoxLayout(self._note_tags_list_host)
+        self._note_tags_list_layout.setContentsMargins(0, 0, 0, 0)
+        self._note_tags_list_layout.setSpacing(8)
+        layout.addWidget(self._note_tags_list_host)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        self.btn_add_note_tag = QPushButton("Add tag…")
+        self.btn_add_note_tag.clicked.connect(lambda: self._add_note_tag_row("", ""))
+        btn_row.addWidget(self.btn_add_note_tag)
+        self.btn_reset_note_tags = QPushButton("Reset to defaults")
+        self.btn_reset_note_tags.clicked.connect(self._reset_note_tags_to_defaults)
+        btn_row.addWidget(self.btn_reset_note_tags)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+        self._populate_note_tags_ui(load_note_tags())
+        return group
+
+    def _populate_note_tags_ui(self, tags: list[NoteTag]) -> None:
+        while self._note_tags_list_layout.count():
+            item = self._note_tags_list_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        self._note_tag_rows.clear()
+        for tag in tags:
+            self._add_note_tag_row(tag.label, tag.description, notify=False)
+        if not self._note_tag_rows:
+            self._add_note_tag_row("", "", notify=False)
+
+    def _add_note_tag_row(
+        self,
+        label: str,
+        description: str = "",
+        *,
+        notify: bool = True,
+    ) -> None:
+        if len(self._note_tag_rows) >= 24:
+            QMessageBox.information(
+                self,
+                "Quick note tags",
+                "You can add up to 24 quick note tags.",
+            )
+            return
+
+        row_widget = QWidget()
+        row = QHBoxLayout(row_widget)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(8)
+
+        label_edit = QLineEdit()
+        label_edit.setPlaceholderText("e.g. Clean")
+        label_edit.setClearButtonEnabled(True)
+        label_edit.setMaxLength(MAX_CHIP_LABEL_LENGTH)
+        label_edit.setText(label)
+        label_edit.textChanged.connect(self._on_settings_edited)
+        row.addWidget(label_edit, stretch=2)
+
+        desc_edit = QLineEdit()
+        desc_edit.setPlaceholderText("Optional longer note")
+        desc_edit.setClearButtonEnabled(True)
+        desc_edit.setMaxLength(MAX_DESCRIPTION_LENGTH)
+        desc_edit.setText(description)
+        desc_edit.textChanged.connect(self._on_settings_edited)
+        row.addWidget(desc_edit, stretch=3)
+
+        btn_remove = QPushButton("Remove")
+        btn_remove.clicked.connect(
+            lambda _=False, pair=(label_edit, desc_edit): self._remove_note_tag_row(pair)
+        )
+        row.addWidget(btn_remove)
+
+        self._note_tags_list_layout.addWidget(row_widget)
+        self._note_tag_rows.append((label_edit, desc_edit))
+        if notify:
+            self._on_settings_edited()
+
+    def _remove_note_tag_row(self, pair: tuple[QLineEdit, QLineEdit]) -> None:
+        if pair not in self._note_tag_rows:
+            return
+        self._note_tag_rows.remove(pair)
+        label_edit, _desc_edit = pair
+        row_widget = label_edit.parentWidget()
+        if row_widget is not None:
+            self._note_tags_list_layout.removeWidget(row_widget)
+            row_widget.deleteLater()
+        if not self._note_tag_rows:
+            self._add_note_tag_row("", "", notify=False)
+        self._on_settings_edited()
+
+    def _note_tags_snapshot(self) -> tuple[str, ...]:
+        parts: list[str] = []
+        for label_edit, desc_edit in self._note_tag_rows:
+            parts.append(label_edit.text().strip())
+            parts.append(desc_edit.text().strip())
+        return tuple(parts)
+
+    def _note_tags_from_ui(self) -> list[NoteTag]:
+        seen: set[str] = set()
+        tags: list[NoteTag] = []
+        for label_edit, desc_edit in self._note_tag_rows:
+            label = label_edit.text().strip()
+            if not label or label in seen:
+                continue
+            seen.add(label)
+            tags.append(
+                NoteTag(label=label, description=desc_edit.text().strip())
+            )
+        return tags
+
+    def _reset_note_tags_to_defaults(self) -> None:
+        self._populate_note_tags_ui(list(DEFAULT_NOTE_TAGS))
+        self._on_settings_edited()
 
     def _build_maintenance_page(self) -> QWidget:
         page = QWidget()
@@ -607,6 +764,7 @@ class SettingsTab(QWidget):
             self.current_retention_value(),
             self.current_theme_value(),
             "1" if self.chk_auto_check_updates.isChecked() else "0",
+            "|".join(self._note_tags_snapshot()),
         ]
         if iracing_data_api_auto_import_enabled():
             snapshot.extend(
@@ -914,6 +1072,7 @@ class SettingsTab(QWidget):
             AUTO_CHECK_UPDATES_KEY,
             "1" if self.chk_auto_check_updates.isChecked() else "0",
         )
+        save_note_tags(self._note_tags_from_ui())
         if iracing_data_api_auto_import_enabled():
             self._save_api_settings()
         self._update_retention_status_label()

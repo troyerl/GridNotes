@@ -367,6 +367,10 @@ def init_db(db_name: str = DB_NAME) -> None:
     conn.commit()
     conn.close()
 
+    from .note_tags import ensure_default_note_tags
+
+    ensure_default_note_tags(db_name)
+
 
 def _app_settings_table_exists(cursor: sqlite3.Cursor) -> bool:
     cursor.execute(

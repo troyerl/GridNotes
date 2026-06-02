@@ -8,6 +8,19 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.27 — 2026-06-02
+
+### Added
+
+- **Custom quick note tags** — Settings → Data lets you add, edit, and remove scouting note chips. Each tag has a short **chip label** (up to 20 characters) and an optional longer **note to append** when clicked; leave the note blank to append the chip label itself.
+- **Default tags on first install** — New installs start with five built-in tags (Clean, Divebombs, Blocks, Restarts, Unpredictable). Change them anytime or use **Reset to defaults**.
+
+### Improved
+
+- **Scouting notes** — Quick note template buttons reflect your saved tags and update when you save Settings.
+
+---
+
 ## v1.0.26 — 2026-06-02
 
 ### Improved

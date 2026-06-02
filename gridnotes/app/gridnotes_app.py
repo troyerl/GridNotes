@@ -41,6 +41,7 @@ from ..services.app_update import (
 from ..services.app_update_worker import ApplyAppUpdateWorker, UpdateCheckWorker
 from ..ui.appearance import get_theme_id, normalize_theme_id
 from ..data.data_retention import DEFAULT_RETENTION, SETTING_KEY, purge_expired_race_results
+from ..data.note_tags import chip_label, load_note_tags
 from ..data.db import close_sqlite_connection, connect_db, get_setting, init_db, set_setting
 from ..data.driver_cleanup import count_zero_race_drivers, purge_zero_race_drivers
 from ..data.driver_models import DriverDetailRow, DriverTableRow, build_live_session_entries
@@ -986,26 +987,9 @@ class GridNotesApp(QMainWindow):
         templates_grid.setHorizontalSpacing(12)
         templates_grid.setVerticalSpacing(14)
         templates_grid.setContentsMargins(0, 4, 0, 0)
-        template_list = [
-            ("+ Clean", "Clean racer"),
-            ("+ Divebombs", "Divebombs / late sends"),
-            ("+ Blocks", "Blocks aggressively"),
-            ("+ Good restarts", "Good on restarts"),
-            ("+ Unpredictable", "Unpredictable lines / braking"),
-        ]
-        for i, (label, text) in enumerate(template_list):
-            btn = QPushButton(label)
-            btn.setObjectName("chipBtn")
-            btn.setToolTip("Append to notes")
-            btn.setMinimumHeight(32)
-            btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-            btn.clicked.connect(lambda _=False, t=text: self._append_note_template(t))
-            templates_grid.addWidget(btn, i // 2, i % 2)
-        for r in range((len(template_list) + 1) // 2):
-            templates_grid.setRowMinimumHeight(r, 40)
-        templates_grid.setColumnStretch(0, 1)
-        templates_grid.setColumnStretch(1, 1)
+        self._note_templates_grid = templates_grid
         notes_layout.addLayout(templates_grid)
+        self._rebuild_note_template_buttons()
 
         right_layout.addWidget(notes_group, stretch=1)
 
@@ -1173,6 +1157,7 @@ class GridNotesApp(QMainWindow):
         return deleted
 
     def _on_settings_saved(self) -> None:
+        self._rebuild_note_template_buttons()
         deleted = self._run_data_retention_purge(show_status=True)
         if deleted and self.selected_cust_id is not None:
             row = self._row_for_cust_id(self.selected_cust_id)
@@ -2126,6 +2111,41 @@ class GridNotesApp(QMainWindow):
 
     def _clear_row_style(self, row_idx: int) -> None:
         refresh_driver_table_row(self.table, row_idx)
+
+    def _rebuild_note_template_buttons(self) -> None:
+        grid = self._note_templates_grid
+        while grid.count():
+            item = grid.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+        tags = load_note_tags()
+        if not tags:
+            return
+
+        for i, tag in enumerate(tags):
+            append_text = tag.append_text()
+            btn = QPushButton(chip_label(tag.label))
+            btn.setObjectName("chipBtn")
+            if tag.description and tag.description != tag.label:
+                btn.setToolTip(
+                    f"Append “{append_text}” to notes (chip: {tag.label})"
+                )
+            else:
+                btn.setToolTip(f"Append “{append_text}” to notes")
+            btn.setMinimumHeight(32)
+            btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            btn.clicked.connect(
+                lambda _=False, t=append_text: self._append_note_template(t)
+            )
+            grid.addWidget(btn, i // 2, i % 2)
+
+        row_count = (len(tags) + 1) // 2
+        for r in range(row_count):
+            grid.setRowMinimumHeight(r, 40)
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
 
     def _append_note_template(self, text: str) -> None:
         existing = self.notes_edit.toPlainText()

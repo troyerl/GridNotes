@@ -45,6 +45,7 @@ a = Analysis(
         "gridnotes.data.db",
         "gridnotes.data.driver_cleanup",
         "gridnotes.data.driver_models",
+        "gridnotes.data.note_tags",
         "gridnotes.data.queries",
         "gridnotes.iracing",
         "gridnotes.iracing.import_worker",
