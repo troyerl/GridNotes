@@ -63,6 +63,19 @@ def _detect_install_root_from_runtime() -> Path | None:
             install_root = arg0.parent.parent.parent
             if _looks_like_install_root(install_root):
                 return install_root
+        if arg0.name.lower() == "gridnotes.exe" and arg0.parent.name == "Scripts":
+            install_root = arg0.parent.parent.parent
+            if _looks_like_install_root(install_root):
+                return install_root
+
+    try:
+        exe = Path(sys.executable).resolve()
+        if exe.name.lower() == "gridnotes.exe" and exe.parent.name == "Scripts":
+            install_root = exe.parent.parent.parent
+            if _looks_like_install_root(install_root):
+                return install_root
+    except OSError:
+        pass
 
     try:
         root = find_project_root()

@@ -243,7 +243,11 @@ def _shortcut_should_refresh_for_launcher(
             arguments or ""
         ).lower():
             return True
-        expected_icon = windows_icon_location(resolved_launcher).lower()
+        install_ico = install_root.resolve() / "icon.ico"
+        if install_ico.is_file():
+            expected_icon = windows_icon_location(install_ico).lower()
+        else:
+            expected_icon = windows_icon_location(resolved_launcher).lower()
         if icon_location.lower() != expected_icon:
             return True
     except OSError:

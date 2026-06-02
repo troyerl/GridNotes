@@ -6,6 +6,14 @@ New versions are listed below with the newest first. When publishing on GitHub, 
 
 ---
 
+## v1.0.13 — 2026-06-02
+
+### Fixed
+
+- **Missing window and taskbar icons** — the UI and Windows shell now use `icon.ico` again instead of the branded `GridNotes.exe` stub (PyQt cannot load icons from the pythonw copy reliably). Shortcuts and taskbar pins use `icon.ico` when present.
+
+---
+
 ## v1.0.12 — 2026-06-02
 
 ### Improved

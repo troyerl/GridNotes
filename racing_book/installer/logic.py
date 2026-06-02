@@ -450,23 +450,23 @@ def resolve_shortcut_icon(
     launch_target: Path | None = None,
     python: Path | None = None,
 ) -> Path | None:
-    """Pick icon for shortcuts — prefer the branded launcher EXE for taskbar pins."""
-    ensure_icon_ico(install_root, python)
+    """Pick icon for shortcuts — prefer icon.ico; fall back to branded GridNotes.exe."""
+    regenerate_icon_ico(install_root, python)
+    for base in (install_root, source_root):
+        if base is None:
+            continue
+        ico = base / "icon.ico"
+        if ico.is_file():
+            return ico.resolve()
+    branded = windows_launcher_exe_path(install_root)
+    if branded.is_file():
+        return branded.resolve()
     if (
         launch_target is not None
         and launch_target.suffix.lower() == ".exe"
         and launch_target.is_file()
     ):
         return launch_target.resolve()
-    branded = windows_launcher_exe_path(install_root)
-    if branded.is_file():
-        return branded
-    for base in (install_root, source_root):
-        if base is None:
-            continue
-        ico = base / "icon.ico"
-        if ico.is_file():
-            return ico
     return None
 
 

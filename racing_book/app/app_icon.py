@@ -71,6 +71,18 @@ def _runtime_install_root() -> Path | None:
         if (install_root / "main.py").is_file() and _has_icon_assets(install_root):
             return install_root
 
+    if arg0.name.lower() == "gridnotes.exe" and arg0.parent.name == "Scripts":
+        install_root = arg0.parent.parent.parent
+        if (install_root / "main.py").is_file() and _has_icon_assets(install_root):
+            return install_root
+
+    if sys.executable:
+        exe = Path(sys.executable).resolve()
+        if exe.name.lower() == "gridnotes.exe" and exe.parent.name == "Scripts":
+            install_root = exe.parent.parent.parent
+            if (install_root / "main.py").is_file() and _has_icon_assets(install_root):
+                return install_root
+
     return None
 
 
@@ -132,29 +144,70 @@ def icon_path() -> Path | None:
     return _resolve_icon_file(_resource_base())
 
 
-def taskbar_icon_path() -> Path | None:
-    """Icon resource for the taskbar and pins — prefer branded GridNotes.exe on Windows."""
+def shell_icon_path() -> Path | None:
+    """
+    Icon file for Windows shell branding (taskbar pin, AppUserModelID).
+
+    Prefer icon.ico — PyQt and some shell paths handle it more reliably than pythonw.exe.
+    """
+    ico = icon_path()
+    if ico is not None and ico.suffix.lower() == ".ico":
+        return ico
     if sys.platform == "win32":
         try:
-            from ..installer.uninstall import resolve_install_root
             from ..installer.logic import windows_launcher_exe_path
+            from ..installer.uninstall import resolve_install_root
 
             root = resolve_install_root()
             if root is not None:
+                install_ico = root / "icon.ico"
+                if install_ico.is_file():
+                    return install_ico
                 launcher = windows_launcher_exe_path(root)
                 if launcher.is_file():
                     return launcher
         except Exception:
             pass
-    return icon_path()
+    return ico
+
+
+def taskbar_icon_path() -> Path | None:
+    """Backward-compatible alias for :func:`shell_icon_path`."""
+    return shell_icon_path()
 
 
 def load_app_icon():  # -> QIcon | None
     from PyQt6.QtGui import QIcon
 
-    path = taskbar_icon_path() or icon_path()
-    if path is not None:
-        icon = QIcon(str(path))
+    candidates: list[Path] = []
+    base = _resource_base()
+    candidates.extend([base / "icon.ico", base / "icon.png"])
+
+    try:
+        from ..installer.uninstall import resolve_install_root
+
+        root = resolve_install_root()
+        if root is not None:
+            candidates.extend([root / "icon.ico", root / "icon.png"])
+    except Exception:
+        pass
+
+    seen: set[Path] = set()
+    for path in candidates:
+        try:
+            resolved = path.resolve()
+        except OSError:
+            resolved = path
+        if resolved in seen or not resolved.is_file():
+            continue
+        seen.add(resolved)
+        icon = QIcon(str(resolved))
+        if not icon.isNull():
+            return icon
+
+    resolved_ico = icon_path()
+    if resolved_ico is not None and resolved_ico not in seen:
+        icon = QIcon(str(resolved_ico))
         if not icon.isNull():
             return icon
 
