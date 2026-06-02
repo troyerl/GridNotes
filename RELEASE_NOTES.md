@@ -6,6 +6,14 @@ New versions are listed below with the newest first. When publishing on GitHub, 
 
 ---
 
+## v1.0.14 — 2026-06-02
+
+### Fixed
+
+- **Taskbar pin icon** — shortcuts now always get the correct `AppUserModelID` and pin icon (branded `GridNotes.exe`, not a stale pythonw reference). Shell properties are applied in the order Windows expects. **Unpin** any old taskbar icon, update, then pin from the **Desktop shortcut** again.
+
+---
+
 ## v1.0.13 — 2026-06-02
 
 ### Fixed

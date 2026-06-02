@@ -243,9 +243,15 @@ def _shortcut_should_refresh_for_launcher(
             arguments or ""
         ).lower():
             return True
-        install_ico = install_root.resolve() / "icon.ico"
-        if install_ico.is_file():
-            expected_icon = windows_icon_location(install_ico).lower()
+        from .logic import windows_pin_icon_path
+
+        pin_icon = windows_pin_icon_path(install_root)
+        if pin_icon is not None:
+            expected_icon = windows_icon_location(pin_icon).lower()
+        elif install_root.resolve().joinpath("icon.ico").is_file():
+            expected_icon = windows_icon_location(
+                install_root.resolve() / "icon.ico"
+            ).lower()
         else:
             expected_icon = windows_icon_location(resolved_launcher).lower()
         if icon_location.lower() != expected_icon:
@@ -331,7 +337,12 @@ def ensure_windows_shortcuts_for_taskbar(
 
     from .logic import windows_launcher_exe_path
 
+    from .logic import windows_pin_icon_path
+    from .windows_shell import apply_shortcut_taskbar_identity, build_relaunch_command
+
     launcher_exe = windows_launcher_exe_path(install_root)
+    pin_icon = icon or windows_pin_icon_path(install_root)
+    relaunch = build_relaunch_command(install_root)
     description = "GridNotes — iRacing driver scouting"
     for shortcut_path in _known_windows_shortcut_paths(install_root):
         try:
@@ -344,13 +355,14 @@ def ensure_windows_shortcuts_for_taskbar(
                     target=target,
                     working_dir=working_dir,
                     description=description,
-                    icon=icon,
+                    icon=pin_icon,
                     arguments=arguments,
                 )
-            else:
-                from .windows_shell import apply_shortcut_taskbar_identity
-
-                apply_shortcut_taskbar_identity(shortcut_path, launcher_exe)
+            apply_shortcut_taskbar_identity(
+                shortcut_path,
+                pin_icon,
+                relaunch_command=relaunch,
+            )
         except (OSError, subprocess.SubprocessError) as exc:
             logger.warning("Could not update shortcut %s: %s", shortcut_path, exc)
 

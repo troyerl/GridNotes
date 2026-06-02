@@ -101,7 +101,7 @@ public static class GridNotesShellProps {
         string relaunchCommand,
         string displayName
     ) {
-        SetString(store, PKEY_AppUserModel_ID, appId);
+        // Relaunch metadata must be set before AppUserModelID (taskbar reads ID last).
         if (!string.IsNullOrWhiteSpace(iconResource)) {
             SetString(store, PKEY_AppUserModel_RelaunchIconResource, iconResource);
         }
@@ -113,6 +113,7 @@ public static class GridNotesShellProps {
                 string.IsNullOrWhiteSpace(displayName) ? "GridNotes" : displayName
             );
         }
+        SetString(store, PKEY_AppUserModel_ID, appId);
         store.Commit();
     }
 
@@ -155,7 +156,7 @@ if ($IconPath -and (Test-Path -LiteralPath $IconPath)) {
 
 if ($ShortcutPath) {
   [GridNotesShellProps]::ApplyShortcut(
-    $ShortcutPath, $AppId, $iconResource, "", $DisplayName
+    $ShortcutPath, $AppId, $iconResource, $RelaunchCommand, $DisplayName
   )
 } elseif ($Hwnd -gt 0) {
   [GridNotesShellProps]::ApplyWindow(
@@ -267,7 +268,12 @@ def _run_shell_property_script(
     return True
 
 
-def apply_shortcut_taskbar_identity(shortcut_path: Path, icon: Path | None) -> bool:
+def apply_shortcut_taskbar_identity(
+    shortcut_path: Path,
+    icon: Path | None,
+    *,
+    relaunch_command: str | None = None,
+) -> bool:
     """Set AppUserModelID (and icon) on a .lnk so taskbar pins keep the GridNotes icon."""
     from ..app.app_icon import APP_USER_MODEL_ID
 
@@ -275,6 +281,7 @@ def apply_shortcut_taskbar_identity(shortcut_path: Path, icon: Path | None) -> b
         app_id=APP_USER_MODEL_ID,
         icon=icon,
         shortcut_path=shortcut_path,
+        relaunch_command=relaunch_command,
     )
 
 

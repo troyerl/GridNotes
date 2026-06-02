@@ -145,30 +145,20 @@ def icon_path() -> Path | None:
 
 
 def shell_icon_path() -> Path | None:
-    """
-    Icon file for Windows shell branding (taskbar pin, AppUserModelID).
-
-    Prefer icon.ico — PyQt and some shell paths handle it more reliably than pythonw.exe.
-    """
-    ico = icon_path()
-    if ico is not None and ico.suffix.lower() == ".ico":
-        return ico
+    """Icon file for Windows shell branding (taskbar pin, AppUserModelID)."""
     if sys.platform == "win32":
         try:
-            from ..installer.logic import windows_launcher_exe_path
+            from ..installer.logic import windows_pin_icon_path
             from ..installer.uninstall import resolve_install_root
 
             root = resolve_install_root()
             if root is not None:
-                install_ico = root / "icon.ico"
-                if install_ico.is_file():
-                    return install_ico
-                launcher = windows_launcher_exe_path(root)
-                if launcher.is_file():
-                    return launcher
+                pinned = windows_pin_icon_path(root)
+                if pinned is not None:
+                    return pinned
         except Exception:
             pass
-    return ico
+    return icon_path()
 
 
 def taskbar_icon_path() -> Path | None:

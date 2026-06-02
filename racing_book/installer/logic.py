@@ -443,6 +443,23 @@ def windows_launcher_arguments(install_root: Path) -> str | None:
     return f'"{starter.resolve()}"'
 
 
+def windows_pin_icon_path(install_root: Path) -> Path | None:
+    """
+    Icon for Windows shortcuts and taskbar pins.
+
+    Prefer the branded launcher EXE (same file the shortcut runs) so pins match
+    the running process; fall back to icon.ico.
+    """
+    install_root = install_root.resolve()
+    branded = windows_launcher_exe_path(install_root)
+    if branded.is_file():
+        return branded.resolve()
+    ico = install_root / "icon.ico"
+    if ico.is_file():
+        return ico.resolve()
+    return None
+
+
 def resolve_shortcut_icon(
     install_root: Path,
     *,
@@ -450,17 +467,17 @@ def resolve_shortcut_icon(
     launch_target: Path | None = None,
     python: Path | None = None,
 ) -> Path | None:
-    """Pick icon for shortcuts — prefer icon.ico; fall back to branded GridNotes.exe."""
+    """Pick icon for .lnk IconLocation (taskbar pins)."""
     regenerate_icon_ico(install_root, python)
+    pinned = windows_pin_icon_path(install_root)
+    if pinned is not None:
+        return pinned
     for base in (install_root, source_root):
         if base is None:
             continue
         ico = base / "icon.ico"
         if ico.is_file():
             return ico.resolve()
-    branded = windows_launcher_exe_path(install_root)
-    if branded.is_file():
-        return branded.resolve()
     if (
         launch_target is not None
         and launch_target.suffix.lower() == ".exe"
