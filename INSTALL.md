@@ -1,6 +1,6 @@
 # How to install GridNotes
 
-**Version 1.0.18**
+**Version 1.0.19**
 
 GridNotes helps you remember iRacing drivers you raced with and keep private notes.  
 You do **not** need to know how to code. Follow the steps below in order.
@@ -25,7 +25,7 @@ Answer one question: **What did you download?**
 > Use **[section B](#b-i-have-a-folder-from-github-many-files-including-install-gridnotesbat)** below (`Install GridNotes.bat`).
 
 > **`GridNotes-Setup.exe` only comes from:**  
-> - A [GitHub Release](https://github.com/troyerl/race_book/releases) **asset** (if the author attached it), or  
+> - A [GitHub Release](https://github.com/troyerl/GridNotes/releases) **asset** (if the author attached it), or  
 > - Building it yourself on Windows (see [For people who package GridNotes](#for-people-who-package-gridnotes-technical)).
 
 ### A) I have `GridNotes-Setup.exe` (or a release zip with `GridNotes.exe` inside)
@@ -139,7 +139,7 @@ You do **not** need to uninstall or run the installer again for normal updates.
 
 **Taskbar icon after an update:** If you pinned GridNotes before, **unpin** the old icon once, then **right-click the Desktop shortcut** → **Pin to taskbar**.
 
-If you installed with **`GridNotes-Setup.exe`** (standalone `.exe` build), use a new setup installer from [Releases](https://github.com/troyerl/race_book/releases) to update.
+If you installed with **`GridNotes-Setup.exe`** (standalone `.exe` build), use a new setup installer from [Releases](https://github.com/troyerl/GridNotes/releases) to update.
 
 ---
 
@@ -256,7 +256,7 @@ This often happens if the installer ran **as administrator** but GridNotes needs
 
 The installer copies **from your download folder** into **Program Files** (or the folder you chose). Run **`Install GridNotes.bat` from the extracted download** (the folder that contains `main.py` and `requirements.txt`), not from `C:\Program Files\GridNotes` before install finishes.
 
-1. Open the folder where you **extracted the ZIP** (e.g. `race_book-main` or `racing_book`).  
+1. Open the folder where you **extracted the ZIP** (e.g. `GridNotes-main` or `gridnotes`).  
 2. Confirm you see **`requirements.txt`** and **`Install GridNotes.bat`** in that same folder.  
 3. Double-click **`Install GridNotes.bat`** there again.  
 4. Leave the default install location as-is and click **Install GridNotes**.
@@ -270,7 +270,7 @@ You probably downloaded the **project source** (green **Code → Download ZIP**)
 1. Open the folder you unzipped.  
 2. Follow **[section B](#b-i-have-a-folder-from-github-many-files-including-install-gridnotesbat)** (Python once, then `Install GridNotes.bat`).
 
-**Or** open [Releases](https://github.com/troyerl/race_book/releases) and download **`GridNotes-Setup.exe`** under **Assets** — only if it was uploaded for that release.
+**Or** open [Releases](https://github.com/troyerl/GridNotes/releases) and download **`GridNotes-Setup.exe`** under **Assets** — only if it was uploaded for that release.
 
 ### Still stuck?
 

@@ -113,7 +113,7 @@ def _create_windows_lnk(
         **kwargs,
     )
     try:
-        from .windows_shell import apply_shortcut_taskbar_identity
+        from ..platform.windows.windows_shell import apply_shortcut_taskbar_identity
 
         apply_shortcut_taskbar_identity(shortcut_path, icon)
     except Exception as exc:
@@ -376,7 +376,7 @@ def ensure_windows_shortcuts_for_taskbar(
         venv_python,
         windows_launcher_exe_path,
     )
-    from .windows_shell import apply_shortcut_taskbar_identity, build_relaunch_command
+    from ..platform.windows.windows_shell import apply_shortcut_taskbar_identity, build_relaunch_command
 
     venv_dir = install_root / VENV_DIR_NAME
     py = venv_python(venv_dir)

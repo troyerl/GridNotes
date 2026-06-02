@@ -23,7 +23,7 @@ def resolve_relaunch_command(existing: str | None = None) -> str | None:
     if existing and existing.strip():
         return existing.strip()
     try:
-        from ..installer.uninstall import resolve_install_root
+        from gridnotes.installer.uninstall import resolve_install_root
 
         install_root = resolve_install_root()
         if install_root is not None:
@@ -46,7 +46,7 @@ def resolve_relaunch_command(existing: str | None = None) -> str | None:
 
 def build_relaunch_command(install_root: Path) -> str | None:
     """Command line Windows uses when pinning the running app to the taskbar."""
-    from .logic import (
+    from gridnotes.installer.logic import (
         VENV_DIR_NAME,
         gridnotes_start_script_path,
         venv_pythonw,
@@ -100,7 +100,7 @@ def apply_shortcut_taskbar_identity(
     display_name: str = "GridNotes",
 ) -> bool:
     """Set AppUserModelID (and icon) on a .lnk so taskbar pins keep the GridNotes icon."""
-    from ..app.app_icon import APP_USER_MODEL_ID
+    from gridnotes.app.app_icon import APP_USER_MODEL_ID
 
     relaunch = resolve_relaunch_command(relaunch_command)
     return _run_shell_property_script(
@@ -120,7 +120,7 @@ def apply_window_taskbar_identity(
     display_name: str = "GridNotes",
 ) -> bool:
     """Associate the main window with the same AppUserModelID as our shortcuts."""
-    from ..app.app_icon import APP_USER_MODEL_ID, set_windows_app_user_model_id
+    from gridnotes.app.app_icon import APP_USER_MODEL_ID, set_windows_app_user_model_id
 
     set_windows_app_user_model_id()
     if sys.platform != "win32":

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from PyQt6.QtWidgets import QWidget
 
-_logger = logging.getLogger("racing_book.user")
+_logger = logging.getLogger("gridnotes.user")
 
 
 def log_user_error(message: str, *, context: str | None = None) -> None:

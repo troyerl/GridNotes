@@ -100,7 +100,7 @@ MSG_SESSION_NOT_CONNECTED = (
 )
 
 
-class RaceBookApp(QMainWindow):
+class GridNotesApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("GridNotes")
@@ -162,7 +162,7 @@ class RaceBookApp(QMainWindow):
             return
         try:
             from ..installer.uninstall import resolve_install_root
-            from ..installer.windows_apps import register_windows_uninstall
+            from ..platform.windows.windows_apps import register_windows_uninstall
 
             install_root = resolve_install_root()
             if install_root is not None:
@@ -180,7 +180,7 @@ class RaceBookApp(QMainWindow):
             from ..installer.logic import VENV_DIR_NAME, preferred_shortcut_target
             from ..installer.shortcuts import ensure_windows_shortcuts_for_taskbar
             from ..installer.uninstall import resolve_install_root
-            from ..installer.windows_shell import (
+            from ..platform.windows.windows_shell import (
                 apply_window_taskbar_identity,
                 build_relaunch_command,
             )
@@ -227,7 +227,7 @@ class RaceBookApp(QMainWindow):
         try:
             from ..app.app_icon import shell_icon_path
             from ..installer.uninstall import resolve_install_root
-            from ..installer.windows_shell import (
+            from ..platform.windows.windows_shell import (
                 apply_window_taskbar_identity,
                 build_relaunch_command,
             )
@@ -1037,9 +1037,9 @@ class RaceBookApp(QMainWindow):
             else:
                 prompt = (
                     f"{version_label} of GridNotes is available.\n\n"
-                    "Install the update now? GridNotes will pull the latest code "
-                    "and restart.\n\n"
-                    "Your database and settings will be kept."
+                    "Install the update now? GridNotes will download the latest "
+                    "version and restart.\n\n"
+                    "Your notes and settings will be kept."
                 )
         elif is_frozen_build():
             prompt = (
@@ -1086,8 +1086,8 @@ class RaceBookApp(QMainWindow):
                     )
                 else:
                     confirm_text = (
-                        "Pull the latest code from GitHub and restart the application?\n\n"
-                        "Your database and settings will be kept."
+                        "Install the latest version and restart GridNotes?\n\n"
+                        "Your notes and settings will be kept."
                     )
                 confirm = QMessageBox.question(
                     self,
@@ -1156,7 +1156,7 @@ class RaceBookApp(QMainWindow):
             self._close_update_progress()
             log_user_error(message, context="application update")
             self.settings_tab.show_apply_update_result(False, message)
-            QMessageBox.warning(self, "Update Failed", message)
+            QMessageBox.warning(self, "Update did not finish", message)
             return
 
         self.settings_tab.show_apply_update_result(True, message)

@@ -1,8 +1,11 @@
 __pycache__
 driver_history.db
 .build-venv/
+.venv-api/
 build/
 dist/
 *.spec.bak
 .DS_Store
 gridnotes.log
+install-helper.log
+launch-error.log

@@ -188,18 +188,9 @@ def check_for_updates() -> UpdateCheckResult:
     can_apply = False
     source_behind = 0
     update_available = False
-    messages: list[str] = []
 
-    if release_ok and latest:
-        if is_newer_version(latest, current):
-            update_available = True
-            messages.append(f"A newer release is available: v{latest} (you have v{current}).")
-        else:
-            messages.append(f"You have the latest published release (v{current}).")
-    elif release_ok:
-        messages.append(release_message)
-    else:
-        messages.append(release_message)
+    if release_ok and latest and is_newer_version(latest, current):
+        update_available = True
 
     apply_method: str | None = None
 
@@ -210,17 +201,11 @@ def check_for_updates() -> UpdateCheckResult:
             can_apply = True
             apply_method = "git"
             source_behind = behind
-            noun = "commit" if behind == 1 else "commits"
-            messages.append(
-                f"Source install: {behind} new {noun} on origin/{branch} can be pulled."
-            )
-        elif git_ok:
-            messages.append("Source install: already up to date with origin.")
-        else:
-            messages.append("Source install: could not compare with origin.")
+        elif git_ok and behind == 0 and not update_available:
+            pass
 
     if apply_method is None and not is_frozen_build():
-        from .portable_update import portable_install_root
+        from ..installer.portable_update import portable_install_root
 
         portable_root = portable_install_root()
         if (
@@ -232,25 +217,19 @@ def check_for_updates() -> UpdateCheckResult:
             update_available = True
             can_apply = True
             apply_method = "portable"
-            messages.append(
-                f"Installed copy at {portable_root} can be updated automatically."
-            )
 
-    if update_available and apply_method == "git":
-        action = "Click “Update now” to pull the latest code and restart."
-    elif update_available and apply_method == "portable":
-        action = (
-            "Click “Update now” to download the update, refresh icons and shortcuts, "
-            "and reopen GridNotes — no reinstall needed."
-        )
-    elif update_available and is_frozen_build():
-        action = "Download the latest installer from GitHub to update."
-    elif update_available:
-        action = "See GitHub for download instructions."
-    else:
-        action = ""
+    from ..installer.user_messages import update_check_user_message
 
-    message = " ".join(part for part in [*messages, action] if part)
+    message = update_check_user_message(
+        update_available=update_available,
+        current=current,
+        latest=latest,
+        release_ok=release_ok,
+        release_message=release_message,
+        can_apply=can_apply and apply_method is not None,
+        apply_method=apply_method,
+        is_frozen=is_frozen_build(),
+    )
     return UpdateCheckResult(
         ok=release_ok or can_apply,
         message=message,
@@ -291,7 +270,9 @@ def apply_source_update(
 
     output = (result.stdout or result.stderr or "").strip()
     if result.returncode != 0:
-        return False, output or "git pull failed."
+        from ..installer.user_messages import source_update_failed_message
+
+        return False, source_update_failed_message(output or "git pull failed.")
 
     logger.info("git pull succeeded: %s", output or "(no output)")
     if sys.platform == "win32":
@@ -308,7 +289,9 @@ def apply_source_update(
             logger.exception("Post-pull Windows refresh failed")
     if on_progress is not None:
         on_progress("Restarting GridNotes…", 100)
-    return True, output or "Updated successfully."
+    from ..installer.user_messages import source_update_success_message
+
+    return True, source_update_success_message()
 
 
 def restart_application() -> None:

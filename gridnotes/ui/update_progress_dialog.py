@@ -5,6 +5,8 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QDialog, QLabel, QProgressBar, QVBoxLayout
 
+from ..installer.user_messages import friendly_update_progress
+
 
 class UpdateProgressDialog(QDialog):
     """Shows step label and percent while an update runs in a background thread."""
@@ -14,14 +16,14 @@ class UpdateProgressDialog(QDialog):
         self.setObjectName("updateProgressDialog")
         self.setWindowTitle("Updating GridNotes")
         self.setModal(True)
-        self.setMinimumWidth(420)
+        self.setMinimumWidth(440)
         self.setWindowFlag(Qt.WindowType.WindowCloseButtonHint, False)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
         layout.setContentsMargins(20, 20, 20, 20)
 
-        self._title_label = QLabel("Installing update…")
+        self._title_label = QLabel("Installing the update")
         self._title_label.setObjectName("updateProgressTitle")
         layout.addWidget(self._title_label)
 
@@ -43,7 +45,8 @@ class UpdateProgressDialog(QDialog):
         layout.addWidget(self._progress)
 
         self._hint_label = QLabel(
-            "Please keep this window open. Your notes and settings will not be removed."
+            "Please keep this window open until GridNotes reopens.\n"
+            "Your notes, ratings, and settings will stay exactly as they are."
         )
         self._hint_label.setObjectName("sectionHint")
         self._hint_label.setWordWrap(True)
@@ -51,14 +54,16 @@ class UpdateProgressDialog(QDialog):
 
     def begin(self, *, target_version: str | None = None) -> None:
         if target_version:
-            self._version_label.setText(f"Updating to v{target_version.lstrip('v')}")
+            self._version_label.setText(
+                f"Updating to version {target_version.lstrip('v')}"
+            )
             self._version_label.setVisible(True)
         else:
             self._version_label.setVisible(False)
         self.set_progress("Starting…", 0)
 
     def set_progress(self, message: str, percent: int) -> None:
-        self._status_label.setText(message)
+        self._status_label.setText(friendly_update_progress(message))
         self._progress.setValue(max(0, min(100, percent)))
 
     def mark_complete(self, message: str) -> None:

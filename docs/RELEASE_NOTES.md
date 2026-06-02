@@ -6,6 +6,20 @@ New versions are listed below with the newest first. When publishing on GitHub, 
 
 ---
 
+## v1.0.19 — 2026-06-02
+
+### Improved
+
+- **Cleaner codebase** — Python package renamed to `gridnotes` (was `racing_book`). Windows shell/launcher code lives under `gridnotes/platform/windows/`; in-app updates live under `gridnotes/installer/`. Main window module is `gridnotes_app.py` (`GridNotesApp`). In-app updates remove the old `racing_book` folder automatically.
+- **Easier install and update** — Install wizard and **Update now** use plain-language progress and messages. Technical details are unchanged in `gridnotes.log`, `install-helper.log`, `launch-error.log`, and `gridnotes-update.log` (optional “Show details” in the installer).
+- **Open GridNotes.bat** — Tries the branded `GridNotes.exe` launcher first, then falls back to the VBS launcher.
+
+### Fixed
+
+- **Update transition** — Post-update refresh can fall back to the legacy module name once if needed; version detection reads either package folder during migration.
+
+---
+
 ## v1.0.18 — 2026-06-02
 
 ### Fixed

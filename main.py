@@ -1,6 +1,6 @@
 import sys
 
-# Must run before Qt loads (including via racing_book.app.app_icon).
+# Must run before Qt loads (including via gridnotes.app.app_icon).
 if sys.platform == "win32":
     try:
         import ctypes
@@ -13,11 +13,11 @@ if sys.platform == "win32":
 
 from PyQt6.QtWidgets import QApplication
 
-from racing_book.app.app_icon import load_app_icon, set_windows_app_user_model_id
-from racing_book.app.racebook_app import RaceBookApp
-from racing_book.data.db import init_db
-from racing_book.services.log_config import setup_logging
-from racing_book.ui.theme import apply_app_theme
+from gridnotes.app.app_icon import load_app_icon, set_windows_app_user_model_id
+from gridnotes.app.gridnotes_app import GridNotesApp
+from gridnotes.data.db import init_db
+from gridnotes.services.log_config import setup_logging
+from gridnotes.ui.theme import apply_app_theme
 
 
 def main() -> int:
@@ -35,7 +35,7 @@ def main() -> int:
     if icon is not None:
         app.setWindowIcon(icon)
 
-    window = RaceBookApp()
+    window = GridNotesApp()
     if icon is not None:
         window.setWindowIcon(icon)
 
@@ -45,9 +45,9 @@ def main() -> int:
 
         def _apply_windows_taskbar_branding() -> None:
             try:
-                from racing_book.app.app_icon import shell_icon_path
-                from racing_book.installer.uninstall import resolve_install_root
-                from racing_book.installer.windows_shell import (
+                from gridnotes.app.app_icon import shell_icon_path
+                from gridnotes.installer.uninstall import resolve_install_root
+                from gridnotes.platform.windows.windows_shell import (
                     apply_window_taskbar_identity,
                     build_relaunch_command,
                 )

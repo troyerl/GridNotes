@@ -158,10 +158,11 @@ def ensure_supported_python_for_install(
 
     return (
         False,
-        "Could not install Python 3.13 automatically.\n\n"
-        "Install Python 3.12 or 3.13 manually from https://www.python.org/downloads/\n"
-        '(check "Add python.exe to PATH"), delete D:\\GridNotes\\.venv if it exists,\n'
-        "then run Install GridNotes.bat again.\n\n"
-        f"You can also try in cmd: winget install -e --id {WINGET_PYTHON_PACKAGE_ID}",
+        "GridNotes could not install Python automatically.\n\n"
+        "1. Go to python.org/downloads and install Python 3.12 or 3.13.\n"
+        '2. On the first screen, turn on “Add python.exe to PATH”.\n'
+        "3. Run Install GridNotes.bat again.\n\n"
+        "If you already installed GridNotes once, delete the .venv folder inside "
+        "your GridNotes install folder, then run the installer again.",
         None,
     )

@@ -14,7 +14,7 @@ from pathlib import Path
 
 from .logic import find_project_root, install_location_pointer_file
 from .shortcuts import remove_all_desktop_shortcuts
-from .windows_apps import unregister_windows_uninstall
+from ..platform.windows.windows_apps import unregister_windows_uninstall
 
 from ..data.db import get_data_dir_path
 from ..data.user_paths import data_dir_candidates

@@ -19,7 +19,7 @@ def _registry_hive(install_root: Path) -> int:
     if sys.platform != "win32":
         return winreg.HKEY_CURRENT_USER
 
-    from .logic import install_path_under_program_files, is_windows_admin
+    from gridnotes.installer.logic import install_path_under_program_files, is_windows_admin
 
     if install_path_under_program_files(install_root) and is_windows_admin():
         return winreg.HKEY_LOCAL_MACHINE
@@ -49,7 +49,7 @@ def register_windows_uninstall(install_root: Path, version: str | None = None) -
 
     import winreg
 
-    from ..app.app_version import installed_version, write_installed_version
+    from gridnotes.app.app_version import installed_version, write_installed_version
 
     install_root = install_root.resolve()
     launcher = uninstall_launcher_path(install_root)

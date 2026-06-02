@@ -33,16 +33,15 @@ if errorlevel 1 goto :failed
 
 echo.
 echo  ============================================================
-echo   INSTALLER - this is NOT the GridNotes app itself
+echo   GridNotes Installer
 echo  ============================================================
 echo.
-echo  Default install needs no administrator permission.
-echo  For C:\Program Files: right-click this file - Run as administrator,
-echo  or run: Install GridNotes.bat /elevate
-echo  For D: drive: use Choose folder in the wizard ^(creates D:\GridNotes^).
+echo  This installs GridNotes on your PC ^(not the app itself^).
+echo  A window will open — follow the steps and click Install GridNotes.
 echo.
-echo  Starting install wizard...
-echo  ^(If nothing appears, read install-helper.log in this folder.^)
+echo  Tip: The default location needs no administrator permission.
+echo.
+echo  Opening installer...
 echo.
 
 %PYEXE% %PYARGS% -u "%~dp0install_gui.py" 2>>"%LOGFILE%"
@@ -89,17 +88,12 @@ exit /b 1
 :failed
 echo.
 echo  ============================================================
-echo   Install helper did not finish successfully.
+echo   Installation did not finish
 echo  ============================================================
 echo.
-echo  See: %LOGFILE%
-echo  Help: INSTALL.md in this folder
+echo  Read INSTALL.md in this folder for help.
+echo  Technical details: %LOGFILE%
 echo.
-if exist "%LOGFILE%" (
-  echo --- Last lines from log ---
-  powershell -NoProfile -Command "Get-Content -LiteralPath '%LOGFILE%' -Tail 25"
-  echo ---------------------------
-)
 pause
 exit /b 1
 

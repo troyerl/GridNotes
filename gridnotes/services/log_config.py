@@ -31,14 +31,14 @@ def _excepthook(exc_type, exc_value, exc_tb) -> None:
     if issubclass(exc_type, KeyboardInterrupt):
         sys.__excepthook__(exc_type, exc_value, exc_tb)
         return
-    logging.getLogger("racing_book.crash").critical(
+    logging.getLogger("gridnotes.crash").critical(
         "Uncaught exception",
         exc_info=(exc_type, exc_value, exc_tb),
     )
 
 
 def _threading_excepthook(args: threading.ExceptHookArgs) -> None:
-    logging.getLogger("racing_book.crash").critical(
+    logging.getLogger("gridnotes.crash").critical(
         "Uncaught exception in thread %s",
         getattr(args.thread, "name", args.thread),
         exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
@@ -51,7 +51,7 @@ def _install_qt_message_handler() -> None:
     except Exception:
         return
 
-    qt_logger = logging.getLogger("racing_book.qt")
+    qt_logger = logging.getLogger("gridnotes.qt")
 
     def handler(mode, context, message) -> None:
         if not message:
@@ -122,7 +122,7 @@ def setup_logging() -> Path:
 
     _install_qt_message_handler()
 
-    boot = logging.getLogger("racing_book")
+    boot = logging.getLogger("gridnotes")
     boot.info("=" * 60)
     boot.info("GridNotes starting")
     boot.info("Log file: %s", log_path)

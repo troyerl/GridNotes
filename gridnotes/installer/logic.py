@@ -31,7 +31,7 @@ _COPY_NAMES = (
     "install_gui.py",
     "requirements.txt",
     "requirements-build.txt",
-    "racing_book.spec",
+    "gridnotes.spec",
     "icon.png",
     "icon.ico",
     "icon.icns",
@@ -46,7 +46,7 @@ _COPY_OPTIONAL_NAMES = (
     "Run GridNotes.bat",
     "Run GridNotes.command",
 )
-_COPY_DIRS = ("racing_book", "scripts")
+_COPY_DIRS = ("gridnotes", "scripts")
 _IGNORE_DIR_NAMES = {
     ".venv",
     ".build-venv",
@@ -153,15 +153,11 @@ def install_path_under_program_files(path: Path) -> bool:
 
 
 def permission_denied_install_message(install_root: Path) -> str:
-    local = user_local_install_location()
-    return (
-        f"Windows denied access to:\n{install_root}\n\n"
-        "Program Files requires administrator permission.\n\n"
-        "Choose one:\n"
-        f"• Click “Install for only me” or use: {local}\n"
-        "• Or pick D:\\ in Choose folder… (installs to D:\\GridNotes)\n"
-        "• Or close this window, right-click Install GridNotes.bat → "
-        "Run as administrator, then install to Program Files again"
+    from .user_messages import permission_denied_message
+
+    return permission_denied_message(
+        install_root,
+        suggested_folder=user_local_install_location(),
     )
 
 
@@ -275,7 +271,7 @@ def build_windows_launcher_exe(install_root: Path, python: Path) -> Path | None:
     if sys.platform != "win32":
         return None
 
-    from .windows_launcher import embed_icon_in_exe, ensure_rcedit
+    from ..platform.windows.windows_launcher import embed_icon_in_exe, ensure_rcedit
 
     install_root = install_root.resolve()
     venv_dir = install_root / VENV_DIR_NAME
@@ -318,6 +314,12 @@ def build_windows_launcher_exe(install_root: Path, python: Path) -> Path | None:
 def purge_install_bytecode(install_root: Path) -> None:
     """Remove stale .pyc trees so updates load new source immediately."""
     install_root = install_root.resolve()
+    legacy_pkg = install_root / "racing_book"
+    if legacy_pkg.is_dir():
+        shutil.rmtree(legacy_pkg, ignore_errors=True)
+    legacy_spec = install_root / "racing_book.spec"
+    if legacy_spec.is_file() and (install_root / "gridnotes.spec").is_file():
+        legacy_spec.unlink(missing_ok=True)
     for cache_dir in list(install_root.rglob("__pycache__")):
         if cache_dir.is_dir():
             shutil.rmtree(cache_dir, ignore_errors=True)
@@ -400,7 +402,7 @@ def _refresh_windows_installed_artifacts(
     build_standalone: bool = False,
 ) -> None:
     from .shortcuts import provision_windows_install_shortcuts
-    from .windows_apps import register_windows_uninstall
+    from ..platform.windows.windows_apps import register_windows_uninstall
 
     if py.is_file():
         regenerate_icon_ico(install_root, py)
@@ -544,10 +546,9 @@ def simple_install_location_hint() -> str:
     """Short guidance for non-technical users."""
     if sys.platform == "win32":
         return (
-            "Default folder needs no administrator permission. "
-            "Use Choose folder… for another drive (for example D:\\ → D:\\GridNotes). "
-            "For C:\\Program Files, use advanced options and run Install GridNotes.bat as administrator. "
-            "After install, open GridNotes from the Desktop icon."
+            "The recommended folder works for most people — no special permission needed. "
+            "Use Choose folder… only if you want GridNotes on another drive (for example D:). "
+            "After installation, open GridNotes from the icon on your Desktop."
         )
     return (
         "Leave this folder as-is unless someone told you to change it. "
@@ -716,8 +717,10 @@ def resolve_install_python() -> tuple[bool, str, str | None]:
 
 
 def check_python() -> tuple[bool, str]:
+    from .user_messages import friendly_python_status
+
     ok, message, _executable = resolve_install_python()
-    return ok, message
+    return ok, friendly_python_status(ok, message)
 
 
 def install_location_pointer_file() -> Path:
@@ -749,6 +752,9 @@ def _gridnotes_start_template_path() -> Path:
     candidate = root / "gridnotes_start.py"
     if candidate.is_file():
         return candidate
+    template = Path(__file__).resolve().parent / "templates" / "gridnotes_start.py"
+    if template.is_file():
+        return template
     return Path(__file__).resolve().parent / "gridnotes_start.py"
 
 
@@ -930,7 +936,7 @@ def write_uninstaller_scripts(root: Path, venv_dir: Path) -> list[Path]:
         "  pause\r\n"
         "  exit /b 1\r\n"
         ")\r\n"
-        '"%PY%" -m racing_book.installer.uninstall_cli %*\r\n'
+        '"%PY%" -m gridnotes.installer.uninstall_cli %*\r\n'
         "exit /b %ERRORLEVEL%\r\n",
         encoding="utf-8",
     )
@@ -1069,7 +1075,7 @@ def write_launcher_scripts(root: Path, venv_dir: Path) -> list[Path]:
             ")\r\n"
             '"%PY%" --version>>"%LOG%" 2>&1\r\n'
             '"%PY%" -c "import PyQt6">>"%LOG%" 2>&1\r\n'
-            '"%PY%" -c "import racing_book">>"%LOG%" 2>&1\r\n'
+            '"%PY%" -c "import gridnotes">>"%LOG%" 2>&1\r\n'
             ":done\r\n"
             "type \"%LOG%\"\r\n"
             "echo.\r\n"
@@ -1265,7 +1271,10 @@ class InstallRunner:
             self._on_log(line)
 
     def _step(self, label: str, percent: int) -> None:
-        self._on_step(label)
+        from .user_messages import friendly_install_step
+
+        self._on_step(friendly_install_step(label))
+        self._on_log(label)
         self._on_progress(percent)
 
     def _check_cancelled(self) -> None:
@@ -1388,7 +1397,7 @@ class InstallRunner:
                         str(py),
                         "-m",
                         "PyInstaller",
-                        "racing_book.spec",
+                        "gridnotes.spec",
                         "--noconfirm",
                         "--clean",
                         "--distpath",
@@ -1463,42 +1472,33 @@ class InstallRunner:
                 save_install_location(self.root)
 
             self._step("Finished", 100)
+            from .user_messages import install_failure_message, install_success_message
+
             if self.build_standalone:
                 if dist_exe.is_file():
-                    summary = (
-                        "Installation complete.\n\n"
-                        f"Install folder: {self.root}\n"
-                        f"Standalone app: {dist_exe}\n"
-                        "Or run from source using the launcher in the install folder."
+                    summary = install_success_message(
+                        self.root,
+                        create_desktop_shortcut=self.create_desktop_shortcut,
+                        build_standalone=True,
+                        dist_exe=dist_exe,
                     )
                 else:
-                    summary = (
-                        "Dependencies installed, but GridNotes.exe was not found.\n"
-                        f"Expected: {dist_exe}\n"
-                        "Check the log for PyInstaller errors."
+                    summary = install_failure_message(
+                        f"GridNotes.exe was not found at {dist_exe}. PyInstaller may have failed."
                     )
             else:
-                if self.create_desktop_shortcut:
-                    shortcut_note = (
-                        "To open GridNotes: use the “GridNotes” icon on your Desktop.\n"
-                        "Or double-click “Open GridNotes.bat” in your download folder."
-                    )
-                else:
-                    shortcut_note = (
-                        f'Open “Launch GridNotes.vbs” in:\n{self.root}\n'
-                        "Or use “Open GridNotes.bat” in your download folder."
-                    )
-                summary = (
-                    "Installation complete.\n\n"
-                    f"Install folder: {self.root}\n\n"
-                    f"{shortcut_note}\n\n"
-                    "“Install GridNotes.bat” was only the installer — do not use it to run the app."
+                summary = install_success_message(
+                    self.root,
+                    create_desktop_shortcut=self.create_desktop_shortcut,
+                    build_standalone=False,
                 )
             return True, summary
         except RuntimeError as exc:
+            from .user_messages import install_failure_message
+
             if str(exc) == "Installation cancelled.":
-                return False, "Installation cancelled."
-            return False, str(exc)
+                return False, install_failure_message("Installation cancelled.")
+            return False, install_failure_message(str(exc))
         except PermissionError:
             logger.exception("Install failed: permission denied")
             return False, permission_denied_install_message(self.root)
@@ -1507,7 +1507,11 @@ class InstallRunner:
                 logger.exception("Install failed: access denied")
                 return False, permission_denied_install_message(self.root)
             logger.exception("Install failed")
-            return False, str(exc)
+            from .user_messages import install_failure_message
+
+            return False, install_failure_message(str(exc))
         except subprocess.SubprocessError as exc:
             logger.exception("Install failed")
-            return False, str(exc)
+            from .user_messages import install_failure_message
+
+            return False, install_failure_message(str(exc))

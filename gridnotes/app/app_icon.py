@@ -108,7 +108,7 @@ def _resource_base() -> Path:
     except Exception:
         pass
 
-    # Repo / install root: racing_book/app/app_icon.py -> parent x3
+    # Repo / install root: gridnotes/app/app_icon.py -> parent x3
     repo_root = Path(__file__).resolve().parent.parent.parent
     if _has_icon_assets(repo_root):
         return repo_root

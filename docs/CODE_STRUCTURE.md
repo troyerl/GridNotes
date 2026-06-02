@@ -1,31 +1,33 @@
 # GridNotes code structure
 
-Python code lives under `racing_book/`, grouped by responsibility.
+Python code lives under the **`gridnotes/`** package.
 
 ```
-racing_book/
-├── app/              Application entry & config
-│   ├── racebook_app.py    Main window (Drivers, Settings, SDK)
-│   ├── app_icon.py        Window / taskbar icon
-│   ├── app_version.py     Version string (1.0.18)
-│   └── feature_flags.py   Feature toggles
+gridnotes/
+├── app/                    Application entry & config
+│   ├── gridnotes_app.py    Main window (Drivers, Settings, SDK)
+│   ├── app_icon.py         Window / taskbar icon
+│   ├── app_version.py      Version string
+│   └── feature_flags.py    Feature toggles
 │
-├── ui/               Qt screens, theme, table styling
+├── ui/                     Qt screens, theme, table styling
 │   ├── theme.py / theme_tokens.py / appearance.py
-│   ├── ui_widgets.py      Accordion, settings nav
-│   ├── driver_table.py      Driver list table
-│   ├── safety_widgets.py  Safety Index panel
-│   ├── live_session.py      Live Mode view
-│   └── settings_tab.py      Settings tab
+│   ├── ui_widgets.py       Accordion, settings nav
+│   ├── driver_table.py     Driver list table
+│   ├── safety_widgets.py   Safety Index panel
+│   ├── live_session.py     Live Mode view
+│   ├── settings_tab.py     Settings tab
+│   └── update_progress_dialog.py
 │
-├── data/             SQLite & driver records
-│   ├── db.py              Database path, settings keys
-│   ├── queries.py         SQL for stats / details
-│   ├── driver_models.py   Row models for UI
-│   ├── driver_cleanup.py  Remove zero-race drivers
-│   └── data_retention.py  Expire old race results
+├── data/                   SQLite & driver records
+│   ├── db.py               Database path, settings keys
+│   ├── user_paths.py       %LOCALAPPDATA%\GridNotes paths
+│   ├── queries.py          SQL for stats / details
+│   ├── driver_models.py    Row models for UI
+│   ├── driver_cleanup.py   Remove zero-race drivers
+│   └── data_retention.py   Expire old race results
 │
-├── iracing/          iRacing SDK & API
+├── iracing/                iRacing SDK & API
 │   ├── iracing_worker.py       Live SDK polling
 │   ├── iracing_import.py       JSON / API import logic
 │   ├── import_worker.py        Background JSON import
@@ -35,38 +37,56 @@ racing_book/
 │   ├── iracing_oauth_guide.py  OAuth help HTML
 │   └── session_kind.py         Practice / race / etc.
 │
-├── safety/           Safety Index algorithm
+├── safety/                 Safety Index algorithm
 │   └── safety_index.py
 │
-├── services/         Cross-cutting app services
+├── services/               Cross-cutting app services
 │   ├── log_config.py       gridnotes.log
 │   ├── user_feedback.py    Dialogs + error logging
 │   ├── app_update.py       GitHub / git update check
 │   └── app_update_worker.py
 │
-├── core/             Small shared helpers
-│   ├── utils.py
-│   └── timestamps.py
+├── platform/               OS-specific runtime (not wizard-only)
+│   └── windows/
+│       ├── windows_shell.py         Taskbar / shortcut AppUserModelID
+│       ├── windows_shell_native.py  PowerShell property store
+│       ├── windows_launcher.py      GridNotes.exe (pythonw + icon)
+│       └── windows_apps.py          Add/Remove Programs registry
 │
-└── installer/        Graphical source installer
-    ├── window.py
-    ├── logic.py
-    ├── worker.py
-    └── shortcuts.py
+├── installer/              Install wizard, updates, shortcuts
+│   ├── window.py / worker.py
+│   ├── logic.py            Copy tree, venv, launcher, refresh
+│   ├── shortcuts.py        Desktop / Start Menu .lnk
+│   ├── portable_update.py  In-app ZIP update (robocopy)
+│   ├── post_update_cli.py  Post-update batch entry
+│   ├── uninstall.py / uninstall_cli.py
+│   ├── ensure_python.py
+│   └── templates/
+│       └── gridnotes_start.py   Bootstrap copied to install root
+│
+└── core/                   Small shared helpers
+    ├── utils.py
+    └── timestamps.py
 ```
 
-**Entry points**
+**Repo root entry points**
 
 | File | Purpose |
 |------|---------|
-| `main.py` | Run GridNotes |
-| `install_gui.py` | Run install wizard |
+| `main.py` | Run GridNotes (dev + PyInstaller) |
+| `gridnotes_start.py` | Source install bootstrap → `main.py` |
+| `install_gui.py` | Install wizard |
+
+**Scripts & docs**
+
+| Path | Purpose |
+|------|---------|
+| `scripts/` | Build installer, icons, Windows taskbar PS1 |
+| `docs/` | Maintainer docs, release notes, code structure |
 
 **Import style**
 
-Use the package path, for example:
-
 ```python
-from racing_book.data.db import connect_db
-from racing_book.ui.theme import apply_app_theme
+from gridnotes.data.db import connect_db
+from gridnotes.platform.windows.windows_shell import apply_window_taskbar_identity
 ```

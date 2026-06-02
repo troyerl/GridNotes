@@ -1,12 +1,12 @@
 # GridNotes
 
-**Version 1.0.18**
+**Version 1.0.19**
 
 Desktop app for **iRacing driver scouting**: keep personal notes, review race history and stats, and optionally see who is in your current session while iRacing is running (Windows).
 
 All data stays on your machine in a local SQLite database — no account or cloud sync.
 
-**Release notes:** [RELEASE_NOTES.md](RELEASE_NOTES.md)
+**Release notes:** [docs/RELEASE_NOTES.md](docs/RELEASE_NOTES.md)
 
 ### New here? No technical experience needed
 
@@ -15,7 +15,7 @@ All data stays on your machine in a local SQLite database — no account or clou
 
 **Downloaded source from GitHub?** You will **not** see `GridNotes-Setup.exe` in the ZIP — use **`Install GridNotes.bat`** ([INSTALL.md](INSTALL.md)).  
 
-**Easiest for Windows:** download **`GridNotes-Setup.exe`** from [Releases → Assets](https://github.com/troyerl/race_book/releases) (you must build and upload it first; see [docs/BUILD_WINDOWS_INSTALLER.md](docs/BUILD_WINDOWS_INSTALLER.md)).
+**Easiest for Windows:** download **`GridNotes-Setup.exe`** from [Releases → Assets](https://github.com/troyerl/GridNotes/releases) (you must build and upload it first; see [docs/BUILD_WINDOWS_INSTALLER.md](docs/BUILD_WINDOWS_INSTALLER.md)).
 
 ## Overview
 
@@ -94,7 +94,7 @@ Driver history and settings are stored in:
 
 ## Code layout
 
-Source is organized by area under `racing_book/` (`app`, `ui`, `data`, `iracing`, `safety`, `services`, `core`, `installer`). See **[docs/CODE_STRUCTURE.md](docs/CODE_STRUCTURE.md)**.
+Source is organized by area under `gridnotes/` (`app`, `ui`, `data`, `iracing`, `safety`, `services`, `core`, `installer`). See **[docs/CODE_STRUCTURE.md](docs/CODE_STRUCTURE.md)**.
 
 ## Development notes
 

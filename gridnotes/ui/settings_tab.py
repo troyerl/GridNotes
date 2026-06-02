@@ -341,15 +341,14 @@ class SettingsTab(QWidget):
 
         if is_frozen_build():
             updates_hint = (
-                "Check GitHub for a newer GridNotes installer. Your driver database "
-                "and settings are kept when you install over an existing version."
+                "See if a newer GridNotes installer is available. Your notes and "
+                "settings stay on this computer when you update."
             )
         else:
             updates_hint = (
-                "Check for a newer release on GitHub. For a normal install (for example "
-                "D:\\GridNotes), Update now downloads the release and updates the app, "
-                "icons, shortcuts, and Windows registration automatically — no reinstall. "
-                "Your notes and settings are kept."
+                "See if a newer version is ready. When one is available, Update now "
+                "installs it for you — GridNotes closes briefly and reopens. Your "
+                "notes and settings are not removed."
             )
         updates_layout.addWidget(self._section_hint(updates_hint))
 
@@ -360,8 +359,8 @@ class SettingsTab(QWidget):
             get_setting(AUTO_CHECK_UPDATES_KEY, "0") == "1"
         )
         self.chk_auto_check_updates.setToolTip(
-            "When an update is available, GridNotes will ask whether to install it "
-            "when you open the app. Takes effect after you save settings and restart."
+            "When you open GridNotes, ask if you want to install a newer version. "
+            "Save settings for this to take effect."
         )
         updates_layout.addWidget(self.chk_auto_check_updates)
 
@@ -397,9 +396,8 @@ class SettingsTab(QWidget):
 
         uninstall_layout.addWidget(
             self._section_hint(
-                "Remove GridNotes from this computer. Same as Settings → Apps → "
-                "GridNotes → Uninstall. Your install folder and Desktop shortcut are "
-                "removed. Optionally delete your notes and database."
+                "Remove GridNotes from this computer. You can keep your notes and "
+                "database, or delete everything — your choice below."
             )
         )
 
@@ -519,7 +517,7 @@ class SettingsTab(QWidget):
         self.zero_race_cleanup_requested.emit()
 
     def _refresh_installed_version_label(self) -> None:
-        self.version_label.setText(f"Installed version: v{installed_version()}")
+        self.version_label.setText(f"Your version: {installed_version()}")
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
@@ -539,13 +537,14 @@ class SettingsTab(QWidget):
         )
         if install_root is not None:
             self.uninstall_install_label.setText(
-                f"Installed copy:\n{install_root}\n\nUser data:\n{data_dir}"
+                "GridNotes is installed on this computer.\n\n"
+                f"Your notes and database are stored here:\n{data_dir}"
             )
             self.btn_uninstall.setEnabled(True)
         else:
             self.uninstall_install_label.setText(
-                "No install folder was registered with Install GridNotes.bat.\n\n"
-                f"You can still remove your user data:\n{data_dir}"
+                "GridNotes app files were not found, but your personal data is here:\n"
+                f"{data_dir}"
             )
             self.btn_uninstall.setEnabled(True)
 
@@ -642,17 +641,16 @@ class SettingsTab(QWidget):
             self.btn_apply_update.setText("Update now")
             if result.apply_method == "portable":
                 self.btn_apply_update.setToolTip(
-                    "Download the latest release and refresh app files, icons, "
-                    "and shortcuts automatically"
+                    "Download and install the update, then reopen GridNotes"
                 )
             else:
                 self.btn_apply_update.setToolTip(
-                    "Pull the latest code from GitHub and restart GridNotes"
+                    "Install the latest version and restart GridNotes"
                 )
         else:
-            self.btn_apply_update.setText("Open download page")
+            self.btn_apply_update.setText("Get latest version")
             self.btn_apply_update.setToolTip(
-                "Open the latest GridNotes release on GitHub in your browser"
+                "Open the download page in your web browser"
             )
 
     def show_apply_update_result(self, ok: bool, message: str) -> None:

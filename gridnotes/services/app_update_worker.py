@@ -7,7 +7,7 @@ import logging
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from .app_update import UpdateCheckResult, apply_source_update, check_for_updates
-from .portable_update import apply_portable_update, portable_install_root
+from ..installer.portable_update import apply_portable_update, portable_install_root
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,10 @@ class UpdateCheckWorker(QThread):
 
             result = UpdateCheckResult(
                 ok=False,
-                message=f"Update check failed: {exc}",
+                message=(
+                    "Could not check for updates right now.\n"
+                    "Check your internet connection and try again."
+                ),
                 current_version=installed_version(),
             )
         self.finished.emit(result)
@@ -49,7 +52,9 @@ class ApplyAppUpdateWorker(QThread):
         self._wait_pid = wait_pid
 
     def _report(self, message: str, percent: int) -> None:
-        self.progress.emit(message, percent)
+        from ..installer.user_messages import friendly_update_progress
+
+        self.progress.emit(friendly_update_progress(message), percent)
 
     def run(self) -> None:
         method = self._result.apply_method
@@ -61,7 +66,9 @@ class ApplyAppUpdateWorker(QThread):
                 self.finished.emit(ok, message, True)
             except Exception as exc:
                 logger.exception("Source update failed")
-                self.finished.emit(False, str(exc), True)
+                from ..installer.user_messages import source_update_failed_message
+
+                self.finished.emit(False, source_update_failed_message(str(exc)), True)
             return
 
         if method == "portable":
@@ -70,7 +77,9 @@ class ApplyAppUpdateWorker(QThread):
             if install_root is None or not version:
                 self.finished.emit(
                     False,
-                    "Could not locate the installed copy to update.",
+                    "GridNotes could not find its install folder to update.\n\n"
+                    "Try running Install GridNotes again, or download the latest "
+                    "version from the website.",
                     True,
                 )
                 return
@@ -85,10 +94,21 @@ class ApplyAppUpdateWorker(QThread):
                 self.finished.emit(ok, message, restart)
             except Exception as exc:
                 logger.exception("Portable update failed")
-                self.finished.emit(False, str(exc), True)
+                from ..installer.user_messages import portable_update_failed_message
+
+                self.finished.emit(
+                    False,
+                    portable_update_failed_message(),
+                    True,
+                )
             return
 
-        self.finished.emit(False, "No update method is available.", True)
+        self.finished.emit(
+            False,
+            "This update cannot be installed automatically. Use Check for updates "
+            "and open the download page.",
+            True,
+        )
 
 
 # Backward-compatible alias

@@ -18,15 +18,15 @@ ProgressCallback = Callable[[str, int], None]
 
 import requests
 
-from ..installer.logic import (
+from .logic import (
     VENV_DIR_NAME,
     copy_source_to_install_root,
     relaunch_gridnotes,
     venv_python,
     windows_update_relaunch_batch_lines,
 )
-from ..installer.uninstall import resolve_install_root
-from .app_update import GITHUB_OWNER, GITHUB_REPO, REQUEST_TIMEOUT_SEC, _GITHUB_HEADERS, _normalize_tag
+from .uninstall import resolve_install_root
+from ..services.app_update import GITHUB_OWNER, GITHUB_REPO, REQUEST_TIMEOUT_SEC, _GITHUB_HEADERS, _normalize_tag
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ _UPDATE_LOG_NAME = "gridnotes-update.log"
 
 def portable_install_root() -> Path | None:
     """Return the managed install folder if this run can be updated in place."""
-    from .app_update import is_frozen_build, is_git_source_tree
+    from ..services.app_update import is_frozen_build, is_git_source_tree
 
     if is_frozen_build():
         return None
@@ -225,8 +225,13 @@ def _write_windows_apply_batch(
         'for /d /r "%DEST%" %%d in (__pycache__) do @if exist "%%d" rd /s /q "%%d" 2>nul\r\n'
         'echo [%date% %time%] Refreshing install (app, icons, launcher, shortcuts)...>>"%LOG%"\r\n'
         f'cd /d "{dest}"\r\n'
-        f'"%PY%" -m racing_book.installer.post_update_cli {release_version} --root "%DEST%" '
+        f'"%PY%" -m gridnotes.installer.post_update_cli {release_version} --root "%DEST%" '
         f'>>"%LOG%" 2>&1\r\n'
+        "if errorlevel 1 (\r\n"
+        '  echo [%date% %time%] post_update_cli (gridnotes) failed, trying legacy module>>"%LOG%"\r\n'
+        f'  "%PY%" -m racing_book.installer.post_update_cli {release_version} --root "%DEST%" '
+        f'>>"%LOG%" 2>&1\r\n'
+        ")\r\n"
         "if errorlevel 1 (\r\n"
         '  echo [%date% %time%] post_update_cli failed>>"%LOG%"\r\n'
         ")\r\n"
@@ -320,7 +325,9 @@ def apply_portable_update(
     except (requests.RequestException, OSError, zipfile.BadZipFile, FileNotFoundError) as exc:
         logger.exception("Failed to download or extract release")
         _safe_rmtree(temp_parent)
-        return False, f"Could not download the update: {exc}", True
+        from .user_messages import portable_update_failed_message
+
+        return False, portable_update_failed_message(), True
 
     if sys.platform == "win32":
         report("Installing update (GridNotes will close)…", 88)
@@ -338,12 +345,10 @@ def apply_portable_update(
         _append_update_log(f"Scheduled update batch: {bat_path}")
         _launch_windows_updater(bat_path, vbs_path)
         report("Closing GridNotes to finish installing…", 100)
-        return (
-            True,
-            "GridNotes will close and reopen when the update is ready. "
-            f"Details: {log_path}",
-            False,
-        )
+        from .user_messages import portable_update_scheduled_message
+
+        _append_update_log(f"Update log: {log_path}")
+        return True, portable_update_scheduled_message(), False
 
     report("Installing files…", 85)
     ok, message = _apply_on_unix(staging_dir, install_root, release_version=version)

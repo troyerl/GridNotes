@@ -56,7 +56,7 @@ def main() -> int:
         _ensure_pyqt6()
 
         print("Checking for Python 3.12 or 3.13 for GridNotes…")
-        from racing_book.installer.ensure_python import ensure_supported_python_for_install
+        from gridnotes.installer.ensure_python import ensure_supported_python_for_install
 
         ok, message, _executable = ensure_supported_python_for_install(log=print)
         print(message)
@@ -68,7 +68,7 @@ def main() -> int:
             return 1
         print()
 
-        from racing_book.installer.window import run_install_wizard
+        from gridnotes.installer.window import run_install_wizard
 
         return run_install_wizard()
     except Exception:
@@ -79,7 +79,8 @@ def main() -> int:
         _win_alert(
             "GridNotes Install",
             "The install wizard could not start.\n\n"
-            f"See install-helper.log in:\n{_ROOT}",
+            "Open install-helper.log in your download folder for details, "
+            "or read INSTALL.md for help.",
         )
         input("Press Enter to close…")
         return 1

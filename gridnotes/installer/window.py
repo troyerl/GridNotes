@@ -76,24 +76,13 @@ class InstallWizardWindow(QMainWindow):
         layout.addWidget(title)
 
         intro = QLabel(
-            "Extract the download anywhere you like, then click Install GridNotes below. "
-            "GridNotes will be installed like a normal Windows app. "
-            "This may take a few minutes and you only need to do it once."
+            "Welcome! This installs GridNotes on your computer — like any other app. "
+            "It only takes a few minutes, and you only need to do this once.\n\n"
+            "When you're ready, click Install GridNotes at the bottom."
         )
         intro.setObjectName("sectionHint")
         intro.setWordWrap(True)
         layout.addWidget(intro)
-
-        download_label = QLabel(
-            "Your download folder (extract anywhere — GridNotes does not run from here):\n"
-            f"{self._source_root}"
-        )
-        download_label.setObjectName("statValue")
-        download_label.setWordWrap(True)
-        download_label.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-        )
-        layout.addWidget(download_label)
 
         install_label = QLabel("Where to install GridNotes")
         install_label.setObjectName("statInlineLabel")
@@ -180,7 +169,7 @@ class InstallWizardWindow(QMainWindow):
         self.advanced_panel.setVisible(False)
         layout.addWidget(self.advanced_panel)
 
-        self.step_label = QLabel("Ready when you are.")
+        self.step_label = QLabel("Ready — click Install GridNotes when you're set.")
         self.step_label.setObjectName("statInlineLabel")
         layout.addWidget(self.step_label)
 
@@ -192,14 +181,14 @@ class InstallWizardWindow(QMainWindow):
 
         self.log_view = QTextEdit()
         self.log_view.setReadOnly(True)
-        self.log_view.setPlaceholderText("Technical log…")
+        self.log_view.setPlaceholderText("Details for troubleshooting…")
         self.log_view.setVisible(False)
         log_font = QFont("Menlo" if sys.platform == "darwin" else "Consolas")
         log_font.setPointSize(11)
         self.log_view.setFont(log_font)
         configure_widget_scrollbars(self.log_view, page_step=80)
 
-        self.details_toggle = QCheckBox("Show installation details (technical)")
+        self.details_toggle = QCheckBox("Show details (for troubleshooting)")
         self.details_toggle.setChecked(False)
         self.details_toggle.toggled.connect(self._on_details_toggled)
         layout.addWidget(self.details_toggle)
@@ -227,7 +216,7 @@ class InstallWizardWindow(QMainWindow):
         layout.addLayout(button_row)
 
         if not ok:
-            self.step_label.setText("Install Python first (see steps above).")
+            self.step_label.setText("Install Python first (see the steps above).")
 
     def _on_details_toggled(self, checked: bool) -> None:
         self.log_view.setVisible(checked)
@@ -385,8 +374,10 @@ class InstallWizardWindow(QMainWindow):
         self.progress.setValue(0)
         self._install_succeeded = False
         self._set_busy(True)
-        self.step_label.setText("Installing… please wait.")
+        self.step_label.setText("Installing… please keep this window open.")
         self.log_view.setVisible(self.details_toggle.isChecked())
+        self.append_log(f"Download folder: {self._source_root}")
+        self.append_log(f"Install folder: {self._install_root}")
 
         self._worker = InstallWorker(
             source_root=self._source_root,
@@ -409,13 +400,13 @@ class InstallWizardWindow(QMainWindow):
         self.append_log(message)
 
         if ok:
-            self.step_label.setText("Installation complete")
+            self.step_label.setText("All set!")
             self.btn_install.setVisible(False)
             self.btn_launch.setVisible(True)
-            QMessageBox.information(self, "Installation Complete", message)
+            QMessageBox.information(self, "You're all set", message)
         else:
-            self.step_label.setText("Installation did not finish")
-            QMessageBox.warning(self, "Installation Failed", message)
+            self.step_label.setText("Installation needs attention")
+            QMessageBox.warning(self, "Installation did not finish", message)
 
     def _launch_app(self) -> None:
         standalone_exe = None
@@ -442,22 +433,12 @@ class InstallWizardWindow(QMainWindow):
             )
             return
 
-        if sys.platform == "win32":
-            local = os.environ.get("LOCALAPPDATA", "").strip()
-            log_hint = (
-                f"{local}\\GridNotes\\launch-error.log"
-                if local
-                else "%LOCALAPPDATA%\\GridNotes\\launch-error.log"
-            )
-        else:
-            log_hint = str(self._install_root / "launch-error.log")
-
         QMessageBox.information(
             self,
-            "GridNotes Starting",
-            "GridNotes is starting.\n\n"
-            f"If no window appears, open:\n{log_hint}\n\n"
-            "Or double-click Run GridNotes.bat in your install folder.",
+            "Opening GridNotes",
+            "GridNotes is starting now.\n\n"
+            "If nothing appears after a minute, use the GridNotes icon on your "
+            "Desktop, or turn on “Show details” and check the log in this window.",
         )
         self.close()
 

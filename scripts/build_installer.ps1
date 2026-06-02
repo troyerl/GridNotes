@@ -11,7 +11,7 @@ $BuildDir = Join-Path $RootDir "build"
 $AppDistDir = Join-Path $DistDir $AppName
 $ZipPath = Join-Path $DistDir "GridNotes-Windows.zip"
 $SetupPath = Join-Path $DistDir "GridNotes-Setup.exe"
-$IssPath = Join-Path $RootDir "scripts\racing_book.iss"
+$IssPath = Join-Path $RootDir "scripts\gridnotes.iss"
 
 Write-Host "==> Building $AppName from $RootDir"
 
@@ -38,7 +38,7 @@ Write-Host "==> Generating icon.ico for Windows"
 python (Join-Path $RootDir "scripts\generate_icon.py")
 
 Write-Host "==> Running PyInstaller"
-pyinstaller racing_book.spec --noconfirm --clean
+pyinstaller gridnotes.spec --noconfirm --clean
 
 $ExePath = Join-Path $AppDistDir "GridNotes.exe"
 if (-not (Test-Path $ExePath)) {

@@ -16,14 +16,14 @@ _TASKBAR_SCRIPT_NAME = "windows_taskbar_identity.ps1"
 def _taskbar_script_path() -> Path | None:
     candidates: list[Path] = []
     try:
-        from ..installer.uninstall import resolve_install_root
+        from gridnotes.installer.uninstall import resolve_install_root
 
         root = resolve_install_root()
         if root is not None:
             candidates.append(root / "scripts" / _TASKBAR_SCRIPT_NAME)
     except Exception:
         pass
-    repo_script = Path(__file__).resolve().parent.parent.parent / "scripts" / _TASKBAR_SCRIPT_NAME
+    repo_script = Path(__file__).resolve().parents[3] / "scripts" / _TASKBAR_SCRIPT_NAME
     candidates.append(repo_script)
     for path in candidates:
         if path.is_file():

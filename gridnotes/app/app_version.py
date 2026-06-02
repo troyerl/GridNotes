@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-__version__ = "1.0.18"
+__version__ = "1.0.19"
 
 INSTALLED_VERSION_FILENAME = ".gridnotes-version"
 
@@ -19,14 +19,16 @@ def _read_marker_version(install_root: Path) -> str | None:
 
 
 def _read_py_version(install_root: Path) -> str | None:
-    app_version_py = install_root / "racing_book" / "app" / "app_version.py"
-    if not app_version_py.is_file():
-        return None
-    for line in app_version_py.read_text(encoding="utf-8").splitlines():
-        if line.strip().startswith("__version__"):
-            _, _, rhs = line.partition("=")
-            value = rhs.strip().strip('"').strip("'")
-            return value or None
+    for pkg in ("gridnotes", "racing_book"):
+        app_version_py = install_root / pkg / "app" / "app_version.py"
+        if not app_version_py.is_file():
+            continue
+        for line in app_version_py.read_text(encoding="utf-8").splitlines():
+            if line.strip().startswith("__version__"):
+                _, _, rhs = line.partition("=")
+                value = rhs.strip().strip('"').strip("'")
+                if value:
+                    return value
     return None
 
 
