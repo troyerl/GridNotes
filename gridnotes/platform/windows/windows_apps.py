@@ -80,7 +80,7 @@ def register_windows_uninstall(install_root: Path, version: str | None = None) -
             with winreg.CreateKey(hive, UNINSTALL_SUBKEY) as key:
                 winreg.SetValueEx(key, "DisplayName", 0, winreg.REG_SZ, "GridNotes")
                 winreg.SetValueEx(key, "DisplayVersion", 0, winreg.REG_SZ, version)
-                winreg.SetValueEx(key, "Publisher", 0, winreg.REG_SZ, "GridNotes")
+                winreg.SetValueEx(key, "Publisher", 0, winreg.REG_SZ, "Logan Troyer")
                 winreg.SetValueEx(
                     key, "InstallLocation", 0, winreg.REG_SZ, str(install_root)
                 )

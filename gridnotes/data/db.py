@@ -83,9 +83,11 @@ DB_NAME = get_db_path()
 
 
 def connect_db(db_name: str = DB_NAME) -> sqlite3.Connection:
-    """Open SQLite with a small page cache to keep memory use low."""
+    """Open SQLite with pragmas tuned for read-heavy scouting queries."""
     conn = sqlite3.connect(db_name)
-    conn.execute("PRAGMA cache_size = -512")  # 512 KiB page cache
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA synchronous = NORMAL")
+    conn.execute("PRAGMA cache_size = -2048")  # 2 MiB page cache
     conn.execute("PRAGMA mmap_size = 0")
     conn.execute("PRAGMA temp_store = FILE")
     return conn
@@ -296,12 +298,20 @@ def _ensure_subsession_dedup_index(cursor: sqlite3.Cursor) -> None:
 def _ensure_perf_indexes(cursor: sqlite3.Cursor) -> None:
     # Speed up stats filtering + aggregation queries.
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_race_results_cust_id ON race_results (cust_id)")
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_race_results_cust_race_id "
+        "ON race_results (cust_id, race_at DESC, id DESC)"
+    )
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_race_results_series_name ON race_results (series_name)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_race_results_license_class ON race_results (license_class)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_race_results_reason_out_id ON race_results (reason_out_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_race_results_race_at ON race_results (race_at)")
     cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_race_results_cust_reason ON race_results (cust_id, reason_out_id)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_drivers_driver_name "
+        "ON drivers (driver_name COLLATE NOCASE)"
     )
     # Expression index for the license prefix filter (R/D/C/B/A/P)
     try:

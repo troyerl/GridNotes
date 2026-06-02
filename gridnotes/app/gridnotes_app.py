@@ -1954,7 +1954,7 @@ class GridNotesApp(QMainWindow):
             self.table.setUpdatesEnabled(True)
             self.table.viewport().update()
 
-        self._last_table_fingerprint = self._table_data_fingerprint(self._fetch_table_data())
+        self._invalidate_table_fingerprint()
         self.apply_driver_filters()
         if selected_cust_id is not None:
             self._select_driver_row_by_cust_id(selected_cust_id)

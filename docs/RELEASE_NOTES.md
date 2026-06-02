@@ -8,6 +8,20 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.25 — 2026-06-02
+
+### Improved
+
+- **Database performance** — Faster driver table and Live Mode stats: Live session queries aggregate only drivers in the session instead of the full race history table; form-guide (recent races) queries use better indexes and batch large driver lists safely.
+- **SQLite tuning** — WAL journal mode, larger page cache, and new indexes on `(cust_id, race_at)` and driver name for sorting.
+- **Table refresh** — Adding a few drivers after import no longer re-queries the entire library just to update the UI cache.
+
+### Fixed
+
+- **Windows installer metadata** — Publisher shows **Logan Troyer** in Settings → Apps and in the installer (was **GridNotes**).
+
+---
+
 ## v1.0.24 — 2026-06-02
 
 ### Added
