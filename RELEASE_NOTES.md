@@ -6,6 +6,14 @@ New versions are listed below with the newest first. When publishing on GitHub, 
 
 ---
 
+## v1.0.8 — 2026-05-29
+
+### Fixed
+
+- **App would not start after v1.0.7** — a typo in the in-app update script (`portable_update.py`) caused a `SyntaxError` on launch. GridNotes starts normally again.
+
+---
+
 ## v1.0.7 — 2026-05-29
 
 ### Fixed

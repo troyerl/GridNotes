@@ -231,8 +231,8 @@ def _write_windows_apply_batch(
         "write_gridnotes_start_script, write_windows_vbs_launcher, "
         "build_windows_launcher_exe, venv_python; "
         "r=Path(r'%DEST%'); write_gridnotes_start_script(r); "
-        "write_windows_vbs_launcher(r, r / \\'.venv\\'); "
-        "build_windows_launcher_exe(r, venv_python(r / \\'.venv\\'))" '
+        "write_windows_vbs_launcher(r, r / '.venv'); "
+        'build_windows_launcher_exe(r, venv_python(r / \'.venv\'))" '
         '>>"%LOG%" 2>&1\r\n'
         f"{relaunch_block}\r\n"
         'echo [%date% %time%] Update finished>>"%LOG%"\r\n'
