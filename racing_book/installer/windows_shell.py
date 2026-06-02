@@ -171,13 +171,15 @@ def build_relaunch_command(install_root: Path) -> str | None:
         VENV_DIR_NAME,
         gridnotes_start_script_path,
         venv_pythonw,
+        windows_launcher_arguments,
         windows_launcher_exe_path,
     )
 
     install_root = install_root.resolve()
     launcher = windows_launcher_exe_path(install_root)
-    if launcher.is_file():
-        return f'"{launcher.resolve()}"'
+    args = windows_launcher_arguments(install_root)
+    if launcher.is_file() and args:
+        return f'"{launcher.resolve()}" {args}'
 
     venv_dir = install_root / VENV_DIR_NAME
     pyw = venv_pythonw(venv_dir)

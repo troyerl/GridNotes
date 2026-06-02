@@ -6,6 +6,18 @@ New versions are listed below with the newest first. When publishing on GitHub, 
 
 ---
 
+## v1.0.6 — 2026-05-29
+
+### Fixed
+
+- **Taskbar pin actually shows the GridNotes icon** — v1.0.5’s launcher started `pythonw` in a second process, so Windows kept the Python logo. **`GridNotes.exe`** is now a copy of `pythonw` with **`icon.ico` embedded**; shortcuts run `GridNotes.exe gridnotes_start.py` in **one** process, so the taskbar uses the branded EXE.
+
+### Improved
+
+- Installer downloads **rcedit** (once) to embed the icon; shortcuts are upgraded if they pointed at the old stub launcher without arguments.
+
+---
+
 ## v1.0.5 — 2026-05-29
 
 ### Fixed

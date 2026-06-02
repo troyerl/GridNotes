@@ -208,19 +208,29 @@ def _shortcut_uses_script_host(shortcut_path: Path) -> bool:
 def _shortcut_should_point_at_launcher_exe(
     shortcut_path: Path,
     launcher_exe: Path,
+    install_root: Path,
 ) -> bool:
     """True when the shortcut should target GridNotes.exe instead of pythonw/wscript."""
     if not launcher_exe.is_file():
         return _shortcut_uses_script_host(shortcut_path)
     try:
-        target, _arguments = _read_windows_shortcut_target(shortcut_path)
+        target, arguments = _read_windows_shortcut_target(shortcut_path)
     except (subprocess.SubprocessError, OSError) as exc:
         logger.debug("Could not read shortcut %s: %s", shortcut_path, exc)
         return False
-    lowered = target.lower()
     if _shortcut_uses_script_host(shortcut_path):
         return True
-    return lowered.endswith("pythonw.exe") or lowered.endswith("python.exe")
+    lowered = target.lower()
+    if lowered.endswith("pythonw.exe") or lowered.endswith("python.exe"):
+        return True
+    try:
+        if Path(target).resolve() == launcher_exe.resolve():
+            starter = install_root.resolve() / "gridnotes_start.py"
+            if starter.is_file():
+                return str(starter.resolve()).lower() not in (arguments or "").lower()
+    except OSError:
+        pass
+    return False
 
 
 def _known_windows_shortcut_paths(install_root: Path) -> list[Path]:
@@ -267,7 +277,9 @@ def ensure_windows_shortcuts_for_taskbar(
     description = "GridNotes — iRacing driver scouting"
     for shortcut_path in _known_windows_shortcut_paths(install_root):
         try:
-            if _shortcut_should_point_at_launcher_exe(shortcut_path, launcher_exe):
+            if _shortcut_should_point_at_launcher_exe(
+                shortcut_path, launcher_exe, install_root
+            ):
                 logger.info("Upgrading shortcut for taskbar icon: %s", shortcut_path)
                 _create_windows_lnk(
                     shortcut_path=shortcut_path,
