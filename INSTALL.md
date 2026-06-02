@@ -1,6 +1,6 @@
 # How to install GridNotes
 
-**Version 1.0.10**
+**Version 1.0.11**
 
 GridNotes helps you remember iRacing drivers you raced with and keep private notes.  
 You do **not** need to know how to code. Follow the steps below in order.
@@ -212,7 +212,7 @@ The **`GridNotes-Setup.exe`** installer registers automatically as well.
 - Use the **Desktop** icon **GridNotes** (no console window), or double-click **`Launch GridNotes.vbs`** in your install folder.  
   Use **`Run GridNotes.bat`** only when troubleshooting (shows a console).
 
-**Taskbar pin:** After install, confirm **`D:\GridNotes\.venv\Scripts\GridNotes.exe`** shows the **GridNotes** icon (not Python). Do **not** run **`D:\GridNotes\GridNotes.exe`** in the install root — that path is obsolete and will fail with a **pyvenv.cfg** error. Right‑click the **Desktop** shortcut **GridNotes** → **Pin to taskbar**.
+**Taskbar pin:** Confirm **`D:\GridNotes\.venv\Scripts\GridNotes.exe`** shows the GridNotes icon. **Unpin** any old Python taskbar icon first. Open GridNotes from the **Desktop shortcut**, then right‑click **that shortcut** → **Pin to taskbar** (do not pin from the running taskbar button). If the pin still shows Python, restart GridNotes once after updating so shortcuts refresh.
 
 ### Desktop icon or “Launch GridNotes” does nothing
 

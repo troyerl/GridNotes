@@ -132,10 +132,27 @@ def icon_path() -> Path | None:
     return _resolve_icon_file(_resource_base())
 
 
+def taskbar_icon_path() -> Path | None:
+    """Icon resource for the taskbar and pins — prefer branded GridNotes.exe on Windows."""
+    if sys.platform == "win32":
+        try:
+            from ..installer.uninstall import resolve_install_root
+            from ..installer.logic import windows_launcher_exe_path
+
+            root = resolve_install_root()
+            if root is not None:
+                launcher = windows_launcher_exe_path(root)
+                if launcher.is_file():
+                    return launcher
+        except Exception:
+            pass
+    return icon_path()
+
+
 def load_app_icon():  # -> QIcon | None
     from PyQt6.QtGui import QIcon
 
-    path = icon_path()
+    path = taskbar_icon_path() or icon_path()
     if path is not None:
         icon = QIcon(str(path))
         if not icon.isNull():

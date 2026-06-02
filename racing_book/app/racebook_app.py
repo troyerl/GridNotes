@@ -167,7 +167,7 @@ class RaceBookApp(QMainWindow):
             return
         self._taskbar_identity_applied = True
         try:
-            from ..app.app_icon import icon_path, set_windows_app_user_model_id
+            from ..app.app_icon import set_windows_app_user_model_id, taskbar_icon_path
             from ..installer.logic import VENV_DIR_NAME, preferred_shortcut_target
             from ..installer.shortcuts import ensure_windows_shortcuts_for_taskbar
             from ..installer.uninstall import resolve_install_root
@@ -177,7 +177,7 @@ class RaceBookApp(QMainWindow):
             )
 
             set_windows_app_user_model_id()
-            icon = icon_path()
+            icon = taskbar_icon_path()
             install_root = resolve_install_root()
             relaunch = build_relaunch_command(install_root) if install_root else None
             if install_root is not None:
@@ -186,12 +186,18 @@ class RaceBookApp(QMainWindow):
                     install_root,
                     venv_dir,
                 )
+                from ..installer.logic import resolve_shortcut_icon
+
+                shortcut_icon = resolve_shortcut_icon(
+                    install_root,
+                    launch_target=target,
+                )
                 ensure_windows_shortcuts_for_taskbar(
                     install_root,
                     target=target,
                     working_dir=working_dir,
                     arguments=arguments,
-                    icon=icon,
+                    icon=shortcut_icon or icon,
                 )
             apply_window_taskbar_identity(
                 self,

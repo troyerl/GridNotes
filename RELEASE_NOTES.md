@@ -6,6 +6,18 @@ New versions are listed below with the newest first. When publishing on GitHub, 
 
 ---
 
+## v1.0.11 — 2026-05-29
+
+### Fixed
+
+- **Taskbar pin still showed Python** — shortcuts now use **`.venv\Scripts\GridNotes.exe`** as both the launch target and the shortcut icon (not `icon.ico` alone). GridNotes refreshes shortcuts on first launch after an update.
+
+### Improved
+
+- Window and taskbar branding use the branded launcher EXE for icon resources when available.
+
+---
+
 ## v1.0.10 — 2026-05-29
 
 ### Fixed

@@ -159,13 +159,14 @@ def create_desktop_shortcut(
     raise OSError(f"Cannot create a desktop shortcut for {target} on this platform.")
 
 
-def _read_windows_shortcut_target(shortcut_path: Path) -> tuple[str, str]:
-    """Return (TargetPath, Arguments) for a .lnk file."""
+def _read_windows_shortcut(shortcut_path: Path) -> tuple[str, str, str]:
+    """Return (TargetPath, Arguments, IconLocation) for a .lnk file."""
     escaped = _escape_ps(shortcut_path.resolve())
     script = (
         "$s = (New-Object -ComObject WScript.Shell).CreateShortcut('" + escaped + "'); "
         "Write-Output $s.TargetPath; "
-        "if ($s.Arguments) { Write-Output $s.Arguments } else { Write-Output '' }"
+        "if ($s.Arguments) { Write-Output $s.Arguments } else { Write-Output '' }; "
+        "if ($s.IconLocation) { Write-Output $s.IconLocation } else { Write-Output '' }"
     )
     kwargs: dict = {
         "capture_output": True,
@@ -191,6 +192,12 @@ def _read_windows_shortcut_target(shortcut_path: Path) -> tuple[str, str]:
     lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
     target = lines[0] if lines else ""
     arguments = lines[1] if len(lines) > 1 else ""
+    icon_location = lines[2] if len(lines) > 2 else ""
+    return target, arguments, icon_location
+
+
+def _read_windows_shortcut_target(shortcut_path: Path) -> tuple[str, str]:
+    target, arguments, _icon = _read_windows_shortcut(shortcut_path)
     return target, arguments
 
 
@@ -205,19 +212,19 @@ def _shortcut_uses_script_host(shortcut_path: Path) -> bool:
     return lowered.endswith("wscript.exe") or lowered.endswith("cscript.exe") or lowered.endswith(".vbs")
 
 
-def _shortcut_should_point_at_launcher_exe(
+def _shortcut_should_refresh_for_launcher(
     shortcut_path: Path,
     launcher_exe: Path,
     install_root: Path,
 ) -> bool:
-    """True when the shortcut should target GridNotes.exe instead of pythonw/wscript."""
+    """True when the shortcut should be rebuilt for the branded Scripts launcher."""
     if not launcher_exe.is_file():
         return _shortcut_uses_script_host(shortcut_path)
     try:
-        target, arguments = _read_windows_shortcut_target(shortcut_path)
+        target, arguments, icon_location = _read_windows_shortcut(shortcut_path)
     except (subprocess.SubprocessError, OSError) as exc:
         logger.debug("Could not read shortcut %s: %s", shortcut_path, exc)
-        return False
+        return True
     if _shortcut_uses_script_host(shortcut_path):
         return True
     lowered = target.lower()
@@ -225,15 +232,22 @@ def _shortcut_should_point_at_launcher_exe(
         return True
     try:
         resolved_target = Path(target).resolve()
-        if resolved_target == launcher_exe.resolve():
-            starter = install_root.resolve() / "gridnotes_start.py"
-            if starter.is_file():
-                return str(starter.resolve()).lower() not in (arguments or "").lower()
-        legacy_root_exe = install_root.resolve() / "GridNotes.exe"
-        if resolved_target == legacy_root_exe:
+        resolved_launcher = launcher_exe.resolve()
+        if resolved_target != resolved_launcher:
+            legacy_root_exe = install_root.resolve() / "GridNotes.exe"
+            if resolved_target == legacy_root_exe:
+                return True
+            return True
+        starter = install_root.resolve() / "gridnotes_start.py"
+        if starter.is_file() and str(starter.resolve()).lower() not in (
+            arguments or ""
+        ).lower():
+            return True
+        expected_icon = windows_icon_location(resolved_launcher).lower()
+        if icon_location.lower() != expected_icon:
             return True
     except OSError:
-        pass
+        return True
     return False
 
 
@@ -281,10 +295,10 @@ def ensure_windows_shortcuts_for_taskbar(
     description = "GridNotes — iRacing driver scouting"
     for shortcut_path in _known_windows_shortcut_paths(install_root):
         try:
-            if _shortcut_should_point_at_launcher_exe(
+            if _shortcut_should_refresh_for_launcher(
                 shortcut_path, launcher_exe, install_root
             ):
-                logger.info("Upgrading shortcut for taskbar icon: %s", shortcut_path)
+                logger.info("Refreshing shortcut for taskbar pin: %s", shortcut_path)
                 _create_windows_lnk(
                     shortcut_path=shortcut_path,
                     target=target,
@@ -296,7 +310,7 @@ def ensure_windows_shortcuts_for_taskbar(
             else:
                 from .windows_shell import apply_shortcut_taskbar_identity
 
-                apply_shortcut_taskbar_identity(shortcut_path, icon)
+                apply_shortcut_taskbar_identity(shortcut_path, launcher_exe)
         except (OSError, subprocess.SubprocessError) as exc:
             logger.warning("Could not update shortcut %s: %s", shortcut_path, exc)
 
