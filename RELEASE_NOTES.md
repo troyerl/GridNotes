@@ -6,6 +6,14 @@ New versions are listed below with the newest first. When publishing on GitHub, 
 
 ---
 
+## v1.0.15 — 2026-06-02
+
+### Fixed
+
+- **Version stuck at 1.0.12 after Update now** — the update batch now writes `.gridnotes-version` immediately after copying files, clears stale `__pycache__`, and runs a dedicated post-update module. Settings reconciles the displayed version with `app_version.py` on startup.
+
+---
+
 ## v1.0.14 — 2026-06-02
 
 ### Fixed

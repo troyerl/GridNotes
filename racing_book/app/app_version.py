@@ -5,36 +5,58 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-__version__ = "1.0.14"
+__version__ = "1.0.15"
 
 INSTALLED_VERSION_FILENAME = ".gridnotes-version"
 
 
-def installed_version() -> str:
-    """
-    Version of the installed copy under D:\\GridNotes (or similar).
+def _read_marker_version(install_root: Path) -> str | None:
+    marker = install_root / INSTALLED_VERSION_FILENAME
+    if not marker.is_file():
+        return None
+    text = marker.read_text(encoding="utf-8").strip().lstrip("vV")
+    return text or None
 
-    Prefer .gridnotes-version (written on install/update); fall back to
-    app_version.py in the install tree.
+
+def _read_py_version(install_root: Path) -> str | None:
+    app_version_py = install_root / "racing_book" / "app" / "app_version.py"
+    if not app_version_py.is_file():
+        return None
+    for line in app_version_py.read_text(encoding="utf-8").splitlines():
+        if line.strip().startswith("__version__"):
+            _, _, rhs = line.partition("=")
+            value = rhs.strip().strip('"').strip("'")
+            return value or None
+    return None
+
+
+def reconcile_installed_version(install_root: Path) -> str:
     """
+    Pick the newest version recorded in the install folder and sync the marker file.
+
+    After an update, .gridnotes-version can lag behind app_version.py if post-update
+    refresh failed; using the max keeps Settings and update checks accurate.
+    """
+    install_root = install_root.resolve()
+    marker = _read_marker_version(install_root)
+    py_ver = _read_py_version(install_root)
+    candidates = [v for v in (marker, py_ver) if v]
+    if not candidates:
+        return __version__
+    best = max(candidates, key=parse_version)
+    if marker != best:
+        write_installed_version(install_root, best)
+    return best
+
+
+def installed_version() -> str:
+    """Version of the installed copy under D:\\GridNotes (or similar)."""
     try:
         from ..installer.uninstall import resolve_install_root
 
         root = resolve_install_root()
         if root is not None:
-            marker = root / INSTALLED_VERSION_FILENAME
-            if marker.is_file():
-                text = marker.read_text(encoding="utf-8").strip().lstrip("vV")
-                if text:
-                    return text
-            app_version_py = root / "racing_book" / "app" / "app_version.py"
-            if app_version_py.is_file():
-                for line in app_version_py.read_text(encoding="utf-8").splitlines():
-                    if line.strip().startswith("__version__"):
-                        _, _, rhs = line.partition("=")
-                        value = rhs.strip().strip('"').strip("'")
-                        if value:
-                            return value
+            return reconcile_installed_version(root)
     except OSError:
         pass
     return __version__

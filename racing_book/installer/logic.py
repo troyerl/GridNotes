@@ -315,6 +315,19 @@ def build_windows_launcher_exe(install_root: Path, python: Path) -> Path | None:
     return exe if exe.is_file() else None
 
 
+def purge_install_bytecode(install_root: Path) -> None:
+    """Remove stale .pyc trees so updates load new source immediately."""
+    install_root = install_root.resolve()
+    for cache_dir in list(install_root.rglob("__pycache__")):
+        if cache_dir.is_dir():
+            shutil.rmtree(cache_dir, ignore_errors=True)
+    for pyc in list(install_root.rglob("*.pyc")):
+        try:
+            pyc.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def refresh_installed_artifacts(
     install_root: Path,
     *,
@@ -330,6 +343,7 @@ def refresh_installed_artifacts(
     and Settings → Apps registration so users do not need to re-run the installer.
     """
     install_root = install_root.resolve()
+    purge_install_bytecode(install_root)
     venv_dir = install_root / VENV_DIR_NAME
     py = venv_python(venv_dir)
     requirements = install_root / REQUIREMENTS_FILE

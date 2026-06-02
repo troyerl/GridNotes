@@ -219,11 +219,17 @@ def _write_windows_apply_batch(
         '  echo [%date% %time%] robocopy failed, skipping pip and relaunch>>"%LOG%"\r\n'
         "  goto cleanup\r\n"
         ")\r\n"
+        'echo [%date% %time%] Writing installed version...>>"%LOG%"\r\n'
+        f'echo {release_version}>"%DEST%\\.gridnotes-version"\r\n'
+        'echo [%date% %time%] Clearing stale Python cache...>>"%LOG%"\r\n'
+        'for /d /r "%DEST%" %%d in (__pycache__) do @if exist "%%d" rd /s /q "%%d" 2>nul\r\n'
         'echo [%date% %time%] Refreshing install (app, icons, launcher, shortcuts)...>>"%LOG%"\r\n'
         f'cd /d "{dest}"\r\n'
-        f'"%PY%" -c "from pathlib import Path; from racing_book.installer.logic import refresh_installed_artifacts; '
-        f"refresh_installed_artifacts(Path(r'%DEST%'), version='{release_version}')\" "
+        f'"%PY%" -m racing_book.installer.post_update_cli {release_version} --root "%DEST%" '
         f'>>"%LOG%" 2>&1\r\n'
+        "if errorlevel 1 (\r\n"
+        '  echo [%date% %time%] post_update_cli failed>>"%LOG%"\r\n'
+        ")\r\n"
         f"{relaunch_block}\r\n"
         'echo [%date% %time%] Update finished>>"%LOG%"\r\n'
         ":cleanup\r\n"
