@@ -6,6 +6,14 @@ New versions are listed below with the newest first. When publishing on GitHub, 
 
 ---
 
+## v1.0.16 — 2026-06-02
+
+### Fixed
+
+- **Taskbar pin / shortcut target** — Desktop and Start Menu shortcuts that still pointed at `gridnotes_start.py` (or had no icon) are rebuilt to launch **`.venv\Scripts\GridNotes.exe`** with the GridNotes icon. The launcher is built automatically when missing.
+
+---
+
 ## v1.0.15 — 2026-06-02
 
 ### Fixed

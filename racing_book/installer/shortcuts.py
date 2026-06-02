@@ -201,6 +201,12 @@ def _read_windows_shortcut_target(shortcut_path: Path) -> tuple[str, str]:
     return target, arguments
 
 
+def _shortcut_target_is_python_script(target: str) -> bool:
+    """True when the .lnk runs a .py file directly (no GridNotes.exe / pythonw)."""
+    lowered = target.lower().replace("/", "\\")
+    return lowered.endswith(".py") or lowered.endswith(".pyw")
+
+
 def _shortcut_uses_script_host(shortcut_path: Path) -> bool:
     """True when a shortcut still launches via wscript/cscript or a .vbs file."""
     try:
@@ -219,7 +225,7 @@ def _shortcut_should_refresh_for_launcher(
 ) -> bool:
     """True when the shortcut should be rebuilt for the branded Scripts launcher."""
     if not launcher_exe.is_file():
-        return _shortcut_uses_script_host(shortcut_path)
+        return True
     try:
         target, arguments, icon_location = _read_windows_shortcut(shortcut_path)
     except (subprocess.SubprocessError, OSError) as exc:
@@ -227,8 +233,12 @@ def _shortcut_should_refresh_for_launcher(
         return True
     if _shortcut_uses_script_host(shortcut_path):
         return True
+    if _shortcut_target_is_python_script(target):
+        return True
     lowered = target.lower()
     if lowered.endswith("pythonw.exe") or lowered.endswith("python.exe"):
+        return True
+    if not (icon_location or "").strip():
         return True
     try:
         resolved_target = Path(target).resolve()
@@ -335,13 +345,26 @@ def ensure_windows_shortcuts_for_taskbar(
     if sys.platform != "win32":
         return
 
-    from .logic import windows_launcher_exe_path
-
-    from .logic import windows_pin_icon_path
+    from .logic import (
+        VENV_DIR_NAME,
+        ensure_windows_launcher,
+        preferred_shortcut_target,
+        resolve_shortcut_icon,
+        windows_launcher_exe_path,
+    )
     from .windows_shell import apply_shortcut_taskbar_identity, build_relaunch_command
 
+    venv_dir = install_root / VENV_DIR_NAME
+    ensure_windows_launcher(install_root, venv_dir)
+    resolved_target, resolved_wd, resolved_args = preferred_shortcut_target(
+        install_root,
+        venv_dir,
+    )
     launcher_exe = windows_launcher_exe_path(install_root)
-    pin_icon = icon or windows_pin_icon_path(install_root)
+    pin_icon = icon or resolve_shortcut_icon(
+        install_root,
+        launch_target=resolved_target,
+    )
     relaunch = build_relaunch_command(install_root)
     description = "GridNotes — iRacing driver scouting"
     for shortcut_path in _known_windows_shortcut_paths(install_root):
@@ -352,11 +375,11 @@ def ensure_windows_shortcuts_for_taskbar(
                 logger.info("Refreshing shortcut for taskbar pin: %s", shortcut_path)
                 _create_windows_lnk(
                     shortcut_path=shortcut_path,
-                    target=target,
-                    working_dir=working_dir,
+                    target=resolved_target,
+                    working_dir=resolved_wd,
                     description=description,
                     icon=pin_icon,
-                    arguments=arguments,
+                    arguments=resolved_args,
                 )
             apply_shortcut_taskbar_identity(
                 shortcut_path,

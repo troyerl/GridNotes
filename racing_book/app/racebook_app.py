@@ -191,6 +191,9 @@ class RaceBookApp(QMainWindow):
             relaunch = build_relaunch_command(install_root) if install_root else None
             if install_root is not None:
                 venv_dir = install_root / VENV_DIR_NAME
+                from ..installer.logic import ensure_windows_launcher
+
+                ensure_windows_launcher(install_root, venv_dir)
                 target, working_dir, arguments = preferred_shortcut_target(
                     install_root,
                     venv_dir,

@@ -404,7 +404,7 @@ def _refresh_windows_installed_artifacts(
 
     if py.is_file():
         regenerate_icon_ico(install_root, py)
-        build_windows_launcher_exe(install_root, py)
+        ensure_windows_launcher(install_root, venv_dir)
 
     write_launcher_scripts(install_root, venv_dir)
     write_uninstaller_scripts(install_root, venv_dir)
@@ -455,6 +455,22 @@ def windows_launcher_arguments(install_root: Path) -> str | None:
     if not starter.is_file():
         return None
     return f'"{starter.resolve()}"'
+
+
+def ensure_windows_launcher(install_root: Path, venv_dir: Path | None = None) -> Path | None:
+    """Build .venv\\Scripts\\GridNotes.exe when missing (required for taskbar pins)."""
+    if sys.platform != "win32":
+        return None
+    install_root = install_root.resolve()
+    venv = (venv_dir or (install_root / VENV_DIR_NAME)).resolve()
+    launcher = windows_launcher_exe_path(install_root, venv)
+    if launcher.is_file():
+        return launcher
+    py = venv_python(venv)
+    if not py.is_file():
+        logger.warning("Cannot build GridNotes.exe: venv Python missing at %s", py)
+        return None
+    return build_windows_launcher_exe(install_root, py)
 
 
 def windows_pin_icon_path(install_root: Path) -> Path | None:
@@ -1092,13 +1108,15 @@ def preferred_shortcut_target(
         return dist_exe.resolve(), dist_exe.parent.resolve(), None
 
     if sys.platform == "win32":
-        launcher_exe = windows_launcher_exe_path(root)
-        if launcher_exe.is_file():
-            return (
-                launcher_exe.resolve(),
-                root,
-                windows_launcher_arguments(root),
-            )
+        launcher_exe = ensure_windows_launcher(root, venv_dir)
+        if launcher_exe is not None and launcher_exe.is_file():
+            args = windows_launcher_arguments(root)
+            if args:
+                return (
+                    launcher_exe.resolve(),
+                    root,
+                    args,
+                )
 
         pyw = venv_pythonw(venv_dir)
         if pyw.is_file():
