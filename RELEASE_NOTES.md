@@ -6,6 +6,18 @@ New versions are listed below with the newest first. When publishing on GitHub, 
 
 ---
 
+## v1.0.7 — 2026-05-29
+
+### Fixed
+
+- **In-app update now rebuilds `GridNotes.exe`** — after **Check for updates → Update now**, the branded launcher (pythonw copy + embedded icon) is recreated automatically. You no longer need a separate **Install GridNotes.bat** run for the taskbar pin fix after updating from v1.0.6.
+
+### Improved
+
+- Update log records launcher rebuild alongside refreshed VBS/start scripts.
+
+---
+
 ## v1.0.6 — 2026-05-29
 
 ### Fixed
