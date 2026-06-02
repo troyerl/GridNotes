@@ -55,18 +55,30 @@ def extract_release_notes(version: str, path: Path = NOTES_PATH) -> str:
     return body
 
 
+def _write_stdout_utf8(text: str) -> None:
+    """Write UTF-8 to stdout (safe for shell redirect on Windows cp1252 consoles)."""
+    data = text.encode("utf-8")
+    if not data.endswith(b"\n"):
+        data += b"\n"
+    sys.stdout.buffer.write(data)
+
+
+def _write_stderr_utf8(text: str) -> None:
+    data = text.encode("utf-8")
+    if not data.endswith(b"\n"):
+        data += b"\n"
+    sys.stderr.buffer.write(data)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = argv if argv is not None else sys.argv[1:]
     if not args:
-        print(
-            "Usage: extract_release_notes.py <tag>  (e.g. v1.0.21)",
-            file=sys.stderr,
-        )
+        _write_stderr_utf8("Usage: extract_release_notes.py <tag>  (e.g. v1.0.21)")
         return 1
     try:
-        print(extract_release_notes(args[0]))
+        _write_stdout_utf8(extract_release_notes(args[0]))
     except (LookupError, FileNotFoundError, ValueError) as exc:
-        print(exc, file=sys.stderr)
+        _write_stderr_utf8(str(exc))
         return 1
     return 0
 

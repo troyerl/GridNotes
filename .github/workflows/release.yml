@@ -23,6 +23,8 @@ jobs:
           python-version: "3.12"
 
       - name: Extract release notes from RELEASE_NOTES.md
+        env:
+          PYTHONIOENCODING: utf-8
         run: python scripts/extract_release_notes.py "${{ github.ref_name }}" > release_body.md
 
       - name: Build installer
