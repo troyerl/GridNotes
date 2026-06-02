@@ -62,6 +62,10 @@ class SettingsTab(QWidget):
     check_updates_requested = pyqtSignal()
     apply_update_requested = pyqtSignal()
     uninstall_requested = pyqtSignal(bool)  # remove_user_data
+    backup_export_requested = pyqtSignal()
+    backup_import_requested = pyqtSignal()
+    support_bundle_requested = pyqtSignal()
+    open_logs_folder_requested = pyqtSignal()
     api_test_requested = pyqtSignal(str)  # access_token
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -390,6 +394,56 @@ class SettingsTab(QWidget):
 
         layout.addWidget(updates_group)
 
+        help_group = QGroupBox("Help & support")
+        help_layout = QVBoxLayout(help_group)
+        help_layout.setSpacing(10)
+        help_layout.addWidget(
+            self._section_hint(
+                "If something goes wrong, save a support file to email to the developer, "
+                "or open the folder where logs are stored."
+            )
+        )
+        help_btn_row = QHBoxLayout()
+        help_btn_row.setSpacing(8)
+        self.btn_support_bundle = QPushButton("Save support file…")
+        self.btn_support_bundle.clicked.connect(self._request_support_bundle)
+        help_btn_row.addWidget(self.btn_support_bundle)
+        self.btn_open_logs = QPushButton("Open logs folder")
+        self.btn_open_logs.clicked.connect(self._request_open_logs_folder)
+        help_btn_row.addWidget(self.btn_open_logs)
+        help_btn_row.addStretch()
+        help_layout.addLayout(help_btn_row)
+        self.support_status = QLabel("")
+        self.support_status.setObjectName("sectionHint")
+        self.support_status.setWordWrap(True)
+        help_layout.addWidget(self.support_status)
+        layout.addWidget(help_group)
+
+        backup_group = QGroupBox("Backup & restore")
+        backup_layout = QVBoxLayout(backup_group)
+        backup_layout.setSpacing(10)
+        backup_layout.addWidget(
+            self._section_hint(
+                "Save a copy of your notes and race history, or restore from a "
+                "backup file you saved earlier."
+            )
+        )
+        backup_btn_row = QHBoxLayout()
+        backup_btn_row.setSpacing(8)
+        self.btn_export_backup = QPushButton("Back up database…")
+        self.btn_export_backup.clicked.connect(self._request_backup_export)
+        backup_btn_row.addWidget(self.btn_export_backup)
+        self.btn_import_backup = QPushButton("Restore from backup…")
+        self.btn_import_backup.clicked.connect(self._request_backup_import)
+        backup_btn_row.addWidget(self.btn_import_backup)
+        backup_btn_row.addStretch()
+        backup_layout.addLayout(backup_btn_row)
+        self.backup_status = QLabel("")
+        self.backup_status.setObjectName("sectionHint")
+        self.backup_status.setWordWrap(True)
+        backup_layout.addWidget(self.backup_status)
+        layout.addWidget(backup_group)
+
         uninstall_group = QGroupBox("Uninstall")
         uninstall_layout = QVBoxLayout(uninstall_group)
         uninstall_layout.setSpacing(10)
@@ -522,6 +576,34 @@ class SettingsTab(QWidget):
     def showEvent(self, event) -> None:
         super().showEvent(event)
         self._refresh_installed_version_label()
+
+    def _request_support_bundle(self) -> None:
+        self.support_bundle_requested.emit()
+
+    def _request_open_logs_folder(self) -> None:
+        self.open_logs_folder_requested.emit()
+
+    def _request_backup_export(self) -> None:
+        self.backup_export_requested.emit()
+
+    def _request_backup_import(self) -> None:
+        self.backup_import_requested.emit()
+
+    def show_support_result(self, ok: bool, message: str) -> None:
+        self.support_status.setText(message)
+        theme_id = get_theme_id()
+        self.support_status.setStyleSheet(
+            f"color: {status_message_color(theme_id, ok=ok)};"
+        )
+
+    def show_backup_result(self, ok: bool, message: str) -> None:
+        self.backup_status.setText(message)
+        theme_id = get_theme_id()
+        self.backup_status.setStyleSheet(
+            f"color: {status_message_color(theme_id, ok=ok)};"
+        )
+        if ok:
+            self.refresh_storage_info()
 
     def _request_update_check(self) -> None:
         self.check_updates_requested.emit()

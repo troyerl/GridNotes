@@ -6,6 +6,22 @@ New versions are listed below with the newest first. When publishing on GitHub, 
 
 ---
 
+## v1.0.20 — 2026-06-02
+
+### Added
+
+- **Help & support (Settings)** — **Save support file** builds a zip with logs and version info for troubleshooting; **Open logs folder** opens your GridNotes data folder.
+- **Backup & restore (Settings)** — Export or restore your `driver_history.db`; a safety copy is kept before restore.
+- **Update notes** — When an update is available, you see what’s new before choosing **Update now**.
+- **Auto-open after install** — Installer can open GridNotes when installation finishes (on by default).
+- **GitHub Actions** — Pushing a `v*` tag builds `GridNotes-Setup.exe` and attaches it to the GitHub Release when Inno Setup is available.
+
+### Improved
+
+- **Taskbar name** — Windows registry registration for the GridNotes App User Model ID (with existing shortcut refresh) so the taskbar is more likely to show **GridNotes** instead of Python.
+
+---
+
 ## v1.0.19 — 2026-06-02
 
 ### Improved

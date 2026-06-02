@@ -92,6 +92,18 @@ def _run_shell_property_script(
     )
 
 
+def _register_taskbar_registry(icon: Path | None) -> None:
+    from gridnotes.app.app_icon import APP_USER_MODEL_ID
+
+    from .taskbar_registry import register_app_user_model_id
+
+    register_app_user_model_id(
+        APP_USER_MODEL_ID,
+        "GridNotes",
+        icon_path=icon,
+    )
+
+
 def apply_shortcut_taskbar_identity(
     shortcut_path: Path,
     icon: Path | None,
@@ -103,6 +115,7 @@ def apply_shortcut_taskbar_identity(
     from gridnotes.app.app_icon import APP_USER_MODEL_ID
 
     relaunch = resolve_relaunch_command(relaunch_command)
+    _register_taskbar_registry(icon)
     return _run_shell_property_script(
         app_id=APP_USER_MODEL_ID,
         icon=icon,
@@ -137,6 +150,7 @@ def apply_window_taskbar_identity(
             "No relaunch command for taskbar branding; menu may show as Python"
         )
         return False
+    _register_taskbar_registry(icon)
     return _run_shell_property_script(
         app_id=APP_USER_MODEL_ID,
         icon=icon,

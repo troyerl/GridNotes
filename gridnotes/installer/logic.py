@@ -446,6 +446,18 @@ def _refresh_windows_installed_artifacts(
         )
 
     try:
+        from ..app.app_icon import APP_USER_MODEL_ID
+        from ..platform.windows.taskbar_registry import register_app_user_model_id
+
+        register_app_user_model_id(
+            APP_USER_MODEL_ID,
+            "GridNotes",
+            icon_path=shortcut_icon,
+        )
+    except Exception:
+        logger.exception("Taskbar registry registration failed")
+
+    try:
         register_windows_uninstall(install_root, version)
     except OSError as exc:
         logger.warning("Could not register Windows Apps entry: %s", exc)

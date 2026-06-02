@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+from pathlib import Path
 
 from PyQt6.QtCore import QEvent, Qt, QTimer, QUrl
 from PyQt6.QtGui import QDesktopServices, QFont, QShowEvent, QTextCursor
@@ -518,6 +519,10 @@ class GridNotesApp(QMainWindow):
         self.settings_tab.apply_update_requested.connect(self._apply_app_update)
         self.settings_tab.zero_race_cleanup_requested.connect(self._cleanup_zero_race_drivers)
         self.settings_tab.uninstall_requested.connect(self._uninstall_application)
+        self.settings_tab.backup_export_requested.connect(self._export_database_backup)
+        self.settings_tab.backup_import_requested.connect(self._import_database_backup)
+        self.settings_tab.support_bundle_requested.connect(self._save_support_bundle)
+        self.settings_tab.open_logs_folder_requested.connect(self._open_logs_folder)
         if iracing_data_api_auto_import_enabled():
             self.settings_tab.api_test_requested.connect(self._test_iracing_api_connection)
         self.main_tabs.addTab(self.settings_tab, "Settings")
@@ -1024,46 +1029,44 @@ class GridNotesApp(QMainWindow):
             return
 
         self.settings_tab.show_update_check_result(result)
-        version_label = f"v{result.latest_version}" if result.latest_version else "a newer version"
-
-        if result.can_apply_in_place:
-            if result.apply_method == "portable":
-                prompt = (
-                    f"{version_label} of GridNotes is available.\n\n"
-                    "Install the update now? GridNotes will download it, close, "
-                    "install the new files, and reopen.\n\n"
-                    "Your database and settings will be kept."
-                )
-            else:
-                prompt = (
-                    f"{version_label} of GridNotes is available.\n\n"
-                    "Install the update now? GridNotes will download the latest "
-                    "version and restart.\n\n"
-                    "Your notes and settings will be kept."
-                )
-        elif is_frozen_build():
-            prompt = (
-                f"{version_label} of GridNotes is available.\n\n"
-                "Open the download page to get the latest installer?"
-            )
-        else:
-            prompt = (
-                f"{version_label} of GridNotes is available.\n\n"
-                "Open the download page for update instructions?"
-            )
-
-        confirm = QMessageBox.question(
-            self,
-            "Update Available",
-            prompt,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if confirm != QMessageBox.StandardButton.Yes:
+        if not self._confirm_update(result):
             logger.info("User declined startup update")
             return
 
         self._apply_app_update(skip_confirm=True)
+
+    def _confirm_update(self, result: UpdateCheckResult) -> bool:
+        version_label = result.latest_version or "newer"
+
+        if result.can_apply_in_place:
+            from ..ui.update_confirm_dialog import UpdateConfirmDialog
+
+            dialog = UpdateConfirmDialog(
+                self,
+                version=version_label,
+                release_notes=result.release_notes,
+                portable=result.apply_method == "portable",
+            )
+            return dialog.exec() == dialog.DialogCode.Accepted
+
+        if is_frozen_build():
+            prompt = (
+                f"Version {version_label.lstrip('v')} of GridNotes is available.\n\n"
+                "Open the download page to get the latest installer?"
+            )
+        else:
+            prompt = (
+                f"Version {version_label.lstrip('v')} of GridNotes is available.\n\n"
+                "Open the download page for update instructions?"
+            )
+        confirm = QMessageBox.question(
+            self,
+            "Update available",
+            prompt,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return confirm == QMessageBox.StandardButton.Yes
 
     def _apply_app_update(self, *, skip_confirm: bool = False) -> None:
         result = self.settings_tab.last_update_check()
@@ -1076,28 +1079,8 @@ class GridNotesApp(QMainWindow):
             return
 
         if result.can_apply_in_place:
-            if not skip_confirm:
-                if result.apply_method == "portable":
-                    confirm_text = (
-                        "Download and install the latest GridNotes release?\n\n"
-                        "The app will close briefly while files are updated, then "
-                        "reopen automatically.\n\n"
-                        "Your database and settings will be kept."
-                    )
-                else:
-                    confirm_text = (
-                        "Install the latest version and restart GridNotes?\n\n"
-                        "Your notes and settings will be kept."
-                    )
-                confirm = QMessageBox.question(
-                    self,
-                    "Update GridNotes?",
-                    confirm_text,
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                    QMessageBox.StandardButton.No,
-                )
-                if confirm != QMessageBox.StandardButton.Yes:
-                    return
+            if not skip_confirm and not self._confirm_update(result):
+                return
             if self._apply_update_worker is not None and self._apply_update_worker.isRunning():
                 return
             logger.info("Applying application update (%s)", result.apply_method or "unknown")
@@ -1131,6 +1114,88 @@ class GridNotesApp(QMainWindow):
             "No Update Ready",
             "No update is available to apply right now.",
         )
+
+    def _export_database_backup(self) -> None:
+        from datetime import date
+
+        from ..data.backup import export_database_backup
+
+        default_name = f"GridNotes-backup-{date.today().isoformat()}.db"
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Back up GridNotes database",
+            default_name,
+            "SQLite database (*.db);;All files (*)",
+        )
+        if not path:
+            return
+        ok, message = export_database_backup(
+            Path(path),
+            connection=getattr(self, "_db_conn", None),
+        )
+        self.settings_tab.show_backup_result(ok, message)
+        if not ok:
+            log_user_error(message, context="database backup")
+
+    def _import_database_backup(self) -> None:
+        from ..data.backup import import_database_backup
+
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Restore GridNotes database",
+            "",
+            "SQLite database (*.db);;All files (*)",
+        )
+        if not path:
+            return
+        confirm = QMessageBox.warning(
+            self,
+            "Restore backup?",
+            "This replaces your current notes and race history with the backup file.\n\n"
+            "A copy of your current database is saved first.\n\n"
+            "Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
+        close_sqlite_connection(getattr(self, "_db_conn", None))
+        ok, message = import_database_backup(Path(path))
+        self._db_conn = connect_db()
+        init_db()
+        self.refresh_ui_table()
+        self.settings_tab.show_backup_result(ok, message)
+        if not ok:
+            log_user_error(message, context="database restore")
+
+    def _save_support_bundle(self) -> None:
+        from datetime import date
+
+        from ..services.support_bundle import create_support_bundle
+
+        default_name = f"GridNotes-support-{date.today().isoformat()}.zip"
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save support file",
+            default_name,
+            "Zip archive (*.zip);;All files (*)",
+        )
+        if not path:
+            return
+        dest = Path(path)
+        if dest.suffix.lower() != ".zip":
+            dest = dest.with_suffix(".zip")
+        ok, message = create_support_bundle(dest)
+        self.settings_tab.show_support_result(ok, message)
+        if not ok:
+            log_user_error(message, context="support bundle")
+
+    def _open_logs_folder(self) -> None:
+        from ..services.support_bundle import open_logs_folder
+
+        ok, message = open_logs_folder()
+        self.settings_tab.show_support_result(ok, message)
 
     def _open_update_progress(self, target_version: str | None) -> None:
         from ..ui.update_progress_dialog import UpdateProgressDialog

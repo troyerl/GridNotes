@@ -116,6 +116,12 @@ class InstallWizardWindow(QMainWindow):
         self.desktop_checkbox.setChecked(True)
         layout.addWidget(self.desktop_checkbox)
 
+        self.launch_when_done_checkbox = QCheckBox(
+            "Open GridNotes when installation finishes"
+        )
+        self.launch_when_done_checkbox.setChecked(True)
+        layout.addWidget(self.launch_when_done_checkbox)
+
         self.advanced_toggle = QCheckBox("Show advanced options")
         self.advanced_toggle.setChecked(False)
         self.advanced_toggle.toggled.connect(self._on_advanced_toggled)
@@ -329,6 +335,7 @@ class InstallWizardWindow(QMainWindow):
         self.build_path_input.setEnabled(not busy and self.build_checkbox.isChecked())
         self.btn_browse_build.setEnabled(not busy and self.build_checkbox.isChecked())
         self.desktop_checkbox.setEnabled(not busy)
+        self.launch_when_done_checkbox.setEnabled(not busy)
         self.btn_cancel.setText("Cancel" if busy else "Close")
         if busy:
             self.btn_launch.setVisible(False)
@@ -403,7 +410,10 @@ class InstallWizardWindow(QMainWindow):
             self.step_label.setText("All set!")
             self.btn_install.setVisible(False)
             self.btn_launch.setVisible(True)
-            QMessageBox.information(self, "You're all set", message)
+            if self.launch_when_done_checkbox.isChecked():
+                self._launch_app()
+            else:
+                QMessageBox.information(self, "You're all set", message)
         else:
             self.step_label.setText("Installation needs attention")
             QMessageBox.warning(self, "Installation did not finish", message)

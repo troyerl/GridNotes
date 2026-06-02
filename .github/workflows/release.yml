@@ -1,0 +1,35 @@
+# Build GridNotes-Setup.exe (and zip fallback) when a version tag is pushed.
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build installer
+        shell: pwsh
+        run: scripts/build_installer.ps1
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/GridNotes-Setup.exe
+            dist/GridNotes-Windows.zip
+          fail_on_unmatched_files: false
+          generate_release_notes: true

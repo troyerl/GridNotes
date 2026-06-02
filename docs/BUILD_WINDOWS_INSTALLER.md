@@ -27,7 +27,13 @@ scripts\build_installer.bat
 
 Install **[Inno Setup 6](https://jrsoftware.org/isinfo.php)** (free), then run `scripts\build_installer.bat` again.
 
-## Attach to GitHub Release
+## Automatic builds on GitHub
+
+When you push a version tag (for example `v1.0.20`), the **Release** workflow on GitHub Actions runs `scripts/build_installer.ps1` on Windows and uploads `GridNotes-Setup.exe` and `GridNotes-Windows.zip` to that release if Inno Setup is available on the runner.
+
+You can still build locally with `scripts\build_installer.bat` before tagging.
+
+## Attach to GitHub Release (manual)
 
 1. Open https://github.com/troyerl/GridNotes/releases  
 2. Edit release **v1.0.0** (or create one with tag **`v1.0.0`** — must start with `v`).  
