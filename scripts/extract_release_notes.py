@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import re
 import sys
 from pathlib import Path
@@ -55,30 +56,43 @@ def extract_release_notes(version: str, path: Path = NOTES_PATH) -> str:
     return body
 
 
+def write_release_notes(version: str, output: Path, *, notes_path: Path = NOTES_PATH) -> None:
+    """Write extracted notes to *output* as UTF-8 (no console encoding)."""
+    text = extract_release_notes(version, notes_path)
+    output.write_text(text + "\n", encoding="utf-8", newline="\n")
+
+
 def _write_stdout_utf8(text: str) -> None:
-    """Write UTF-8 to stdout (safe for shell redirect on Windows cp1252 consoles)."""
+    """Write UTF-8 to stdout (fallback when no --output)."""
     data = text.encode("utf-8")
     if not data.endswith(b"\n"):
         data += b"\n"
     sys.stdout.buffer.write(data)
 
 
-def _write_stderr_utf8(text: str) -> None:
-    data = text.encode("utf-8")
-    if not data.endswith(b"\n"):
-        data += b"\n"
-    sys.stderr.buffer.write(data)
-
-
 def main(argv: list[str] | None = None) -> int:
-    args = argv if argv is not None else sys.argv[1:]
-    if not args:
-        _write_stderr_utf8("Usage: extract_release_notes.py <tag>  (e.g. v1.0.21)")
-        return 1
+    parser = argparse.ArgumentParser(
+        description="Extract a version section from docs/RELEASE_NOTES.md",
+    )
+    parser.add_argument(
+        "version",
+        help="Tag or version (e.g. v1.0.23)",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        help="Write UTF-8 release body to this file (recommended on Windows CI)",
+    )
+    args = parser.parse_args(argv)
+
     try:
-        _write_stdout_utf8(extract_release_notes(args[0]))
+        if args.output is not None:
+            write_release_notes(args.version, args.output)
+        else:
+            _write_stdout_utf8(extract_release_notes(args.version))
     except (LookupError, FileNotFoundError, ValueError) as exc:
-        _write_stderr_utf8(str(exc))
+        print(exc, file=sys.stderr)
         return 1
     return 0
 
