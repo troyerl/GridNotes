@@ -146,19 +146,25 @@ def icon_path() -> Path | None:
 
 def shell_icon_path() -> Path | None:
     """Icon file for Windows shell branding (taskbar pin, AppUserModelID)."""
-    if sys.platform == "win32":
-        try:
-            from ..installer.logic import windows_pin_icon_path
-            from ..installer.uninstall import resolve_install_root
+    # Same as shortcuts: icon.ico is reliable; branded exe may still look like Python.
+    return icon_path() or (
+        windows_pin_icon_path_from_install()
+        if sys.platform == "win32"
+        else None
+    )
 
-            root = resolve_install_root()
-            if root is not None:
-                pinned = windows_pin_icon_path(root)
-                if pinned is not None:
-                    return pinned
-        except Exception:
-            pass
-    return icon_path()
+
+def windows_pin_icon_path_from_install() -> Path | None:
+    try:
+        from ..installer.logic import windows_pin_icon_path
+        from ..installer.uninstall import resolve_install_root
+
+        root = resolve_install_root()
+        if root is not None:
+            return windows_pin_icon_path(root)
+    except Exception:
+        pass
+    return None
 
 
 def taskbar_icon_path() -> Path | None:

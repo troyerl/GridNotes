@@ -215,6 +215,30 @@ class RaceBookApp(QMainWindow):
                 self,
                 icon,
                 relaunch_command=relaunch,
+                display_name="GridNotes",
+            )
+            QTimer.singleShot(750, self._retry_windows_taskbar_branding)
+        except Exception:
+            pass
+
+    def _retry_windows_taskbar_branding(self) -> None:
+        if sys.platform != "win32":
+            return
+        try:
+            from ..app.app_icon import shell_icon_path
+            from ..installer.uninstall import resolve_install_root
+            from ..installer.windows_shell import (
+                apply_window_taskbar_identity,
+                build_relaunch_command,
+            )
+
+            install_root = resolve_install_root()
+            relaunch = build_relaunch_command(install_root) if install_root else None
+            apply_window_taskbar_identity(
+                self,
+                shell_icon_path(),
+                relaunch_command=relaunch,
+                display_name="GridNotes",
             )
         except Exception:
             pass

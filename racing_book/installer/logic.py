@@ -475,18 +475,18 @@ def ensure_windows_launcher(install_root: Path, venv_dir: Path | None = None) ->
 
 def windows_pin_icon_path(install_root: Path) -> Path | None:
     """
-    Icon for Windows shortcuts and taskbar pins.
+    Icon for .lnk IconLocation and taskbar pin metadata.
 
-    Prefer the branded launcher EXE (same file the shortcut runs) so pins match
-    the running process; fall back to icon.ico.
+    Prefer icon.ico — GridNotes.exe is a pythonw copy and often has no embedded
+    icon unless rcedit succeeded; .ico is reliable in Explorer and pinned tiles.
     """
     install_root = install_root.resolve()
-    branded = windows_launcher_exe_path(install_root)
-    if branded.is_file():
-        return branded.resolve()
     ico = install_root / "icon.ico"
     if ico.is_file():
         return ico.resolve()
+    branded = windows_launcher_exe_path(install_root)
+    if branded.is_file():
+        return branded.resolve()
     return None
 
 

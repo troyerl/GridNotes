@@ -166,6 +166,32 @@ if ($ShortcutPath) {
 """
 
 
+def resolve_relaunch_command(existing: str | None = None) -> str | None:
+    """Command line for taskbar pin/relaunch metadata (required with display name)."""
+    if existing and existing.strip():
+        return existing.strip()
+    try:
+        from ..installer.uninstall import resolve_install_root
+
+        install_root = resolve_install_root()
+        if install_root is not None:
+            built = build_relaunch_command(install_root)
+            if built:
+                return built
+    except Exception:
+        pass
+    if sys.executable:
+        exe = Path(sys.executable).resolve()
+        if exe.is_file():
+            if len(sys.argv) <= 1:
+                return f'"{exe}"'
+            parts = [f'"{exe}"'] + [
+                f'"{arg}"' if " " in arg else arg for arg in sys.argv[1:]
+            ]
+            return " ".join(parts)
+    return None
+
+
 def build_relaunch_command(install_root: Path) -> str | None:
     """Command line Windows uses when pinning the running app to the taskbar."""
     from .logic import (
@@ -273,15 +299,18 @@ def apply_shortcut_taskbar_identity(
     icon: Path | None,
     *,
     relaunch_command: str | None = None,
+    display_name: str = "GridNotes",
 ) -> bool:
     """Set AppUserModelID (and icon) on a .lnk so taskbar pins keep the GridNotes icon."""
     from ..app.app_icon import APP_USER_MODEL_ID
 
+    relaunch = resolve_relaunch_command(relaunch_command)
     return _run_shell_property_script(
         app_id=APP_USER_MODEL_ID,
         icon=icon,
         shortcut_path=shortcut_path,
-        relaunch_command=relaunch_command,
+        relaunch_command=relaunch,
+        display_name=display_name,
     )
 
 
@@ -290,6 +319,7 @@ def apply_window_taskbar_identity(
     icon: Path | None,
     *,
     relaunch_command: str | None = None,
+    display_name: str = "GridNotes",
 ) -> bool:
     """Associate the main window with the same AppUserModelID as our shortcuts."""
     from ..app.app_icon import APP_USER_MODEL_ID, set_windows_app_user_model_id
@@ -303,9 +333,16 @@ def apply_window_taskbar_identity(
         return False
     if hwnd <= 0:
         return False
+    relaunch = resolve_relaunch_command(relaunch_command)
+    if not relaunch:
+        logger.warning(
+            "No relaunch command for taskbar branding; menu may show as Python"
+        )
+        return False
     return _run_shell_property_script(
         app_id=APP_USER_MODEL_ID,
         icon=icon,
         hwnd=hwnd,
-        relaunch_command=relaunch_command,
+        relaunch_command=relaunch,
+        display_name=display_name,
     )

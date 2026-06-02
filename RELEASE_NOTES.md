@@ -6,6 +6,15 @@ New versions are listed below with the newest first. When publishing on GitHub, 
 
 ---
 
+## v1.0.17 — 2026-06-02
+
+### Fixed
+
+- **Shortcut / pin icon blank** — shortcuts now use **`icon.ico`** for the tile (not `GridNotes.exe`, which often still looks like Python). One-time shortcut rebuild on next launch.
+- **Taskbar menu said “Python”** — running window now registers **GridNotes** as the display name with relaunch metadata (required for correct pin label). Prefer **pin from the Desktop shortcut**, not “Pin to taskbar” on the running button.
+
+---
+
 ## v1.0.16 — 2026-06-02
 
 ### Fixed

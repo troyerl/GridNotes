@@ -26,6 +26,9 @@ def main() -> int:
     init_db()
 
     app = QApplication(sys.argv)
+    app.setApplicationName("GridNotes")
+    if hasattr(app, "setApplicationDisplayName"):
+        app.setApplicationDisplayName("GridNotes")
     apply_app_theme(app)
 
     icon = load_app_icon()
@@ -37,6 +40,34 @@ def main() -> int:
         window.setWindowIcon(icon)
 
     window.show()
+    if sys.platform == "win32":
+        from PyQt6.QtCore import QTimer
+
+        def _apply_windows_taskbar_branding() -> None:
+            try:
+                from racing_book.app.app_icon import shell_icon_path
+                from racing_book.installer.uninstall import resolve_install_root
+                from racing_book.installer.windows_shell import (
+                    apply_window_taskbar_identity,
+                    build_relaunch_command,
+                )
+
+                install_root = resolve_install_root()
+                relaunch = (
+                    build_relaunch_command(install_root) if install_root else None
+                )
+                apply_window_taskbar_identity(
+                    window,
+                    shell_icon_path(),
+                    relaunch_command=relaunch,
+                    display_name="GridNotes",
+                )
+            except Exception:
+                pass
+
+        QTimer.singleShot(0, _apply_windows_taskbar_branding)
+        QTimer.singleShot(750, _apply_windows_taskbar_branding)
+
     return app.exec()
 
 

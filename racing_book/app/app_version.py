@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-__version__ = "1.0.16"
+__version__ = "1.0.17"
 
 INSTALLED_VERSION_FILENAME = ".gridnotes-version"
 

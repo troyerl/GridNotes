@@ -12,6 +12,8 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 APP_SHORTCUT_NAME = "GridNotes"
+SHORTCUT_BRANDING_REVISION = "3"
+SHORTCUT_REVISION_FILENAME = ".gridnotes-shortcuts-revision"
 
 
 def desktop_directories() -> list[Path]:
@@ -253,22 +255,42 @@ def _shortcut_should_refresh_for_launcher(
             arguments or ""
         ).lower():
             return True
-        from .logic import windows_pin_icon_path
-
-        pin_icon = windows_pin_icon_path(install_root)
-        if pin_icon is not None:
-            expected_icon = windows_icon_location(pin_icon).lower()
-        elif install_root.resolve().joinpath("icon.ico").is_file():
-            expected_icon = windows_icon_location(
-                install_root.resolve() / "icon.ico"
-            ).lower()
+        install_ico = install_root.resolve() / "icon.ico"
+        if install_ico.is_file():
+            expected_icon = windows_icon_location(install_ico).lower()
         else:
-            expected_icon = windows_icon_location(resolved_launcher).lower()
+            from .logic import windows_pin_icon_path
+
+            pin_icon = windows_pin_icon_path(install_root)
+            expected_icon = (
+                windows_icon_location(pin_icon).lower()
+                if pin_icon is not None
+                else windows_icon_location(resolved_launcher).lower()
+            )
         if icon_location.lower() != expected_icon:
+            return True
+        # Rebuild when IconLocation still points at the launcher EXE but icon.ico exists.
+        if install_ico.is_file() and resolved_launcher.name.lower() in icon_location.lower():
             return True
     except OSError:
         return True
     return False
+
+
+def _shortcuts_need_forced_rebuild(install_root: Path) -> bool:
+    marker = install_root.resolve() / SHORTCUT_REVISION_FILENAME
+    try:
+        return not marker.is_file() or marker.read_text(encoding="utf-8").strip() != SHORTCUT_BRANDING_REVISION
+    except OSError:
+        return True
+
+
+def _mark_shortcuts_rebuilt(install_root: Path) -> None:
+    try:
+        marker = install_root.resolve() / SHORTCUT_REVISION_FILENAME
+        marker.write_text(f"{SHORTCUT_BRANDING_REVISION}\n", encoding="utf-8")
+    except OSError as exc:
+        logger.warning("Could not write shortcut revision marker: %s", exc)
 
 
 def _known_windows_shortcut_paths(install_root: Path) -> list[Path]:
@@ -349,12 +371,16 @@ def ensure_windows_shortcuts_for_taskbar(
         VENV_DIR_NAME,
         ensure_windows_launcher,
         preferred_shortcut_target,
+        regenerate_icon_ico,
         resolve_shortcut_icon,
+        venv_python,
         windows_launcher_exe_path,
     )
     from .windows_shell import apply_shortcut_taskbar_identity, build_relaunch_command
 
     venv_dir = install_root / VENV_DIR_NAME
+    py = venv_python(venv_dir)
+    regenerate_icon_ico(install_root, py if py.is_file() else None)
     ensure_windows_launcher(install_root, venv_dir)
     resolved_target, resolved_wd, resolved_args = preferred_shortcut_target(
         install_root,
@@ -364,12 +390,14 @@ def ensure_windows_shortcuts_for_taskbar(
     pin_icon = icon or resolve_shortcut_icon(
         install_root,
         launch_target=resolved_target,
+        python=py if py.is_file() else None,
     )
     relaunch = build_relaunch_command(install_root)
     description = "GridNotes — iRacing driver scouting"
+    force_all = force_refresh or _shortcuts_need_forced_rebuild(install_root)
     for shortcut_path in _known_windows_shortcut_paths(install_root):
         try:
-            if force_refresh or _shortcut_should_refresh_for_launcher(
+            if force_all or _shortcut_should_refresh_for_launcher(
                 shortcut_path, launcher_exe, install_root
             ):
                 logger.info("Refreshing shortcut for taskbar pin: %s", shortcut_path)
@@ -388,6 +416,8 @@ def ensure_windows_shortcuts_for_taskbar(
             )
         except (OSError, subprocess.SubprocessError) as exc:
             logger.warning("Could not update shortcut %s: %s", shortcut_path, exc)
+    if force_all:
+        _mark_shortcuts_rebuilt(install_root)
 
 
 def find_desktop_shortcuts(name: str = APP_SHORTCUT_NAME) -> list[Path]:
