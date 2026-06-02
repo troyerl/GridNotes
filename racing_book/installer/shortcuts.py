@@ -12,7 +12,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 APP_SHORTCUT_NAME = "GridNotes"
-SHORTCUT_BRANDING_REVISION = "3"
+SHORTCUT_BRANDING_REVISION = "4"
 SHORTCUT_REVISION_FILENAME = ".gridnotes-shortcuts-revision"
 
 

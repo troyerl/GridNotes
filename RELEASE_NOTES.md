@@ -6,6 +6,14 @@ New versions are listed below with the newest first. When publishing on GitHub, 
 
 ---
 
+## v1.0.18 — 2026-06-02
+
+### Fixed
+
+- **Taskbar right-click still said “Python”** — taskbar branding now runs from a shipped PowerShell script with environment variables (fixes broken relaunch-command quoting) and sets **GridNotes** on the launcher EXE metadata as a fallback.
+
+---
+
 ## v1.0.17 — 2026-06-02
 
 ### Fixed
