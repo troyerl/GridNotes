@@ -44,7 +44,8 @@ class UpdateCheckResult:
     can_apply_in_place: bool = False
     source_update_commits: int = 0
     release_zip_url: str | None = None
-    apply_method: str | None = None  # "git", "portable", or "frozen"
+    release_setup_url: str | None = None
+    apply_method: str | None = None  # "git", "portable", "frozen", or "installer"
 
 
 def project_root() -> Path:
@@ -152,8 +153,10 @@ def _release_asset_urls(payload: dict) -> tuple[str | None, str | None]:
     return zip_url, setup_exe
 
 
-def check_github_release() -> tuple[bool, str, str | None, str | None, str | None, str | None]:
-    """Return (ok, message, latest_version, download_url, release_notes, zip_url)."""
+def check_github_release() -> tuple[
+    bool, str, str | None, str | None, str | None, str | None, str | None
+]:
+    """Return (ok, message, latest_version, download_url, release_notes, zip_url, setup_url)."""
     try:
         response = requests.get(
             GITHUB_RELEASES_API,
@@ -162,7 +165,7 @@ def check_github_release() -> tuple[bool, str, str | None, str | None, str | Non
         )
     except requests.RequestException as exc:
         logger.warning("GitHub release check failed: %s", exc)
-        return False, f"Could not reach GitHub ({exc}).", None, None, None, None
+        return False, f"Could not reach GitHub ({exc}).", None, None, None, None, None
 
     if response.status_code == 404:
         return (
@@ -170,6 +173,7 @@ def check_github_release() -> tuple[bool, str, str | None, str | None, str | Non
             "No published releases yet. Check the GitHub repository for updates.",
             None,
             GITHUB_RELEASES_PAGE,
+            None,
             None,
             None,
         )
@@ -181,6 +185,7 @@ def check_github_release() -> tuple[bool, str, str | None, str | None, str | Non
             None,
             None,
             None,
+            None,
         )
 
     payload = response.json()
@@ -188,21 +193,35 @@ def check_github_release() -> tuple[bool, str, str | None, str | None, str | Non
     release_notes = str(payload.get("body", "") or "").strip() or None
     download_url = str(payload.get("html_url", "") or "") or GITHUB_RELEASES_PAGE
     zip_url, setup_exe = _release_asset_urls(payload)
-    if setup_exe:
-        download_url = setup_exe
-    elif zip_url:
-        download_url = zip_url
 
     if not latest_version:
-        return False, "Release information from GitHub did not include a version.", None, None, None, None
+        return (
+            False,
+            "Release information from GitHub did not include a version.",
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
 
-    return True, "Release check completed.", latest_version, download_url, release_notes, zip_url
+    return (
+        True,
+        "Release check completed.",
+        latest_version,
+        download_url,
+        release_notes,
+        zip_url,
+        setup_exe,
+    )
 
 
 def check_for_updates() -> UpdateCheckResult:
     """Check GitHub releases and, for source installs, whether git pull has updates."""
     current = installed_version()
-    release_ok, release_message, latest, download_url, notes, zip_url = check_github_release()
+    release_ok, release_message, latest, download_url, notes, zip_url, setup_url = (
+        check_github_release()
+    )
 
     can_apply = False
     source_behind = 0
@@ -242,15 +261,18 @@ def check_for_updates() -> UpdateCheckResult:
         and is_frozen_build()
         and release_ok
         and latest
-        and zip_url
         and is_newer_version(latest, current)
     ):
         from ..installer.frozen_update import frozen_install_root
 
-        if frozen_install_root() is not None:
+        install_root = frozen_install_root()
+        if install_root is not None:
             update_available = True
             can_apply = True
-            apply_method = "frozen"
+            if zip_url:
+                apply_method = "frozen"
+            elif setup_url:
+                apply_method = "installer"
 
     from ..installer.user_messages import update_check_user_message
 
@@ -272,6 +294,7 @@ def check_for_updates() -> UpdateCheckResult:
         download_url=download_url,
         release_notes=notes,
         release_zip_url=zip_url,
+        release_setup_url=setup_url,
         update_available=update_available,
         can_apply_in_place=can_apply and apply_method is not None,
         source_update_commits=source_behind,

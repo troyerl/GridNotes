@@ -2,7 +2,7 @@
 ; Run automatically via scripts\build_installer.ps1 when Inno Setup 6 is installed.
 
 #define MyAppName "GridNotes"
-#define MyAppVersion "1.0.25"
+#define MyAppVersion "1.0.26"
 #define MyAppPublisher "Logan Troyer"
 #define MyAppExeName "GridNotes.exe"
 
@@ -19,6 +19,8 @@ OutputBaseFilename=GridNotes-Setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+CloseApplications=force
+RestartApplications=yes
 ArchitecturesInstallIn64BitMode=x64compatible
 SetupIconFile=..\icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}

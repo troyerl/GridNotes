@@ -827,7 +827,7 @@ class SettingsTab(QWidget):
         self.btn_apply_update.setVisible(True)
         if result.can_apply_in_place:
             self.btn_apply_update.setText("Update now")
-            if result.apply_method in ("portable", "frozen"):
+            if result.apply_method in ("portable", "frozen", "installer"):
                 self.btn_apply_update.setToolTip(
                     "Download and install the update, then reopen GridNotes"
                 )

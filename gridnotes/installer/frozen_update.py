@@ -31,11 +31,11 @@ def frozen_install_root() -> Path | None:
     if not is_frozen_build():
         return None
     root = Path(sys.executable).resolve().parent
-    if not root.is_dir():
-        return None
-    if (root / "GridNotes.exe").is_file():
+    if root.is_dir() and (root / "GridNotes.exe").is_file():
         return root
-    return None
+    from ..platform.windows.windows_apps import registry_install_root
+
+    return registry_install_root()
 
 
 def locate_frozen_release_root(extract_dir: Path) -> Path:

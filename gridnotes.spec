@@ -67,6 +67,7 @@ a = Analysis(
         "gridnotes.installer.logic",
         "gridnotes.installer.portable_update",
         "gridnotes.installer.frozen_update",
+        "gridnotes.installer.installer_update",
         "gridnotes.installer.update_paths",
         "gridnotes.installer.post_update_cli",
         "gridnotes.installer.shortcuts",

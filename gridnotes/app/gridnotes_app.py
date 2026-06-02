@@ -1397,7 +1397,7 @@ class GridNotesApp(QMainWindow):
                 self,
                 version=version_label,
                 release_notes=result.release_notes,
-                portable=result.apply_method in ("portable", "frozen", "git"),
+                portable=result.apply_method in ("portable", "frozen", "installer", "git"),
             )
             return dialog.exec() == dialog.DialogCode.Accepted
 

@@ -33,6 +33,27 @@ def uninstall_launcher_path(install_root: Path) -> Path:
     return (install_root / "Uninstall GridNotes.bat").resolve()
 
 
+def registry_install_root() -> Path | None:
+    """Install folder from Settings → Apps (InstallLocation), if GridNotes.exe exists."""
+    if sys.platform != "win32":
+        return None
+
+    import winreg
+
+    for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+        try:
+            with winreg.OpenKey(hive, UNINSTALL_SUBKEY) as key:
+                location, _ = winreg.QueryValueEx(key, "InstallLocation")
+        except OSError:
+            continue
+        if not location:
+            continue
+        root = Path(str(location)).resolve()
+        if (root / "GridNotes.exe").is_file():
+            return root
+    return None
+
+
 def uninstall_command_line(install_root: Path) -> str:
     launcher = uninstall_launcher_path(install_root)
     if launcher.suffix.lower() == ".vbs":

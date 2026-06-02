@@ -64,12 +64,14 @@ foreach ($InnoCompiler in $InnoCandidates) {
     break
 }
 
+if (Test-Path $ZipPath) { Remove-Item -Force $ZipPath }
+Write-Host "==> Creating GridNotes-Windows.zip (in-place updates)"
+Compress-Archive -Path (Join-Path $AppDistDir "*") -DestinationPath $ZipPath
+
 if (-not $BuiltInstaller) {
-    Write-Host "==> Inno Setup not found; creating ZIP package instead"
+    Write-Host "==> Inno Setup not found; ZIP is the only Windows installer package"
     Write-Host "    Install Inno Setup 6 to produce GridNotes-Setup.exe:"
     Write-Host "    https://jrsoftware.org/isinfo.php"
-    if (Test-Path $ZipPath) { Remove-Item -Force $ZipPath }
-    Compress-Archive -Path (Join-Path $AppDistDir "*") -DestinationPath $ZipPath
 }
 
 Write-Host ""

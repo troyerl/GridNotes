@@ -183,7 +183,7 @@ def update_check_user_message(
         headline = f"A new version is available: v{latest}."
         if current:
             headline = f"A new version is available: v{latest} (you have v{current})."
-        if can_apply and apply_method in ("portable", "frozen"):
+        if can_apply and apply_method in ("portable", "frozen", "installer"):
             return (
                 f"{headline}\n\n"
                 "Click Update now. GridNotes will update in place, close for a moment, "
@@ -197,8 +197,8 @@ def update_check_user_message(
         if is_frozen:
             return (
                 f"{headline}\n\n"
-                "Click Get latest version to open the download page and install the "
-                "latest GridNotes-Setup.exe."
+                "This build cannot update automatically. Click Get latest version to open "
+                "the GitHub releases page."
             )
         return f"{headline}\n\nClick Update now for download instructions."
 

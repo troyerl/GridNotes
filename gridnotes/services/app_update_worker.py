@@ -8,6 +8,7 @@ from PyQt6.QtCore import QThread, pyqtSignal
 
 from .app_update import UpdateCheckResult, apply_source_update, check_for_updates
 from ..installer.frozen_update import apply_frozen_update, frozen_install_root
+from ..installer.installer_update import apply_installer_update
 from ..installer.portable_update import apply_portable_update, portable_install_root
 
 logger = logging.getLogger(__name__)
@@ -96,6 +97,35 @@ class ApplyAppUpdateWorker(QThread):
                 self.finished.emit(ok, message, restart)
             except Exception:
                 logger.exception("Frozen update failed")
+                from ..installer.user_messages import portable_update_failed_message
+
+                self.finished.emit(False, portable_update_failed_message(), True)
+            return
+
+        if method == "installer":
+            install_root = frozen_install_root()
+            version = self._result.latest_version
+            setup_url = self._result.release_setup_url
+            if install_root is None or not version or not setup_url:
+                self.finished.emit(
+                    False,
+                    "GridNotes could not find its install folder or the release installer.\n\n"
+                    "Download GridNotes-Setup.exe from the website instead.",
+                    True,
+                )
+                return
+            logger.info("Applying installer update to v%s at %s", version, install_root)
+            try:
+                ok, message, restart = apply_installer_update(
+                    install_root,
+                    version,
+                    setup_url=setup_url,
+                    wait_pid=self._wait_pid,
+                    on_progress=self._report,
+                )
+                self.finished.emit(ok, message, restart)
+            except Exception:
+                logger.exception("Installer update failed")
                 from ..installer.user_messages import portable_update_failed_message
 
                 self.finished.emit(False, portable_update_failed_message(), True)

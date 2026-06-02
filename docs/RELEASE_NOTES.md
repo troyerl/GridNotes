@@ -8,6 +8,20 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.26 — 2026-06-02
+
+### Improved
+
+- **Automatic Windows updates** — **Update now** installs in the background without saving files to Downloads. If the release includes `GridNotes-Windows.zip`, GridNotes updates in place and reopens; otherwise it downloads `GridNotes-Setup.exe` to a private folder under your GridNotes data directory and runs a silent install, then reopens.
+- **Release builds** — Windows CI now publishes both `GridNotes-Setup.exe` and `GridNotes-Windows.zip` so in-place ZIP updates are available when possible.
+
+### Fixed
+
+- **Get latest version** — Opens the GitHub releases page instead of triggering a browser download of the installer `.exe`.
+- **Install detection** — Finds the install folder from the running app or Windows **Settings → Apps** when applying updates.
+
+---
+
 ## v1.0.25 — 2026-06-02
 
 ### Improved
