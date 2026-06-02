@@ -1,4 +1,5 @@
 # Build GridNotes-Setup.exe (and zip fallback) when a version tag is pushed.
+# Release description text comes from docs/RELEASE_NOTES.md for that tag.
 name: Release
 
 on:
@@ -21,6 +22,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Extract release notes from RELEASE_NOTES.md
+        run: python scripts/extract_release_notes.py "${{ github.ref_name }}" > release_body.md
+
       - name: Build installer
         shell: pwsh
         run: scripts/build_installer.ps1
@@ -28,8 +32,9 @@ jobs:
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
+          body_path: release_body.md
           files: |
             dist/GridNotes-Setup.exe
             dist/GridNotes-Windows.zip
           fail_on_unmatched_files: false
-          generate_release_notes: true
+          generate_release_notes: false

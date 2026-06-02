@@ -2,7 +2,9 @@
 
 GridNotes is a desktop app for **iRacing driver scouting**. It keeps your notes, race history, and preferences on your PC in a local database — no cloud account required.
 
-New versions are listed below with the newest first. When publishing on GitHub, copy the section for the tag you are releasing into the release description.
+New versions are listed below with the newest first.
+
+When you push a tag (for example `v1.0.20`), the GitHub **Release** workflow uses the matching `## v…` section from this file as the release description on GitHub.
 
 ---
 
