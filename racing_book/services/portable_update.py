@@ -219,24 +219,11 @@ def _write_windows_apply_batch(
         '  echo [%date% %time%] robocopy failed, skipping pip and relaunch>>"%LOG%"\r\n'
         "  goto cleanup\r\n"
         ")\r\n"
-        'echo [%date% %time%] Upgrading dependencies...>>"%LOG%"\r\n'
-        '"%PY%" -m pip install -q -r "%DEST%\\requirements.txt" >>"%LOG%" 2>&1\r\n'
-        'echo [%date% %time%] Writing installed version...>>"%LOG%"\r\n'
-        f'echo {release_version}>"%DEST%\\.gridnotes-version"\r\n'
-        'echo [%date% %time%] Registering Windows Apps entry...>>"%LOG%"\r\n'
+        'echo [%date% %time%] Refreshing install (app, icons, launcher, shortcuts)...>>"%LOG%"\r\n'
         f'cd /d "{dest}"\r\n'
-        f'"%PY%" -c "from pathlib import Path; '
-        f"from racing_book.installer.windows_apps import register_windows_uninstall; "
-        f"register_windows_uninstall(Path(r'%DEST%'), '{release_version}')\" "
+        f'"%PY%" -c "from pathlib import Path; from racing_book.installer.logic import refresh_installed_artifacts; '
+        f"refresh_installed_artifacts(Path(r'%DEST%'), version='{release_version}')\" "
         f'>>"%LOG%" 2>&1\r\n'
-        'echo [%date% %time%] Refreshing launch scripts...>>"%LOG%"\r\n'
-        '"%PY%" -c "from pathlib import Path; from racing_book.installer.logic import '
-        "write_gridnotes_start_script, write_windows_vbs_launcher, "
-        "build_windows_launcher_exe, venv_python; "
-        "r=Path(r'%DEST%'); write_gridnotes_start_script(r); "
-        "write_windows_vbs_launcher(r, r / '.venv'); "
-        'build_windows_launcher_exe(r, venv_python(r / \'.venv\'))" '
-        '>>"%LOG%" 2>&1\r\n'
         f"{relaunch_block}\r\n"
         'echo [%date% %time%] Update finished>>"%LOG%"\r\n'
         ":cleanup\r\n"
@@ -260,20 +247,13 @@ def _apply_on_unix(
 ) -> tuple[bool, str]:
     try:
         copy_source_to_install_root(source_root, install_root)
-        from ..app.app_version import write_installed_version
+        from ..installer.logic import refresh_installed_artifacts
 
-        write_installed_version(install_root, release_version)
-        py = venv_python(install_root / VENV_DIR_NAME)
-        result = subprocess.run(
-            [str(py), "-m", "pip", "install", "-r", str(install_root / "requirements.txt")],
-            cwd=str(install_root),
-            capture_output=True,
-            text=True,
-            timeout=600,
+        refresh_installed_artifacts(
+            install_root,
+            version=release_version,
+            create_shortcuts=sys.platform == "win32",
         )
-        if result.returncode != 0:
-            output = (result.stdout or result.stderr or "").strip()
-            return False, output or "pip install failed."
         return True, "Update installed."
     except (OSError, subprocess.SubprocessError, shutil.Error) as exc:
         logger.exception("Unix portable update failed")

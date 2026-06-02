@@ -1,6 +1,6 @@
 # How to install GridNotes
 
-**Version 1.0.11**
+**Version 1.0.12**
 
 GridNotes helps you remember iRacing drivers you raced with and keep private notes.  
 You do **not** need to know how to code. Follow the steps below in order.
@@ -124,6 +124,22 @@ The default install path needs **no** administrator permission. Use **Show advan
 2. Click **Controls** → **Import race JSON** and choose your iRacing race export file.
 3. Click a driver’s name to add notes or mark like/dislike.
 4. Optional: **Settings** tab → pick light/dark theme → **Save settings**.
+
+---
+
+## Updating GridNotes (no reinstall)
+
+If you installed with **`Install GridNotes.bat`** (for example `D:\GridNotes`):
+
+1. Open GridNotes → **Settings** → **Check for updates** (or turn on automatic check on startup).
+2. When a newer version is available, click **Update now**.
+3. GridNotes closes briefly, then reopens. The update refreshes **application files**, **icons**, **launch scripts**, **Desktop/Start shortcuts**, and the version shown in **Windows Settings → Apps**.
+
+You do **not** need to uninstall or run the installer again for normal updates.
+
+**Taskbar icon after an update:** If you pinned GridNotes before, **unpin** the old icon once, then **right-click the Desktop shortcut** → **Pin to taskbar**.
+
+If you installed with **`GridNotes-Setup.exe`** (standalone `.exe` build), use a new setup installer from [Releases](https://github.com/troyerl/race_book/releases) to update.
 
 ---
 

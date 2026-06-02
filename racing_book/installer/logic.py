@@ -205,12 +205,18 @@ def ensure_icon_ico(root: Path, python: Path | None = None) -> Path | None:
     ico = root / "icon.ico"
     if ico.is_file():
         return ico
+    return regenerate_icon_ico(root, python)
+
+
+def regenerate_icon_ico(root: Path, python: Path | None = None) -> Path | None:
+    """Build or refresh icon.ico from icon.png (used after in-app updates)."""
+    ico = root / "icon.ico"
     png = root / "icon.png"
     if not png.is_file():
-        return None
+        return ico if ico.is_file() else None
     script = root / "scripts" / "generate_icon.py"
     if not script.is_file() or python is None or not python.is_file():
-        return None
+        return ico if ico.is_file() else None
     try:
         subprocess.run(
             [str(python), "-m", "pip", "install", "Pillow>=10.0"],
@@ -230,7 +236,7 @@ def ensure_icon_ico(root: Path, python: Path | None = None) -> Path | None:
         )
     except (subprocess.SubprocessError, OSError) as exc:
         logger.warning("Could not generate icon.ico: %s", exc)
-        return None
+        return ico if ico.is_file() else None
     return ico if ico.is_file() else None
 
 
@@ -279,7 +285,7 @@ def build_windows_launcher_exe(install_root: Path, python: Path) -> Path | None:
         logger.warning("pythonw.exe missing; cannot build GridNotes.exe")
         return None
 
-    ico = ensure_icon_ico(install_root, python)
+    ico = regenerate_icon_ico(install_root, python)
     if ico is None or not ico.is_file():
         logger.warning("icon.ico missing; cannot brand GridNotes.exe")
         return None
@@ -307,6 +313,126 @@ def build_windows_launcher_exe(install_root: Path, python: Path) -> Path | None:
         )
 
     return exe if exe.is_file() else None
+
+
+def refresh_installed_artifacts(
+    install_root: Path,
+    *,
+    version: str | None = None,
+    create_shortcuts: bool = True,
+    upgrade_dependencies: bool = True,
+    build_standalone: bool = False,
+) -> None:
+    """
+    Re-apply install-time setup after an in-app update.
+
+    Refreshes icons, Windows launcher, launch/uninstall scripts, shortcuts,
+    and Settings → Apps registration so users do not need to re-run the installer.
+    """
+    install_root = install_root.resolve()
+    venv_dir = install_root / VENV_DIR_NAME
+    py = venv_python(venv_dir)
+    requirements = install_root / REQUIREMENTS_FILE
+
+    if version:
+        from ..app.app_version import write_installed_version
+
+        write_installed_version(install_root, version)
+
+    if upgrade_dependencies and py.is_file() and requirements.is_file():
+        try:
+            subprocess.run(
+                [str(py), "-m", "pip", "install", "--upgrade", "pip"],
+                cwd=str(install_root),
+                capture_output=True,
+                text=True,
+                timeout=300,
+                check=False,
+            )
+            subprocess.run(
+                [str(py), "-m", "pip", "install", "-r", str(requirements)],
+                cwd=str(install_root),
+                capture_output=True,
+                text=True,
+                timeout=600,
+                check=False,
+            )
+        except (subprocess.SubprocessError, OSError) as exc:
+            logger.warning("Dependency upgrade during refresh failed: %s", exc)
+
+    if sys.platform == "win32":
+        _refresh_windows_installed_artifacts(
+            install_root,
+            venv_dir,
+            py,
+            create_shortcuts=create_shortcuts,
+            version=version,
+            build_standalone=build_standalone,
+        )
+
+    try:
+        save_install_location(install_root)
+    except OSError as exc:
+        logger.warning("Could not save install location pointer: %s", exc)
+
+
+def _refresh_windows_installed_artifacts(
+    install_root: Path,
+    venv_dir: Path,
+    py: Path,
+    *,
+    create_shortcuts: bool,
+    version: str | None,
+    build_standalone: bool = False,
+) -> None:
+    from .shortcuts import provision_windows_install_shortcuts
+    from .windows_apps import register_windows_uninstall
+
+    if py.is_file():
+        regenerate_icon_ico(install_root, py)
+        build_windows_launcher_exe(install_root, py)
+
+    write_launcher_scripts(install_root, venv_dir)
+    write_uninstaller_scripts(install_root, venv_dir)
+
+    dist_exe = install_root / "dist" / "GridNotes" / "GridNotes.exe"
+    target, working_dir, arguments = preferred_shortcut_target(
+        install_root,
+        venv_dir,
+        dist_exe=dist_exe,
+        build_standalone=build_standalone and dist_exe.is_file(),
+    )
+    shortcut_icon = resolve_shortcut_icon(
+        install_root,
+        launch_target=target,
+        python=py if py.is_file() else None,
+    )
+    shortcut_kwargs = {
+        "target": target,
+        "working_dir": working_dir,
+        "arguments": arguments,
+        "icon": shortcut_icon,
+    }
+
+    if create_shortcuts:
+        provision_windows_install_shortcuts(
+            install_root,
+            force_refresh=True,
+            **shortcut_kwargs,
+        )
+    else:
+        from .shortcuts import ensure_windows_shortcuts_for_taskbar
+
+        ensure_windows_shortcuts_for_taskbar(
+            install_root,
+            force_refresh=True,
+            **shortcut_kwargs,
+        )
+
+    try:
+        register_windows_uninstall(install_root, version)
+    except OSError as exc:
+        logger.warning("Could not register Windows Apps entry: %s", exc)
 
 
 def windows_launcher_arguments(install_root: Path) -> str | None:
@@ -1224,77 +1350,68 @@ class InstallRunner:
                 )
                 self._check_cancelled()
 
-            if sys.platform == "win32":
-                self._step("Building GridNotes.exe launcher", 92)
-                built = build_windows_launcher_exe(self.root, py)
-                if built is not None:
-                    self._log(f"Launcher: {built}")
-                else:
-                    self._log(
-                        "GridNotes.exe was not built (shortcuts will use pythonw). "
-                        "Re-run Install GridNotes.bat if the taskbar shows a Python icon."
-                    )
-                self._check_cancelled()
-
-            self._step("Creating shortcuts", 95)
-            launchers = write_launcher_scripts(self.root, self.venv_dir)
-            for path in launchers:
-                self._log(f"Created {path.name}")
-
             dist_exe = self.build_output_dir / "GridNotes" / "GridNotes.exe"
-            shortcut_target, shortcut_working_dir, shortcut_args = preferred_shortcut_target(
-                self.root,
-                self.venv_dir,
-                dist_exe=dist_exe,
-                build_standalone=self.build_standalone,
-            )
-            self._launch_target = shortcut_target
-
-            if self.create_desktop_shortcut:
-                try:
-                    shortcut_icon = resolve_shortcut_icon(
-                        self.root,
-                        source_root=self.source_root,
-                        launch_target=shortcut_target,
-                        python=venv_python(self.venv_dir),
-                    )
-                    shortcut_kwargs = {
-                        "target": shortcut_target,
-                        "working_dir": shortcut_working_dir,
-                        "arguments": shortcut_args,
-                        "icon": shortcut_icon,
-                    }
-                    shortcut = create_desktop_shortcut(**shortcut_kwargs)
-                    self._log(f"Desktop shortcut: {shortcut}")
-                    if sys.platform == "win32":
-                        start_lnk = create_start_menu_shortcut(**shortcut_kwargs)
-                        self._log(f"Start Menu shortcut: {start_lnk}")
-                        install_lnk = create_install_folder_shortcut(
-                            self.root,
-                            **shortcut_kwargs,
-                        )
-                        self._log(
-                            "Install-folder shortcut (pin this for the taskbar icon): "
-                            f"{install_lnk}"
-                        )
-                    if shortcut_icon is not None:
-                        self._log(f"Shortcut icon: {shortcut_icon}")
-                    self._log(f"Shortcut opens: {self.root}")
-                except (OSError, subprocess.SubprocessError) as exc:
-                    self._log(f"Could not create desktop shortcut: {exc}")
-
-            save_install_location(self.root)
-
             if sys.platform == "win32":
-                try:
-                    from ..app.app_version import __version__, write_installed_version
-                    from .windows_apps import register_windows_uninstall
+                from ..app.app_version import __version__
 
-                    write_installed_version(self.root, __version__)
-                    register_windows_uninstall(self.root, __version__)
-                    self._log(f"Registered in Windows Settings → Apps (v{__version__})")
-                except OSError as exc:
-                    self._log(f"Could not register in Windows Apps list: {exc}")
+                self._step("Finishing Windows setup", 92)
+                refresh_installed_artifacts(
+                    self.root,
+                    version=__version__,
+                    create_shortcuts=self.create_desktop_shortcut,
+                    upgrade_dependencies=False,
+                    build_standalone=self.build_standalone,
+                )
+                shortcut_target, _, _ = preferred_shortcut_target(
+                    self.root,
+                    self.venv_dir,
+                    dist_exe=dist_exe,
+                    build_standalone=self.build_standalone,
+                )
+                self._launch_target = shortcut_target
+                launcher = windows_launcher_exe_path(self.root)
+                if launcher.is_file():
+                    self._log(f"Launcher: {launcher}")
+                if self.create_desktop_shortcut:
+                    self._log("Desktop, Start Menu, and install-folder shortcuts updated.")
+                self._log(f"Registered in Windows Settings → Apps (v{__version__})")
+                self._check_cancelled()
+            else:
+                self._step("Creating shortcuts", 95)
+                launchers = write_launcher_scripts(self.root, self.venv_dir)
+                for path in launchers:
+                    self._log(f"Created {path.name}")
+
+                shortcut_target, shortcut_working_dir, shortcut_args = preferred_shortcut_target(
+                    self.root,
+                    self.venv_dir,
+                    dist_exe=dist_exe,
+                    build_standalone=self.build_standalone,
+                )
+                self._launch_target = shortcut_target
+
+                if self.create_desktop_shortcut:
+                    try:
+                        shortcut_icon = resolve_shortcut_icon(
+                            self.root,
+                            source_root=self.source_root,
+                            launch_target=shortcut_target,
+                            python=venv_python(self.venv_dir),
+                        )
+                        shortcut = create_desktop_shortcut(
+                            target=shortcut_target,
+                            working_dir=shortcut_working_dir,
+                            arguments=shortcut_args,
+                            icon=shortcut_icon,
+                        )
+                        self._log(f"Desktop shortcut: {shortcut}")
+                        if shortcut_icon is not None:
+                            self._log(f"Shortcut icon: {shortcut_icon}")
+                        self._log(f"Shortcut opens: {self.root}")
+                    except (OSError, subprocess.SubprocessError) as exc:
+                        self._log(f"Could not create desktop shortcut: {exc}")
+
+                save_install_location(self.root)
 
             self._step("Finished", 100)
             if self.build_standalone:

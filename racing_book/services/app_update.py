@@ -240,7 +240,8 @@ def check_for_updates() -> UpdateCheckResult:
         action = "Click “Update now” to pull the latest code and restart."
     elif update_available and apply_method == "portable":
         action = (
-            "Click “Update now” to download the update, install it, and reopen GridNotes."
+            "Click “Update now” to download the update, refresh icons and shortcuts, "
+            "and reopen GridNotes — no reinstall needed."
         )
     elif update_available and is_frozen_build():
         action = "Download the latest installer from GitHub to update."
@@ -293,6 +294,18 @@ def apply_source_update(
         return False, output or "git pull failed."
 
     logger.info("git pull succeeded: %s", output or "(no output)")
+    if sys.platform == "win32":
+        try:
+            from ..installer.logic import refresh_installed_artifacts
+            from ..installer.uninstall import resolve_install_root
+
+            install_root = resolve_install_root()
+            if install_root is not None and (install_root / "main.py").is_file():
+                if on_progress is not None:
+                    on_progress("Refreshing Windows launchers and shortcuts…", 85)
+                refresh_installed_artifacts(install_root, upgrade_dependencies=True)
+        except Exception:
+            logger.exception("Post-pull Windows refresh failed")
     if on_progress is not None:
         on_progress("Restarting GridNotes…", 100)
     return True, output or "Updated successfully."

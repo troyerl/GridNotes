@@ -347,8 +347,9 @@ class SettingsTab(QWidget):
         else:
             updates_hint = (
                 "Check for a newer release on GitHub. For a normal install (for example "
-                "D:\\GridNotes), Update now downloads the release and reinstalls it "
-                "automatically. Your notes and settings are kept."
+                "D:\\GridNotes), Update now downloads the release and updates the app, "
+                "icons, shortcuts, and Windows registration automatically — no reinstall. "
+                "Your notes and settings are kept."
             )
         updates_layout.addWidget(self._section_hint(updates_hint))
 
@@ -641,7 +642,8 @@ class SettingsTab(QWidget):
             self.btn_apply_update.setText("Update now")
             if result.apply_method == "portable":
                 self.btn_apply_update.setToolTip(
-                    "Download the latest release and install it automatically"
+                    "Download the latest release and refresh app files, icons, "
+                    "and shortcuts automatically"
                 )
             else:
                 self.btn_apply_update.setToolTip(

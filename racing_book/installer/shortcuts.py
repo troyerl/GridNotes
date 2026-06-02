@@ -273,6 +273,41 @@ def _known_windows_shortcut_paths(install_root: Path) -> list[Path]:
     return unique
 
 
+def provision_windows_install_shortcuts(
+    install_root: Path,
+    *,
+    target: Path,
+    working_dir: Path,
+    arguments: str | None,
+    icon: Path | None,
+    force_refresh: bool = False,
+) -> None:
+    """Create missing shortcuts and refresh branding (Desktop, Start Menu, install folder)."""
+    if sys.platform != "win32":
+        return
+
+    shortcut_kwargs = {
+        "target": target,
+        "working_dir": working_dir,
+        "arguments": arguments,
+        "icon": icon,
+    }
+    if not find_desktop_shortcuts():
+        create_desktop_shortcut(**shortcut_kwargs)
+    start_path = start_menu_shortcut_path()
+    if not start_path.is_file():
+        create_start_menu_shortcut(**shortcut_kwargs)
+    install_lnk = install_root.resolve() / f"{APP_SHORTCUT_NAME}.lnk"
+    if not install_lnk.is_file():
+        create_install_folder_shortcut(install_root, **shortcut_kwargs)
+
+    ensure_windows_shortcuts_for_taskbar(
+        install_root,
+        force_refresh=force_refresh,
+        **shortcut_kwargs,
+    )
+
+
 def ensure_windows_shortcuts_for_taskbar(
     install_root: Path,
     *,
@@ -280,6 +315,7 @@ def ensure_windows_shortcuts_for_taskbar(
     working_dir: Path,
     arguments: str | None,
     icon: Path | None,
+    force_refresh: bool = False,
 ) -> None:
     """
     Upgrade legacy wscript/.vbs shortcuts and refresh AppUserModelID branding.
@@ -295,7 +331,7 @@ def ensure_windows_shortcuts_for_taskbar(
     description = "GridNotes — iRacing driver scouting"
     for shortcut_path in _known_windows_shortcut_paths(install_root):
         try:
-            if _shortcut_should_refresh_for_launcher(
+            if force_refresh or _shortcut_should_refresh_for_launcher(
                 shortcut_path, launcher_exe, install_root
             ):
                 logger.info("Refreshing shortcut for taskbar pin: %s", shortcut_path)

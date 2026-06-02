@@ -6,6 +6,14 @@ New versions are listed below with the newest first. When publishing on GitHub, 
 
 ---
 
+## v1.0.12 — 2026-06-02
+
+### Improved
+
+- **In-app update refreshes everything** — **Update now** reapplies the same post-install steps as the installer: dependencies, `icon.ico`, branded `GridNotes.exe`, launch/uninstall scripts, Desktop and Start Menu shortcuts, and Windows Settings → Apps registration. No uninstall or re-run of **Install GridNotes.bat** needed for normal releases.
+
+---
+
 ## v1.0.11 — 2026-05-29
 
 ### Fixed
