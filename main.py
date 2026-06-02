@@ -1,5 +1,16 @@
 import sys
 
+# Must run before Qt loads (including via racing_book.app.app_icon).
+if sys.platform == "win32":
+    try:
+        import ctypes
+
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            "GridNotes.GridNotes.1"
+        )
+    except Exception:
+        pass
+
 from PyQt6.QtWidgets import QApplication
 
 from racing_book.app.app_icon import load_app_icon, set_windows_app_user_model_id

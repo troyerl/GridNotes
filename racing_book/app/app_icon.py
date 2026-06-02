@@ -6,8 +6,6 @@ import logging
 import sys
 from pathlib import Path
 
-from PyQt6.QtGui import QIcon
-
 logger = logging.getLogger(__name__)
 
 APP_USER_MODEL_ID = "GridNotes.GridNotes.1"
@@ -134,7 +132,9 @@ def icon_path() -> Path | None:
     return _resolve_icon_file(_resource_base())
 
 
-def load_app_icon() -> QIcon | None:
+def load_app_icon():  # -> QIcon | None
+    from PyQt6.QtGui import QIcon
+
     path = icon_path()
     if path is not None:
         icon = QIcon(str(path))

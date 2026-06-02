@@ -205,6 +205,24 @@ def _shortcut_uses_script_host(shortcut_path: Path) -> bool:
     return lowered.endswith("wscript.exe") or lowered.endswith("cscript.exe") or lowered.endswith(".vbs")
 
 
+def _shortcut_should_point_at_launcher_exe(
+    shortcut_path: Path,
+    launcher_exe: Path,
+) -> bool:
+    """True when the shortcut should target GridNotes.exe instead of pythonw/wscript."""
+    if not launcher_exe.is_file():
+        return _shortcut_uses_script_host(shortcut_path)
+    try:
+        target, _arguments = _read_windows_shortcut_target(shortcut_path)
+    except (subprocess.SubprocessError, OSError) as exc:
+        logger.debug("Could not read shortcut %s: %s", shortcut_path, exc)
+        return False
+    lowered = target.lower()
+    if _shortcut_uses_script_host(shortcut_path):
+        return True
+    return lowered.endswith("pythonw.exe") or lowered.endswith("python.exe")
+
+
 def _known_windows_shortcut_paths(install_root: Path) -> list[Path]:
     paths = list(find_desktop_shortcuts())
     start_menu = start_menu_shortcut_path()
@@ -243,10 +261,13 @@ def ensure_windows_shortcuts_for_taskbar(
     if sys.platform != "win32":
         return
 
+    from .logic import windows_launcher_exe_path
+
+    launcher_exe = windows_launcher_exe_path(install_root)
     description = "GridNotes — iRacing driver scouting"
     for shortcut_path in _known_windows_shortcut_paths(install_root):
         try:
-            if _shortcut_uses_script_host(shortcut_path):
+            if _shortcut_should_point_at_launcher_exe(shortcut_path, launcher_exe):
                 logger.info("Upgrading shortcut for taskbar icon: %s", shortcut_path)
                 _create_windows_lnk(
                     shortcut_path=shortcut_path,

@@ -59,9 +59,11 @@ def _log(line: str, log_path: Path | None) -> None:
 def main() -> int:
     if sys.platform == "win32":
         try:
-            from racing_book.app.app_icon import set_windows_app_user_model_id
+            import ctypes
 
-            set_windows_app_user_model_id()
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                "GridNotes.GridNotes.1"
+            )
         except Exception:
             pass
 

@@ -1,6 +1,6 @@
 # GridNotes
 
-**Version 1.0.4**
+**Version 1.0.5**
 
 Desktop app for **iRacing driver scouting**: keep personal notes, review race history and stats, and optionally see who is in your current session while iRacing is running (Windows).
 

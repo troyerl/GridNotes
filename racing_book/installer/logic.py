@@ -234,6 +234,70 @@ def ensure_icon_ico(root: Path, python: Path | None = None) -> Path | None:
     return ico if ico.is_file() else None
 
 
+def windows_launcher_exe_path(root: Path) -> Path:
+    return root.resolve() / "GridNotes.exe"
+
+
+def build_windows_launcher_exe(install_root: Path, python: Path) -> Path | None:
+    """
+    Build GridNotes.exe (small PyInstaller stub with embedded icon).
+
+    Shortcuts and taskbar pins target this EXE instead of pythonw/wscript.
+    """
+    if sys.platform != "win32":
+        return None
+
+    install_root = install_root.resolve()
+    exe = windows_launcher_exe_path(install_root)
+    spec = install_root / "scripts" / "gridnotes_launcher.spec"
+    entry = install_root / "scripts" / "gridnotes_win_launcher.py"
+    if not entry.is_file() or not spec.is_file():
+        logger.warning("Missing scripts/gridnotes_win_launcher.py or gridnotes_launcher.spec")
+        return None
+
+    ensure_icon_ico(install_root, python)
+    dist_dir = install_root / "dist-launcher"
+    work_dir = install_root / "build-launcher"
+    try:
+        subprocess.run(
+            [str(python), "-m", "pip", "install", "pyinstaller>=6.0"],
+            cwd=str(install_root),
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=False,
+        )
+        subprocess.run(
+            [
+                str(python),
+                "-m",
+                "PyInstaller",
+                str(spec),
+                "--noconfirm",
+                "--clean",
+                "--distpath",
+                str(dist_dir),
+                "--workpath",
+                str(work_dir),
+            ],
+            cwd=str(install_root),
+            capture_output=True,
+            text=True,
+            timeout=600,
+            check=True,
+        )
+    except subprocess.SubprocessError as exc:
+        logger.warning("Could not build GridNotes.exe launcher: %s", exc)
+        return None
+
+    built = dist_dir / "GridNotes.exe"
+    if not built.is_file():
+        return None
+    shutil.copy2(built, exe)
+    logger.info("Built Windows launcher: %s", exe)
+    return exe if exe.is_file() else None
+
+
 def resolve_shortcut_icon(
     install_root: Path,
     *,
@@ -510,17 +574,23 @@ def _vbs_quote(path: Path) -> str:
 def write_windows_vbs_launcher(root: Path, venv_dir: Path) -> Path:
     """Silent double-click launcher (no console window)."""
     path = windows_vbs_launcher_path(root)
+    launcher_exe = windows_launcher_exe_path(root)
     pyw = venv_pythonw(venv_dir)
     starter = gridnotes_start_script_path(root)
     main_py = (root / "main.py").resolve()
     script = (
         'Set fso = CreateObject("Scripting.FileSystemObject")\r\n'
         'root = fso.GetParentFolderName(WScript.ScriptFullName)\r\n'
+        f'launcher = "{_vbs_quote(launcher_exe)}"\r\n'
         f'pyw = "{_vbs_quote(pyw)}"\r\n'
         f'starter = "{_vbs_quote(starter)}"\r\n'
         f'mainPy = "{_vbs_quote(main_py)}"\r\n'
         'Set shell = CreateObject("WScript.Shell")\r\n'
         'shell.CurrentDirectory = root\r\n'
+        'If fso.FileExists(launcher) Then\r\n'
+        '  shell.Run Chr(34) & launcher & Chr(34), 0, False\r\n'
+        '  WScript.Quit 0\r\n'
+        'End If\r\n'
         'If Not fso.FileExists(pyw) Then\r\n'
         '  MsgBox "GridNotes is not installed correctly." & vbCrLf & vbCrLf'
         '  & "Run Install GridNotes.bat from your download folder.", vbCritical, "GridNotes"\r\n'
@@ -564,7 +634,7 @@ def relaunch_gridnotes(install_root: Path) -> bool:
     """
     Start GridNotes again in a new process (after update or restart).
 
-    Prefers Launch GridNotes.vbs, then a standalone GridNotes.exe build, then pythonw.
+    Prefers GridNotes.exe in the install folder, then Launch GridNotes.vbs, then pythonw.
     """
     install_root = install_root.resolve()
     venv_dir = install_root / VENV_DIR_NAME
@@ -580,6 +650,12 @@ def relaunch_gridnotes(install_root: Path) -> bool:
         if dist_exe.is_file():
             logger.info("Relaunching GridNotes via standalone exe: %s", dist_exe)
             _detached_popen([str(dist_exe)], cwd=dist_exe.parent)
+            return True
+
+        stub_exe = windows_launcher_exe_path(install_root)
+        if stub_exe.is_file():
+            logger.info("Relaunching GridNotes via %s", stub_exe)
+            _detached_popen([str(stub_exe)], cwd=install_root)
             return True
 
         launcher = windows_vbs_launcher_path(install_root)
@@ -831,6 +907,10 @@ def preferred_shortcut_target(
         return dist_exe.resolve(), dist_exe.parent.resolve(), None
 
     if sys.platform == "win32":
+        launcher_exe = windows_launcher_exe_path(root)
+        if launcher_exe.is_file():
+            return launcher_exe.resolve(), root, None
+
         pyw = venv_pythonw(venv_dir)
         if pyw.is_file():
             starter = gridnotes_start_script_path(root)
@@ -1110,6 +1190,18 @@ class InstallRunner:
                         str(self.root / "build"),
                     ],
                 )
+                self._check_cancelled()
+
+            if sys.platform == "win32":
+                self._step("Building GridNotes.exe launcher", 92)
+                built = build_windows_launcher_exe(self.root, py)
+                if built is not None:
+                    self._log(f"Launcher: {built}")
+                else:
+                    self._log(
+                        "GridNotes.exe was not built (shortcuts will use pythonw). "
+                        "Re-run Install GridNotes.bat if taskbar pins show a Python icon."
+                    )
                 self._check_cancelled()
 
             self._step("Creating shortcuts", 95)

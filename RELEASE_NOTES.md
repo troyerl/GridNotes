@@ -6,6 +6,20 @@ New versions are listed below with the newest first. When publishing on GitHub, 
 
 ---
 
+## v1.0.5 — 2026-05-29
+
+### Fixed
+
+- **Taskbar pin shows the GridNotes icon (not Python)** — install now builds **`GridNotes.exe`** in your install folder (small launcher with the embedded icon). Shortcuts and **`Launch GridNotes.vbs`** use it instead of `pythonw` / wscript.
+- **Windows app identity is set before Qt loads** — fixes taskbar grouping when the real UI runs under `pythonw`.
+
+### Improved
+
+- First launch after update upgrades shortcuts that still point at `pythonw` to **`GridNotes.exe`** when available.
+- Re-run **`Install GridNotes.bat`** once if **`GridNotes.exe`** is missing in your install folder.
+
+---
+
 ## v1.0.4 — 2026-05-29
 
 ### Fixed

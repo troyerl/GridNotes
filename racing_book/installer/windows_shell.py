@@ -167,9 +167,18 @@ if ($ShortcutPath) {
 
 def build_relaunch_command(install_root: Path) -> str | None:
     """Command line Windows uses when pinning the running app to the taskbar."""
-    from .logic import VENV_DIR_NAME, gridnotes_start_script_path, venv_pythonw
+    from .logic import (
+        VENV_DIR_NAME,
+        gridnotes_start_script_path,
+        venv_pythonw,
+        windows_launcher_exe_path,
+    )
 
     install_root = install_root.resolve()
+    launcher = windows_launcher_exe_path(install_root)
+    if launcher.is_file():
+        return f'"{launcher.resolve()}"'
+
     venv_dir = install_root / VENV_DIR_NAME
     pyw = venv_pythonw(venv_dir)
     starter = gridnotes_start_script_path(install_root)
