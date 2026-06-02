@@ -864,6 +864,12 @@ def relaunch_gridnotes(install_root: Path) -> bool:
         if not windows_vbs_launcher_path(install_root).is_file() and venv_pythonw(venv_dir).is_file():
             write_windows_vbs_launcher(install_root, venv_dir)
 
+        standalone_exe = install_root / "GridNotes.exe"
+        if standalone_exe.is_file():
+            logger.info("Relaunching GridNotes via %s", standalone_exe)
+            _detached_popen([str(standalone_exe)], cwd=install_root)
+            return True
+
         dist_exe = install_root / "dist" / "GridNotes" / "GridNotes.exe"
         if dist_exe.is_file():
             logger.info("Relaunching GridNotes via standalone exe: %s", dist_exe)
@@ -914,10 +920,13 @@ def windows_update_relaunch_batch_lines(install_root: Path) -> list[str]:
         f'cd /d "{install_root}"',
     ]
 
+    standalone_exe = install_root / "GridNotes.exe"
     dist_exe = install_root / "dist" / "GridNotes" / "GridNotes.exe"
     launcher = windows_vbs_launcher_path(install_root)
 
-    if dist_exe.is_file():
+    if standalone_exe.is_file():
+        lines.append(f'start "" /D "{install_root}" "{standalone_exe}"')
+    elif dist_exe.is_file():
         lines.append(f'start "" /D "{dist_exe.parent}" "{dist_exe}"')
     elif launcher.is_file() and wscript.is_file():
         lines.append(f'start "" "{wscript}" //B //Nologo "{launcher}"')

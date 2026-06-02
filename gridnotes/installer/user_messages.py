@@ -133,7 +133,7 @@ def install_failure_message(technical: str) -> str:
 
 UPDATE_PROGRESS_LABELS: dict[str, str] = {
     "Connecting to GitHub…": "Connecting…",
-    "Pulling latest code from GitHub…": "Downloading the update…",
+    "Pulling latest code from GitHub…": "Updating…",
     "Refreshing Windows launchers and shortcuts…": "Updating shortcuts and icon…",
     "Extracting release…": "Unpacking the update…",
     "Preparing files…": "Preparing the update…",
@@ -145,14 +145,17 @@ UPDATE_PROGRESS_LABELS: dict[str, str] = {
     "Finishing…": "Finishing up…",
     "Starting update…": "Starting…",
     "Preparing update…": "Getting ready…",
+    "Updating…": "Updating…",
 }
 
 
 def friendly_update_progress(message: str) -> str:
     if message in UPDATE_PROGRESS_LABELS:
         return UPDATE_PROGRESS_LABELS[message]
+    if message.startswith("Updating… ("):
+        return "Updating…"
     if message.startswith("Downloading update… ("):
-        return "Downloading the update…"
+        return "Updating…"
     return message
 
 
@@ -180,21 +183,22 @@ def update_check_user_message(
         headline = f"A new version is available: v{latest}."
         if current:
             headline = f"A new version is available: v{latest} (you have v{current})."
-        if can_apply and apply_method == "portable":
+        if can_apply and apply_method in ("portable", "frozen"):
             return (
                 f"{headline}\n\n"
-                "Click Update now. GridNotes will download the update, close for a "
-                "moment, and reopen automatically. Your notes and settings stay safe."
+                "Click Update now. GridNotes will update in place, close for a moment, "
+                "and reopen automatically. Your notes and settings stay safe."
             )
         if can_apply and apply_method == "git":
             return (
                 f"{headline}\n\n"
-                "Click Update now to download the latest version and restart GridNotes."
+                "Click Update now to install the latest version and restart GridNotes."
             )
         if is_frozen:
             return (
                 f"{headline}\n\n"
-                "Click Update now to open the download page and get the latest installer."
+                "Click Get latest version to open the download page and install the "
+                "latest GridNotes-Setup.exe."
             )
         return f"{headline}\n\nClick Update now for download instructions."
 
@@ -212,7 +216,7 @@ def portable_update_scheduled_message() -> str:
 
 def portable_update_failed_message() -> str:
     return (
-        "The update could not be downloaded.\n\n"
+        "The update could not be completed.\n\n"
         "Check your internet connection and try again from Settings → Check for updates."
     )
 

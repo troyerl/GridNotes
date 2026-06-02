@@ -8,7 +8,6 @@ import shutil
 import stat
 import subprocess
 import sys
-import tempfile
 import time
 import zipfile
 from collections.abc import Callable
@@ -26,11 +25,10 @@ from .logic import (
     windows_update_relaunch_batch_lines,
 )
 from .uninstall import resolve_install_root
+from .update_paths import prune_old_update_workspaces, update_log_path, update_workspace_dir
 from ..services.app_update import GITHUB_OWNER, GITHUB_REPO, REQUEST_TIMEOUT_SEC, _GITHUB_HEADERS, _normalize_tag
 
 logger = logging.getLogger(__name__)
-
-_UPDATE_LOG_NAME = "gridnotes-update.log"
 
 
 def portable_install_root() -> Path | None:
@@ -61,10 +59,6 @@ def release_zipball_url(version: str) -> str:
     )
 
 
-def _update_log_path() -> Path:
-    return Path(tempfile.gettempdir()) / _UPDATE_LOG_NAME
-
-
 def _chmod_and_retry(func, path: str, exc_info) -> None:
     if not os.access(path, os.W_OK):
         os.chmod(path, stat.S_IWUSR | stat.S_IREAD)
@@ -84,7 +78,7 @@ def _safe_rmtree(path: Path) -> None:
 
 
 def _append_update_log(line: str) -> None:
-    path = _update_log_path()
+    path = update_log_path()
     try:
         with path.open("a", encoding="utf-8") as handle:
             handle.write(line.rstrip() + "\n")
@@ -136,11 +130,11 @@ def download_release_archive(
                     mb_done = downloaded / (1024 * 1024)
                     mb_total = total_bytes / (1024 * 1024)
                     on_progress(
-                        f"Downloading update… ({mb_done:.1f} / {mb_total:.1f} MB)",
+                        f"Updating… ({mb_done:.1f} / {mb_total:.1f} MB)",
                         percent,
                     )
                 else:
-                    on_progress("Downloading update…", 35)
+                    on_progress("Updating…", 35)
 
 
 def extract_release_archive(zip_path: Path, extract_dir: Path) -> Path:
@@ -292,15 +286,13 @@ def apply_portable_update(
         return False, "No release version to install.", True
 
     pid = wait_pid if wait_pid is not None else os.getpid()
-    temp_parent = (
-        Path(tempfile.gettempdir())
-        / f"gridnotes-update-{version}-{pid}-{int(time.time())}"
-    )
+    prune_old_update_workspaces()
+    temp_parent = update_workspace_dir(version=version, pid=pid, kind="portable")
     zip_path = temp_parent / "release.zip"
     extract_dir = temp_parent / "extract"
     staging_dir = temp_parent / "source"
 
-    log_path = _update_log_path()
+    log_path = update_log_path()
     _append_update_log(f"Portable update to v{version} for {install_root} (pid {pid})")
 
     def report(message: str, percent: int) -> None:

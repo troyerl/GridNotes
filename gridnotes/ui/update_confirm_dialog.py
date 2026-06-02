@@ -62,8 +62,9 @@ class UpdateConfirmDialog(QDialog):
         layout.addWidget(title)
 
         summary = QLabel(
-            "GridNotes will download the update, close briefly, and reopen. "
-            "Your notes and settings stay on this computer."
+            "GridNotes will update in place, close briefly, and reopen. "
+            "Your notes and settings stay on this computer. "
+            "Nothing is saved to your Downloads folder."
             if portable
             else "GridNotes will install the latest version and restart. "
             "Your notes and settings stay on this computer."

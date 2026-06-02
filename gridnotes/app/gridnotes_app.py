@@ -177,6 +177,12 @@ class GridNotesApp(QMainWindow):
         self._audio_spotter = AudioSpotterService()
 
         init_db()
+        try:
+            from ..installer.update_paths import prune_old_update_workspaces
+
+            prune_old_update_workspaces()
+        except Exception:
+            pass
         self._db_conn = connect_db()
         self._run_data_retention_purge()
         self.init_ui()
@@ -1391,7 +1397,7 @@ class GridNotesApp(QMainWindow):
                 self,
                 version=version_label,
                 release_notes=result.release_notes,
-                portable=result.apply_method == "portable",
+                portable=result.apply_method in ("portable", "frozen", "git"),
             )
             return dialog.exec() == dialog.DialogCode.Accepted
 
@@ -1445,6 +1451,7 @@ class GridNotesApp(QMainWindow):
             self._apply_update_worker.start()
             return
 
+        # Only reached when in-place update is not available (button: Get latest version).
         if result.update_available or result.download_url:
             url = QUrl(result.download_url or GITHUB_RELEASES_PAGE)
             if not QDesktopServices.openUrl(url):

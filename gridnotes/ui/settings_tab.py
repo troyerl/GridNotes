@@ -827,7 +827,7 @@ class SettingsTab(QWidget):
         self.btn_apply_update.setVisible(True)
         if result.can_apply_in_place:
             self.btn_apply_update.setText("Update now")
-            if result.apply_method == "portable":
+            if result.apply_method in ("portable", "frozen"):
                 self.btn_apply_update.setToolTip(
                     "Download and install the update, then reopen GridNotes"
                 )
@@ -838,7 +838,8 @@ class SettingsTab(QWidget):
         else:
             self.btn_apply_update.setText("Get latest version")
             self.btn_apply_update.setToolTip(
-                "Open the download page in your web browser"
+                "Open the website to download the installer (used when Update now "
+                "cannot install automatically)"
             )
 
     def show_apply_update_result(self, ok: bool, message: str) -> None:

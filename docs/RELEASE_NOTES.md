@@ -4,7 +4,24 @@ GridNotes is a desktop app for **iRacing driver scouting**. It keeps your notes,
 
 New versions are listed below with the newest first.
 
-When you push a tag (for example `v1.0.23`), the GitHub **Release** workflow uses the matching `## v…` section from this file as the release description on GitHub.
+When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow uses the matching `## v…` section from this file as the release description on GitHub.
+
+---
+
+## v1.0.24 — 2026-06-02
+
+### Added
+
+- **In-place updates for installed app** — If you installed with **GridNotes-Setup.exe**, **Update now** downloads the release ZIP privately, replaces the app folder, and reopens (no browser download to your Downloads folder when the release includes `GridNotes-Windows.zip`).
+
+### Improved
+
+- **Update experience** — Progress text says **Updating…** instead of **Downloading…**; staging files live under your GridNotes data folder (`updates` subfolder), not Downloads; old staging folders are cleaned up automatically.
+- **Update confirm** — Dialog clarifies that in-place updates do not save files to Downloads.
+
+### Fixed
+
+- **GitHub Release notes on Windows** — Release workflow extracts release notes with Unicode characters (for example form-guide arrows) without failing on Windows.
 
 ---
 
