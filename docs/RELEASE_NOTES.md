@@ -4,7 +4,18 @@ GridNotes is a desktop app for **iRacing driver scouting**. It keeps your notes,
 
 New versions are listed below with the newest first.
 
-When you push a tag (for example `v1.0.21`), the GitHub **Release** workflow uses the matching `## v…` section from this file as the release description on GitHub.
+When you push a tag (for example `v1.0.22`), the GitHub **Release** workflow uses the matching `## v…` section from this file as the release description on GitHub.
+
+---
+
+## v1.0.22 — 2026-06-02
+
+### Improved
+
+- **Accessibility** — Keyboard focus rings on buttons, fields, tabs, and the driver table; visible labels for search and “hide your name”; screen-reader names on main controls and Settings actions; **Mark** column for Liked / Disliked / Risk (not color alone); note column shows **Notes** when a driver has scouting notes.
+- **Keyboard** — **Ctrl+F** focus search, **Ctrl+L** toggle Live Mode, **Ctrl+S** / **Cmd+S** save notes; **Enter** on a selected row focuses scouting notes; Live Mode driver cards activate with **Enter** or **Space**.
+- **Driver table** — Hover and selection feedback on liked, disliked, and risky rows (clearer interactive state on colored rows).
+- **Contrast** — Muted and disabled text and safety-tier colors tuned for light and dark themes.
 
 ---
 

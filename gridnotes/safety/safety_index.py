@@ -166,15 +166,15 @@ def safety_tooltip(safety: SafetyIndex) -> str:
 TIER_COLORS_HEX = {
     "low": "#6ee7a8",
     "moderate": "#f5c26b",
-    "high": "#f08080",
-    "unknown": "#9aa3b2",
+    "high": "#ff9e9e",
+    "unknown": "#b0b8c8",
 }
 
 TIER_COLORS_RGB = {
     "low": (110, 231, 168),
     "moderate": (245, 194, 107),
-    "high": (240, 128, 128),
-    "unknown": (154, 163, 178),
+    "high": (255, 158, 158),
+    "unknown": (176, 184, 200),
 }
 
 TIER_LABELS = {

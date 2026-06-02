@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -15,6 +16,7 @@ from PyQt6.QtWidgets import (
 
 from ..safety.safety_index import SafetyIndex, empty_safety, tier_color_hex, tier_label, unknown_history_message
 from ..iracing.session_kind import session_kind_label
+from .a11y import set_accessible
 from .theme import configure_scroll_area
 
 
@@ -27,7 +29,9 @@ class LiveDriverCard(QFrame):
         super().__init__(parent)
         self.setObjectName("liveDriverCard")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._cust_id: int | None = None
+        self._driver_name = ""
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(16, 14, 16, 14)
@@ -43,6 +47,10 @@ class LiveDriverCard(QFrame):
         self.profile_label.setObjectName("liveVerdict")
         self.profile_label.setWordWrap(True)
         left.addWidget(self.profile_label)
+
+        self.pref_label = QLabel("")
+        self.pref_label.setObjectName("livePrefLabel")
+        left.addWidget(self.pref_label)
         layout.addLayout(left, stretch=3)
 
         stats = QGridLayout()
@@ -84,10 +92,21 @@ class LiveDriverCard(QFrame):
         score_col.addWidget(self.tier_label)
         layout.addLayout(score_col)
 
-    def mousePressEvent(self, event) -> None:
-        if event.button() == Qt.MouseButton.LeftButton and self._cust_id is not None:
+    def _activate(self) -> None:
+        if self._cust_id is not None:
             self.clicked.emit(self._cust_id)
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._activate()
         super().mousePressEvent(event)
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+            self._activate()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def set_driver(
         self,
@@ -101,7 +120,8 @@ class LiveDriverCard(QFrame):
         pref: int | None,
     ) -> None:
         self._cust_id = cust_id
-        self.name_label.setText(name or "Unknown")
+        self._driver_name = name or "Unknown"
+        self.name_label.setText(self._driver_name)
 
         if safety.tier == "unknown":
             self.profile_label.setText(unknown_history_message(safety.total_races))
@@ -138,14 +158,24 @@ class LiveDriverCard(QFrame):
         else:
             self._sr_value.setText("—")
 
-        self._note_value.setText("+" if has_note else "")
+        self._note_value.setText("Yes" if has_note else "—")
 
         if pref == 1:
             self.setProperty("pref", "like")
+            self.pref_label.setText("Liked")
         elif pref == -1:
             self.setProperty("pref", "dislike")
+            self.pref_label.setText("Disliked")
         else:
             self.setProperty("pref", "")
+            self.pref_label.setText("")
+
+        tier_text = tier_label(safety.tier) if safety.tier != "unknown" else "Unknown"
+        set_accessible(
+            self,
+            f"{self._driver_name}, Safety {tier_text}",
+            "Press Enter or Space to open scouting notes for this driver.",
+        )
 
         self.style().unpolish(self)
         self.style().polish(self)
@@ -209,6 +239,11 @@ class LiveSessionView(QWidget):
 
         self._cards: list[LiveDriverCard] = []
         self._last_entry_key: tuple | None = None
+        set_accessible(
+            self.scroll,
+            "Live session drivers",
+            "Scrollable list of driver cards. Tab to a card and press Enter to open notes.",
+        )
 
     def set_session_info(
         self,

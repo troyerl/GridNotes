@@ -100,7 +100,24 @@ QLineEdit, QTextEdit {
 }
 
 QLineEdit:focus, QTextEdit:focus {
-    border-color: {{accent_border}};
+    border: 2px solid {{focus_ring}};
+}
+
+QPushButton:focus {
+    border: 2px solid {{focus_ring}};
+    outline: none;
+}
+
+QPushButton#chipBtn:focus {
+    border: 2px solid {{focus_ring}};
+}
+
+QCheckBox:focus {
+    outline: none;
+}
+
+QCheckBox::indicator:focus {
+    border: 2px solid {{focus_ring}};
 }
 
 QLineEdit:disabled, QTextEdit:disabled {
@@ -276,6 +293,10 @@ QTableWidget#driverTable {
     selection-background-color: {{selection_bg}};
     selection-color: {{text_on_accent}};
     outline: none;
+}
+
+QTableWidget#driverTable:focus {
+    border: 2px solid {{focus_ring}};
 }
 
 QTableWidget::item {
@@ -658,6 +679,11 @@ QTabWidget#mainTabs > QTabBar::tab:hover:!selected {
     border-color: {{border_strong}};
 }
 
+QTabWidget#mainTabs > QTabBar::tab:focus {
+    border: 2px solid {{focus_ring}};
+    outline: none;
+}
+
 QWidget#settingsContent QLineEdit {
     background-color: {{bg_window}};
     color: {{text_primary}};
@@ -819,6 +845,11 @@ QPushButton#settingsNavItem:checked {
     padding-left: 9px;
 }
 
+QPushButton#settingsNavItem:focus {
+    border: 2px solid {{focus_ring}};
+    outline: none;
+}
+
 QStackedWidget#settingsSectionStack {
     background: transparent;
 }
@@ -896,9 +927,15 @@ def refresh_widget_tree(root: QWidget) -> None:
 TABLE_ROW_COLORS = {
     THEME_DARK_ID: {
         "liked": (42, 72, 52),
+        "liked_hover": (54, 96, 66),
+        "liked_selected": (50, 88, 98),
         "disliked": (72, 42, 42),
+        "disliked_hover": (96, 52, 52),
+        "disliked_selected": (92, 52, 82),
         "hover": (45, 52, 64),
         "risky": (72, 62, 32),
+        "risky_hover": (92, 80, 44),
+        "risky_selected": (78, 72, 58),
         "alternate": (30, 35, 43),
         "base": (26, 30, 36),
         "highlight_fg": (232, 234, 237),
@@ -907,9 +944,15 @@ TABLE_ROW_COLORS = {
     },
     THEME_LIGHT_ID: {
         "liked": (209, 250, 229),
+        "liked_hover": (186, 245, 214),
+        "liked_selected": (172, 228, 248),
         "disliked": (254, 226, 226),
+        "disliked_hover": (252, 202, 202),
+        "disliked_selected": (248, 198, 228),
         "hover": (229, 231, 235),
         "risky": (254, 243, 199),
+        "risky_hover": (253, 232, 168),
+        "risky_selected": (228, 236, 252),
         "alternate": (249, 250, 251),
         "base": (243, 244, 246),
         "highlight_fg": (17, 24, 39),

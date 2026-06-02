@@ -13,6 +13,7 @@ from ..safety.safety_index import (
     tier_qcolor,
     unknown_history_message,
 )
+from .a11y import driver_mark_label
 from .theme import table_row_color
 from ..core.utils import sqlite_row_to_int
 
@@ -24,24 +25,26 @@ UNKNOWN_SAFETY_SORT = -1
 EMPTY_CELL = "—"
 
 COL_NAME = 0
-COL_RACES = 1
-COL_SAFETY = 2
-COL_AVG_INC = 3
-COL_AVG_FINISH = 4
-COL_AVG_POS = 5
-COL_DNFS = 6
-COL_LAST_SR = 7
-COL_LAST_IR = 8
-COL_SERIES = 9
-COL_DNF_BREAKDOWN = 10
-COL_NOTE = 11
-COL_CUST_ID = 12
+COL_MARK = 1
+COL_RACES = 2
+COL_SAFETY = 3
+COL_AVG_INC = 4
+COL_AVG_FINISH = 5
+COL_AVG_POS = 6
+COL_DNFS = 7
+COL_LAST_SR = 8
+COL_LAST_IR = 9
+COL_SERIES = 10
+COL_DNF_BREAKDOWN = 11
+COL_NOTE = 12
+COL_CUST_ID = 13
 
-COLUMN_COUNT = 13
-NOTE_INDICATOR = "+"
+COLUMN_COUNT = 14
+NOTE_HAS_TEXT = "Notes"
 
 DRIVER_TABLE_HEADERS = [
     "Driver Name",
+    "Mark",
     "Races",
     "Safety Index",
     "Avg Incidents",
@@ -57,6 +60,7 @@ DRIVER_TABLE_HEADERS = [
 ]
 
 RESIZE_TO_CONTENTS_COLUMNS = (
+    COL_MARK,
     COL_RACES,
     COL_SAFETY,
     COL_AVG_INC,
@@ -70,9 +74,15 @@ RESIZE_TO_CONTENTS_COLUMNS = (
 )
 
 ROW_BG_LIKED = QColor(42, 72, 52)
+ROW_BG_LIKED_HOVER = QColor(54, 96, 66)
+ROW_BG_LIKED_SELECTED = QColor(50, 88, 98)
 ROW_BG_DISLIKED = QColor(72, 42, 42)
+ROW_BG_DISLIKED_HOVER = QColor(96, 52, 52)
+ROW_BG_DISLIKED_SELECTED = QColor(92, 52, 82)
 ROW_BG_HOVER = QColor(45, 52, 64)
 ROW_BG_RISKY = QColor(72, 62, 32)
+ROW_BG_RISKY_HOVER = QColor(92, 80, 44)
+ROW_BG_RISKY_SELECTED = QColor(78, 72, 58)
 ROW_BG_ALTERNATE = QColor(30, 35, 43)
 ROW_BG_BASE = QColor(26, 30, 36)
 ROW_FG_HIGHLIGHT = QColor(232, 234, 237)
@@ -82,15 +92,23 @@ SELECTED_ROW_FG = QColor(255, 255, 255)
 
 def configure_driver_table_theme(theme_id: str | None = None) -> None:
     """Update module-level row colors when the application theme changes."""
-    global ROW_BG_LIKED, ROW_BG_DISLIKED, ROW_BG_HOVER, ROW_BG_RISKY
+    global ROW_BG_LIKED, ROW_BG_LIKED_HOVER, ROW_BG_LIKED_SELECTED
+    global ROW_BG_DISLIKED, ROW_BG_DISLIKED_HOVER, ROW_BG_DISLIKED_SELECTED
+    global ROW_BG_HOVER, ROW_BG_RISKY, ROW_BG_RISKY_HOVER, ROW_BG_RISKY_SELECTED
     global ROW_BG_ALTERNATE, ROW_BG_BASE, ROW_FG_HIGHLIGHT
     global SELECTED_ROW_BG, SELECTED_ROW_FG
 
     tid = theme_id if theme_id is not None else get_theme_id()
     ROW_BG_LIKED = table_row_color(tid, "liked")
+    ROW_BG_LIKED_HOVER = table_row_color(tid, "liked_hover")
+    ROW_BG_LIKED_SELECTED = table_row_color(tid, "liked_selected")
     ROW_BG_DISLIKED = table_row_color(tid, "disliked")
+    ROW_BG_DISLIKED_HOVER = table_row_color(tid, "disliked_hover")
+    ROW_BG_DISLIKED_SELECTED = table_row_color(tid, "disliked_selected")
     ROW_BG_HOVER = table_row_color(tid, "hover")
     ROW_BG_RISKY = table_row_color(tid, "risky")
+    ROW_BG_RISKY_HOVER = table_row_color(tid, "risky_hover")
+    ROW_BG_RISKY_SELECTED = table_row_color(tid, "risky_selected")
     ROW_BG_ALTERNATE = table_row_color(tid, "alternate")
     ROW_BG_BASE = table_row_color(tid, "base")
     ROW_FG_HIGHLIGHT = table_row_color(tid, "highlight_fg")
@@ -138,18 +156,32 @@ class DriverTableDelegate(QStyledItemDelegate):
 
     def _row_colors(self, option, index) -> tuple[QColor, QColor | None]:
         pref = self._row_pref(index)
+        risky = self._row_risky(index)
+        is_selected = bool(option.state & QStyle.StateFlag.State_Selected)
+        is_hover = self._hover_row() == index.row()
+
         if pref == 1:
+            if is_selected:
+                return ROW_BG_LIKED_SELECTED, ROW_FG_HIGHLIGHT
+            if is_hover:
+                return ROW_BG_LIKED_HOVER, ROW_FG_HIGHLIGHT
             return ROW_BG_LIKED, ROW_FG_HIGHLIGHT
         if pref == -1:
+            if is_selected:
+                return ROW_BG_DISLIKED_SELECTED, ROW_FG_HIGHLIGHT
+            if is_hover:
+                return ROW_BG_DISLIKED_HOVER, ROW_FG_HIGHLIGHT
             return ROW_BG_DISLIKED, ROW_FG_HIGHLIGHT
-        if self._row_risky(index):
+        if risky:
+            if is_selected:
+                return ROW_BG_RISKY_SELECTED, None
+            if is_hover:
+                return ROW_BG_RISKY_HOVER, None
             return ROW_BG_RISKY, None
 
-        hover_row = self._hover_row()
-        if hover_row is not None and index.row() == hover_row:
+        if is_hover:
             return ROW_BG_HOVER, None
-
-        if option.state & QStyle.StateFlag.State_Selected:
+        if is_selected:
             return SELECTED_ROW_BG, SELECTED_ROW_FG
 
         if index.row() % 2 == 1:
@@ -158,7 +190,6 @@ class DriverTableDelegate(QStyledItemDelegate):
 
     def paint(self, painter, option, index):
         opt = QStyleOptionViewItem(option)
-        opt.state &= ~QStyle.StateFlag.State_HasFocus
 
         bg_color, default_fg = self._row_colors(opt, index)
 
@@ -179,7 +210,7 @@ class DriverTableDelegate(QStyledItemDelegate):
 
 
 def configure_driver_table_widget(table: QTableWidget) -> None:
-    """Shared table behavior: row-only selection look (no cell focus ring)."""
+    """Shared table behavior: row selection with keyboard focus on the table widget."""
     table.setItemDelegate(DriverTableDelegate(table))
     table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
     table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
@@ -197,6 +228,12 @@ def set_driver_table_hover_row(table: QTableWidget, row_idx: int | None) -> None
 def refresh_driver_table_row(table: QTableWidget, row_idx: int) -> None:
     if row_idx < 0 or row_idx >= table.rowCount():
         return
+    name_item = table.item(row_idx, COL_NAME)
+    if name_item is not None:
+        pref = sqlite_row_to_int(name_item.data(PREF_DATA_ROLE))
+        pref = pref if pref in (1, -1) else None
+        risky = bool(name_item.data(RISK_DATA_ROLE))
+        table.setItem(row_idx, COL_MARK, make_mark_item(pref, risky))
     reapply_safety_cell_style(table, row_idx)
     table.viewport().update()
 
@@ -213,8 +250,21 @@ def make_table_item(value) -> QTableWidgetItem:
     return item
 
 
+def make_mark_item(pref: int | None, risky: bool) -> QTableWidgetItem:
+    label = driver_mark_label(pref, risky)
+    item = QTableWidgetItem()
+    item.setFlags(item.flags() ^ Qt.ItemFlag.ItemIsEditable)
+    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+    if label:
+        item.setText(label)
+        item.setToolTip(label)
+    else:
+        item.setText(EMPTY_CELL)
+    return item
+
+
 def make_note_item(has_note: bool) -> QTableWidgetItem:
-    item = QTableWidgetItem(NOTE_INDICATOR if has_note else "")
+    item = QTableWidgetItem(NOTE_HAS_TEXT if has_note else "")
     item.setFlags(item.flags() ^ Qt.ItemFlag.ItemIsEditable)
     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
     item.setData(Qt.ItemDataRole.UserRole, 1 if has_note else 0)

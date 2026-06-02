@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 from PyQt6.QtCore import QEvent, Qt, QTimer, QUrl
-from PyQt6.QtGui import QDesktopServices, QFont, QShowEvent, QTextCursor
+from PyQt6.QtGui import QDesktopServices, QFont, QKeySequence, QShortcut, QShowEvent, QTextCursor
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -44,8 +44,10 @@ from ..data.data_retention import DEFAULT_RETENTION, SETTING_KEY, purge_expired_
 from ..data.db import close_sqlite_connection, connect_db, get_setting, init_db, set_setting
 from ..data.driver_cleanup import count_zero_race_drivers, purge_zero_race_drivers
 from ..data.driver_models import DriverDetailRow, DriverTableRow, build_live_session_entries
+from ..ui.a11y import driver_mark_label, set_accessible
 from ..ui.driver_table import (
     COL_CUST_ID,
+    COL_MARK,
     COL_NAME,
     COL_NOTE,
     COL_SAFETY,
@@ -57,6 +59,7 @@ from ..ui.driver_table import (
     RISK_DATA_ROLE,
     configure_driver_table_theme,
     configure_driver_table_widget,
+    make_mark_item,
     make_note_item,
     make_safety_item,
     make_table_item,
@@ -309,11 +312,20 @@ class GridNotesApp(QMainWindow):
         self.table.setMouseTracking(True)
         self.table.viewport().setMouseTracking(True)
         self.table.entered.connect(self._on_table_row_entered)
+        self.table.installEventFilter(self)
         self.table.viewport().installEventFilter(self)
 
     def eventFilter(self, obj, event) -> bool:
         if obj is self.table.viewport() and event.type() == QEvent.Type.Leave:
             self._clear_table_row_hover()
+        if (
+            obj is self.table
+            and event.type() == QEvent.Type.KeyPress
+            and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
+            and self.selected_cust_id is not None
+        ):
+            self.notes_edit.setFocus()
+            return True
         return super().eventFilter(obj, event)
 
     def _pref_for_row(self, row_idx: int) -> int | None:
@@ -328,8 +340,6 @@ class GridNotesApp(QMainWindow):
     def _apply_row_hover(self, row_idx: int) -> None:
         selected = self.table.selectionModel().selectedRows()
         if selected and selected[0].row() == row_idx:
-            return
-        if self._pref_for_row(row_idx) in (1, -1):
             return
         set_driver_table_hover_row(self.table, row_idx)
 
@@ -576,25 +586,34 @@ class GridNotesApp(QMainWindow):
         controls_layout.addLayout(live_session_row, 0, 2, 1, 2)
 
         self.search_input = QLineEdit()
+        search_label = QLabel("Search drivers")
+        search_label.setBuddy(self.search_input)
         self.search_input.setPlaceholderText("Search by name…")
         self.search_input.setClearButtonEnabled(True)
         self.search_input.textChanged.connect(self.apply_driver_filters)
-        controls_layout.addWidget(self.search_input, 1, 0, 1, 2)
+        controls_layout.addWidget(search_label, 1, 0)
+        controls_layout.addWidget(self.search_input, 1, 1)
 
         self.ignore_name_input = QLineEdit()
-        self.ignore_name_input.setPlaceholderText("Hide your name (optional)")
+        ignore_label = QLabel("Hide your name")
+        ignore_label.setBuddy(self.ignore_name_input)
+        self.ignore_name_input.setPlaceholderText("Optional")
         self.ignore_name_input.setText(get_setting("ignore_driver_name", "") or "")
         self.ignore_name_input.textChanged.connect(self.apply_driver_filters)
-        controls_layout.addWidget(self.ignore_name_input, 1, 2)
+        controls_layout.addWidget(ignore_label, 1, 2)
+        controls_layout.addWidget(self.ignore_name_input, 1, 3)
 
-        self.btn_save_ignore = QPushButton("Save")
+        self.btn_save_ignore = QPushButton("Save hidden name")
         self.btn_save_ignore.setToolTip("Save the hidden name to settings")
         self.btn_save_ignore.clicked.connect(self.save_ignore_name)
-        controls_layout.addWidget(self.btn_save_ignore, 1, 3)
+        controls_layout.addWidget(self.btn_save_ignore, 2, 2, 1, 2)
 
         left_layout.addWidget(controls_group)
 
-        drivers_label = QLabel("Drivers — click a row for notes  ·  scroll horizontally for all columns")
+        drivers_label = QLabel(
+            "Drivers — select a row for notes (arrow keys, Enter)  ·  "
+            "Mark column shows Liked, Disliked, or Risk  ·  scroll horizontally for all columns"
+        )
         drivers_label.setObjectName("sectionHint")
         left_layout.addWidget(drivers_label)
 
@@ -797,7 +816,68 @@ class GridNotesApp(QMainWindow):
         self._set_driver_panel_enabled(False)
         self._refresh_ui_table_now(force=True)
         self.apply_driver_filters()
+        self._configure_accessibility()
+        self._configure_keyboard_shortcuts()
         self.apply_theme()
+
+    def _configure_accessibility(self) -> None:
+        set_accessible(
+            self.table,
+            "Driver list",
+            "Sortable table of drivers. Use arrow keys to move, Enter to open scouting notes.",
+        )
+        set_accessible(
+            self.search_input,
+            "Search drivers",
+            "Filter the driver list by name.",
+        )
+        set_accessible(
+            self.ignore_name_input,
+            "Hide your name",
+            "Hide a driver row matching this name from the list.",
+        )
+        set_accessible(self.btn_save_ignore, "Save hidden name")
+        set_accessible(
+            self.btn_import,
+            "Import race JSON",
+            "Import iRacing event result JSON or custom race logs.",
+        )
+        set_accessible(
+            self.btn_reset_db,
+            "Reset all data",
+            "Permanently delete all drivers, notes, and race results.",
+        )
+        set_accessible(
+            self.chk_current_race_only,
+            "Current session only",
+            "Show only drivers in the current iRacing session.",
+        )
+        set_accessible(
+            self.btn_live_mode,
+            "Live Mode",
+            "Switch to high-contrast live session view for in-race scouting.",
+        )
+        set_accessible(self.status_label, "iRacing connection status")
+        set_accessible(
+            self.notes_edit,
+            "Scouting notes",
+            "Notes for the selected driver.",
+        )
+        set_accessible(self.btn_pref_like, "Liked", "Mark that you liked racing with this driver.")
+        set_accessible(
+            self.btn_pref_dislike,
+            "Didn't like",
+            "Mark that you did not like racing with this driver.",
+        )
+        set_accessible(self.btn_pref_clear, "Clear preference")
+        set_accessible(self.btn_save_notes, "Save notes")
+        set_accessible(self.main_tabs, "Main sections", "Drivers list and application settings.")
+
+    def _configure_keyboard_shortcuts(self) -> None:
+        QShortcut(QKeySequence("Ctrl+F"), self, self.search_input.setFocus)
+        QShortcut(QKeySequence("Ctrl+L"), self, self._toggle_live_mode)
+        save_shortcut = QShortcut(QKeySequence.StandardKey.Save, self)
+        save_shortcut.activated.connect(self.save_driver_notes)
 
     def apply_theme(self, theme_id: str | None = None) -> None:
         """Apply light/dark stylesheet and refresh theme-dependent widgets."""
@@ -1596,6 +1676,7 @@ class GridNotesApp(QMainWindow):
         return (
             [
                 driver.name,
+                driver_mark_label(driver.race_preference, safety.risky),
                 driver.total_races,
                 safety.score if safety.tier != "unknown" else None,
                 driver.avg_inc,
@@ -1628,6 +1709,8 @@ class GridNotesApp(QMainWindow):
         for col_idx, value in enumerate(display_row):
             if col_idx == COL_SAFETY and safety is not None:
                 item = make_safety_item(safety)
+            elif col_idx == COL_MARK:
+                item = make_mark_item(pref, risky)
             elif col_idx == COL_NOTE:
                 item = make_note_item(bool(value))
             else:

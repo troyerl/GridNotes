@@ -47,6 +47,7 @@ from ..iracing.iracing_oauth_guide import (
     combined_oauth_guide_html,
     oauth_registration_paused_plain,
 )
+from .a11y import set_accessible
 from .ui_widgets import Accordion, HtmlHintLabel, SettingsSectionNavigator
 from .theme import configure_scroll_area, status_message_color
 from ..services.user_feedback import log_user_error
@@ -138,6 +139,34 @@ class SettingsTab(QWidget):
         self._connect_settings_change_handlers()
         self._capture_settings_baseline()
         self._update_save_button_state()
+        self._configure_accessibility()
+
+    def _configure_accessibility(self) -> None:
+        set_accessible(self.btn_save_settings, "Save settings")
+        set_accessible(self._content_scroll, "Settings content")
+        set_accessible(
+            self.btn_check_updates,
+            "Check for updates",
+            "Look for a newer version of GridNotes.",
+        )
+        set_accessible(self.btn_apply_update, "Update now")
+        set_accessible(
+            self.btn_support_bundle,
+            "Save support file",
+            "Create a zip file with logs for troubleshooting.",
+        )
+        set_accessible(self.btn_open_logs, "Open logs folder")
+        set_accessible(self.btn_export_backup, "Back up database")
+        set_accessible(self.btn_import_backup, "Restore from backup")
+        set_accessible(
+            self.btn_uninstall,
+            "Uninstall GridNotes",
+            "Remove GridNotes from this computer.",
+        )
+        set_accessible(
+            self.chk_uninstall_remove_data,
+            "Also delete my notes, database, and settings",
+        )
 
     def _section_hint(self, text: str) -> QLabel:
         label = QLabel(text)
