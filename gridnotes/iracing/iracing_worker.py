@@ -13,6 +13,18 @@ from .spotter_telemetry import (
 
 logger = logging.getLogger(__name__)
 
+
+def parse_driver_car_number(entry: dict) -> str | None:
+    """Racing number from DriverInfo (e.g. ``42`` or ``42W``)."""
+    for key in ("CarNumber", "CarNumberRaw"):
+        raw = entry.get(key)
+        if raw is None:
+            continue
+        text = str(raw).strip()
+        if text:
+            return text
+    return None
+
 _TICK_MS = 100
 _SESSION_INTERVAL_TICKS = 10
 _SPOTTER_INTERVAL_TICKS = 2
@@ -55,7 +67,11 @@ def _parse_session_drivers(ir) -> tuple[list[dict], int]:
             continue
 
         name = d.get("UserName") or d.get("UserNameShort") or f"Driver {cust_id}"
-        active_drivers.append({"cust_id": int(cust_id), "name": str(name)})
+        driver: dict = {"cust_id": int(cust_id), "name": str(name)}
+        car_number = parse_driver_car_number(d)
+        if car_number:
+            driver["car_number"] = car_number
+        active_drivers.append(driver)
 
     return active_drivers, subsession_id
 

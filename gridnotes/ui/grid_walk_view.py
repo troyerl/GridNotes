@@ -239,7 +239,10 @@ class GridWalkView(QWidget):
             safety = meta.get("safety")
             if streamer_mode:
                 safety_obj = safety if isinstance(safety, SafetyIndex) else None
-                name = streamer_display_name(cust_id, safety_obj)
+                name = str(
+                    meta.get("name")
+                    or streamer_display_name(cust_id, safety_obj)
+                )
             else:
                 name = str(slot.get("name") or f"Driver {cust_id}")
             risky = False

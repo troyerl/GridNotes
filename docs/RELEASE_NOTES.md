@@ -8,6 +8,15 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.28 — 2026-06-02
+
+### Improved
+
+- **Streamer mode in Live Mode** — Drivers in the current iRacing session show their **session car number** (e.g. `Driver #42 (Moderate risk)`) instead of a stable cust-ID alias. Grid Walk, live cards, and the audio spotter use the same label.
+- **Streamer mode elsewhere** — The driver table and detail panel use the session car number when that driver is in the active session; otherwise the stable alias (e.g. `Driver #14`) is unchanged.
+
+---
+
 ## v1.0.27 — 2026-06-02
 
 ### Added

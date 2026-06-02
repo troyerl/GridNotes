@@ -159,6 +159,7 @@ class GridNotesApp(QMainWindow):
         self._last_table_fingerprint: tuple | None = None
         self.active_cust_ids: set[int] = set()
         self.active_driver_names: dict[int, str] = {}
+        self.active_driver_car_numbers: dict[int, str] = {}
         self._hover_row: int | None = None
         self._did_initial_column_resize = False
         self._live_mode_active = get_setting("live_mode", "0") == "1"
@@ -559,7 +560,9 @@ class GridNotesApp(QMainWindow):
         )
         announce_name = None
         if self._streamer_mode:
-            announce_name = streamer_display_name(int(cust_id), info.safety)
+            announce_name = self._streamer_session_display_name(
+                int(cust_id), info.safety
+            )
         self._audio_spotter.maybe_announce(
             int(cust_id), info, announce_name=announce_name
         )
@@ -590,8 +593,24 @@ class GridNotesApp(QMainWindow):
                 safety = entry.get("safety")
                 if not isinstance(safety, SafetyIndex):
                     safety = None
-                entry["name"] = streamer_display_name(cid, safety)
+                entry["name"] = self._streamer_session_display_name(cid, safety)
         return entries
+
+    def _streamer_session_display_name(
+        self,
+        cust_id: int,
+        safety: SafetyIndex | None,
+        *,
+        compact: bool = False,
+    ) -> str:
+        """Streamer alias; uses session car number in Live Mode when available."""
+        car_number = self.active_driver_car_numbers.get(int(cust_id))
+        return streamer_display_name(
+            int(cust_id),
+            safety,
+            compact=compact,
+            car_number=car_number,
+        )
 
     def _refresh_live_session_view(self) -> None:
         if not hasattr(self, "live_session_view"):
@@ -650,7 +669,7 @@ class GridNotesApp(QMainWindow):
 
         if self._streamer_mode:
             self.driver_name_label.setText(
-                streamer_display_name(cust_id, detail.safety)
+                self._streamer_session_display_name(cust_id, detail.safety)
             )
             self.driver_meta_label.setText(streamer_detail_meta(last_seen_fmt=last_seen_fmt))
         else:
@@ -1262,6 +1281,7 @@ class GridNotesApp(QMainWindow):
         self.selected_cust_id = None
         self.active_cust_ids = set()
         self.active_driver_names = {}
+        self.active_driver_car_numbers = {}
         self._update_live_session_filter(active=False, hint=MSG_SESSION_NOT_CONNECTED)
         self.notes_edit.clear()
         self._clear_driver_details()
@@ -1734,6 +1754,7 @@ class GridNotesApp(QMainWindow):
             else:
                 self.active_cust_ids = set()
                 self.active_driver_names = {}
+                self.active_driver_car_numbers = {}
                 self._update_live_session_filter(active=False, hint="Unsupported session type for live scouting.")
             self._refresh_live_session_view()
             return
@@ -1746,6 +1767,7 @@ class GridNotesApp(QMainWindow):
         self.current_session_kind = ""
         self.active_cust_ids = set()
         self.active_driver_names = {}
+        self.active_driver_car_numbers = {}
         self._set_status(STATUS_WAITING, "Waiting for iRacing…")
         self._update_live_session_filter(active=False, hint=MSG_SESSION_NOT_CONNECTED)
         if hasattr(self, "chk_current_race_only"):
@@ -1781,11 +1803,17 @@ class GridNotesApp(QMainWindow):
             for d in active_drivers
             if d.get("cust_id") is not None
         }
+        self.active_driver_car_numbers = {
+            int(d["cust_id"]): str(d["car_number"])
+            for d in active_drivers
+            if d.get("cust_id") is not None and d.get("car_number")
+        }
         driver_count = len(self.active_cust_ids)
 
         if not is_live_scouting_session(session_kind):
             self.active_cust_ids = set()
             self.active_driver_names = {}
+            self.active_driver_car_numbers = {}
             self._set_status(STATUS_CONNECTED, f"Live — {session_kind_label(session_kind)}")
             self._update_live_session_filter(active=False, hint="Unsupported session type for live scouting.")
             self._refresh_live_session_view()
@@ -1966,12 +1994,18 @@ class GridNotesApp(QMainWindow):
         safety = driver.safety
         breakdown = driver.dnf_breakdown or "—"
         risky_tooltip = safety_tooltip(safety) if safety.risky else ""
-        display_name = display_driver_name(
-            driver.cust_id,
-            driver.name,
-            safety,
-            streamer_mode=self._streamer_mode,
-            compact_table=True,
+        display_name = (
+            self._streamer_session_display_name(
+                driver.cust_id, safety, compact=True
+            )
+            if self._streamer_mode
+            else display_driver_name(
+                driver.cust_id,
+                driver.name,
+                safety,
+                streamer_mode=False,
+                compact_table=True,
+            )
         )
         return (
             [

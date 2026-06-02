@@ -29,20 +29,28 @@ def streamer_display_name(
     safety: SafetyIndex | None = None,
     *,
     compact: bool = False,
+    car_number: str | None = None,
 ) -> str:
     """
-    Public-facing alias, e.g. ``Driver #14 (Moderate risk)``.
+    Public-facing alias for streamer mode.
 
-    *compact* shortens the tier parenthetical for narrow table cells.
+    When *car_number* is set (Live Mode session), uses the car's racing number,
+    e.g. ``Driver #42 (Moderate risk)``. Otherwise falls back to a stable cust-id tag.
     """
-    tag = driver_alias_number(cust_id)
+    if car_number and str(car_number).strip():
+        num = str(car_number).strip().lstrip("#")
+        label = f"Driver #{num}"
+    else:
+        tag = driver_alias_number(cust_id)
+        label = f"Driver #{tag:02d}"
+
     risk = driver_risk_suffix(safety)
     if compact and safety is not None and safety.tier != "unknown":
         short = {"Low risk": "Low", "Moderate risk": "Mod", "High risk": "High"}.get(
             risk, risk
         )
-        return f"Driver #{tag:02d} ({short})"
-    return f"Driver #{tag:02d} ({risk})"
+        return f"{label} ({short})"
+    return f"{label} ({risk})"
 
 
 def display_driver_name(
