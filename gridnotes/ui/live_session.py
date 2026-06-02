@@ -5,18 +5,23 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QScrollArea,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from ..safety.safety_index import SafetyIndex, empty_safety, tier_color_hex, tier_label, unknown_history_message
+from ..safety.safety_trend import SafetyTrend
 from ..iracing.session_kind import session_kind_label
 from .a11y import set_accessible
+from .grid_walk_view import GridWalkView
 from .theme import configure_scroll_area
 
 
@@ -118,6 +123,7 @@ class LiveDriverCard(QFrame):
         last_sr,
         has_note: bool,
         pref: int | None,
+        safety_trend: SafetyTrend | None = None,
     ) -> None:
         self._cust_id = cust_id
         self._driver_name = name or "Unknown"
@@ -132,7 +138,12 @@ class LiveDriverCard(QFrame):
         else:
             self.profile_label.setText(safety.profile)
             color = tier_color_hex(safety.tier)
-            self.score_label.setText(f"{safety.score:.0f}")
+            score_text = f"{safety.score:.0f}"
+            if safety_trend is not None and safety_trend.arrow:
+                score_text = f"{score_text} {safety_trend.arrow}"
+            self.score_label.setText(score_text)
+            if safety_trend is not None and safety_trend.direction in ("improving", "worsening"):
+                color = safety_trend.color_hex
             self.score_label.setStyleSheet(f"color: {color};")
             self.tier_label.setText(tier_label(safety.tier))
             self.tier_label.setStyleSheet(f"color: {color}; font-size: 11px; font-weight: 700;")
@@ -185,6 +196,9 @@ class LiveSessionView(QWidget):
     """Full-width live session panel with large-font driver cards."""
 
     driver_clicked = pyqtSignal(int)
+    audio_spotter_changed = pyqtSignal(bool)
+    grid_walk_toggled = pyqtSignal(bool)
+    scouting_guide_requested = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -208,6 +222,34 @@ class LiveSessionView(QWidget):
         header_layout.addWidget(self.session_label)
         header_layout.addStretch()
 
+        self.chk_audio_spotter = QCheckBox("Audio spotter")
+        self.chk_audio_spotter.setObjectName("liveAudioSpotter")
+        self.chk_audio_spotter.setToolTip(
+            "When enabled, speaks a warning if a disliked or high-risk driver "
+            "is within 1.5 seconds behind you (Windows only, green-flag running)."
+        )
+        self.chk_audio_spotter.stateChanged.connect(self._on_audio_spotter_changed)
+        header_layout.addWidget(self.chk_audio_spotter)
+
+        self.btn_grid_walk = QPushButton("Grid Walk")
+        self.btn_grid_walk.setObjectName("liveGridWalkBtn")
+        self.btn_grid_walk.setCheckable(True)
+        self.btn_grid_walk.setToolTip(
+            "Show starting-grid order with risk marks — ideal between qualifying and the race."
+        )
+        self.btn_grid_walk.clicked.connect(self._on_grid_walk_toggled)
+        header_layout.addWidget(self.btn_grid_walk)
+
+        self.btn_scouting_guide = QPushButton("Guide")
+        self.btn_scouting_guide.setObjectName("hintLinkBtn")
+        self.btn_scouting_guide.setFlat(True)
+        self.btn_scouting_guide.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_scouting_guide.setToolTip(
+            "Safety Index tiers, form arrows (↗ ↘ →), and mark meanings"
+        )
+        self.btn_scouting_guide.clicked.connect(self.scouting_guide_requested.emit)
+        header_layout.addWidget(self.btn_scouting_guide)
+
         self.count_label = QLabel("")
         self.count_label.setObjectName("liveSessionMeta")
         header_layout.addWidget(self.count_label)
@@ -220,6 +262,14 @@ class LiveSessionView(QWidget):
         self.offline_label.setWordWrap(True)
         self.offline_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         root.addWidget(self.offline_label)
+
+        self.content_stack = QStackedWidget()
+        self.content_stack.setObjectName("liveContentStack")
+
+        self.cards_page = QWidget()
+        cards_page_layout = QVBoxLayout(self.cards_page)
+        cards_page_layout.setContentsMargins(0, 0, 0, 0)
+        cards_page_layout.setSpacing(0)
 
         self.scroll = QScrollArea()
         self.scroll.setObjectName("liveSessionScroll")
@@ -235,14 +285,84 @@ class LiveSessionView(QWidget):
 
         self.scroll.setWidget(self.cards_container)
         configure_scroll_area(self.scroll, page_step=120)
-        root.addWidget(self.scroll, stretch=1)
+        cards_page_layout.addWidget(self.scroll)
+
+        self.content_stack.addWidget(self.cards_page)
+
+        self.grid_walk_view = GridWalkView()
+        self.grid_walk_view.driver_clicked.connect(self.driver_clicked.emit)
+        self.content_stack.addWidget(self.grid_walk_view)
+
+        root.addWidget(self.content_stack, stretch=1)
 
         self._cards: list[LiveDriverCard] = []
         self._last_entry_key: tuple | None = None
+        self._grid_walk_active = False
         set_accessible(
             self.scroll,
             "Live session drivers",
             "Scrollable list of driver cards. Tab to a card and press Enter to open notes.",
+        )
+        set_accessible(
+            self.chk_audio_spotter,
+            "Audio spotter",
+            "Speak warnings when a flagged driver is close behind during a green-flag run.",
+        )
+        set_accessible(
+            self.btn_grid_walk,
+            "Grid Walk",
+            "Toggle starting-grid view for pre-race review.",
+        )
+        set_accessible(
+            self.btn_scouting_guide,
+            "Scouting guide",
+            "Open reference for Safety Index, form arrows, and marks.",
+        )
+
+    def _on_audio_spotter_changed(self, _state: int) -> None:
+        self.audio_spotter_changed.emit(self.chk_audio_spotter.isChecked())
+
+    def is_audio_spotter_enabled(self) -> bool:
+        return self.chk_audio_spotter.isChecked()
+
+    def set_audio_spotter_enabled(self, enabled: bool) -> None:
+        self.chk_audio_spotter.blockSignals(True)
+        self.chk_audio_spotter.setChecked(enabled)
+        self.chk_audio_spotter.blockSignals(False)
+
+    def _on_grid_walk_toggled(self) -> None:
+        self.set_grid_walk_mode(self.btn_grid_walk.isChecked())
+
+    def is_grid_walk_mode(self) -> bool:
+        return self._grid_walk_active
+
+    def set_grid_walk_mode(self, active: bool, *, emit: bool = True) -> None:
+        self._grid_walk_active = active
+        self.btn_grid_walk.blockSignals(True)
+        self.btn_grid_walk.setChecked(active)
+        self.btn_grid_walk.blockSignals(False)
+        self.btn_grid_walk.setProperty("active", active)
+        self.btn_grid_walk.style().unpolish(self.btn_grid_walk)
+        self.btn_grid_walk.style().polish(self.btn_grid_walk)
+        self.content_stack.setCurrentIndex(1 if active else 0)
+        if emit:
+            self.grid_walk_toggled.emit(active)
+
+    def update_grid(
+        self,
+        slots: list[dict],
+        player_cust_id: int | None,
+        entries_by_cust: dict[int, dict],
+        *,
+        streamer_mode: bool = False,
+    ) -> None:
+        if not self._grid_walk_active:
+            return
+        self.grid_walk_view.rebuild(
+            slots,
+            player_cust_id,
+            entries_by_cust,
+            streamer_mode=streamer_mode,
         )
 
     def set_session_info(
@@ -256,7 +376,7 @@ class LiveSessionView(QWidget):
     ) -> None:
         if connected:
             self.offline_label.setVisible(False)
-            self.scroll.setVisible(True)
+            self.content_stack.setVisible(True)
             label = session_kind_label(session_kind)
             if subsession_id:
                 self.session_label.setText(f"Session #{subsession_id} · {label}")
@@ -268,11 +388,13 @@ class LiveSessionView(QWidget):
                 self.count_label.setText(f"{driver_count} drivers · scouting only (not saved yet)")
         else:
             self.offline_label.setVisible(True)
-            self.scroll.setVisible(False)
+            self.content_stack.setVisible(False)
             self.session_label.setText("")
             self.count_label.setText("")
 
     def rebuild_if_changed(self, entries: list[dict]) -> None:
+        if self._grid_walk_active:
+            return
         entry_key = tuple(
             (
                 e.get("cust_id"),
@@ -282,15 +404,19 @@ class LiveSessionView(QWidget):
                 round(getattr(e.get("safety"), "score", -1), 1)
                 if e.get("safety") is not None
                 else -1,
+                (e.get("safety_trend") or SafetyTrend("unknown", None, None, 0)).direction,
             )
             for e in entries
         )
+        # Names change when streamer mode toggles; entry_key includes display name.
         if entry_key == self._last_entry_key:
             return
         self._last_entry_key = entry_key
         self.rebuild(entries)
 
     def rebuild(self, entries: list[dict]) -> None:
+        if self._grid_walk_active:
+            return
         while self.cards_layout.count():
             item = self.cards_layout.takeAt(0)
             if item.widget():
@@ -311,6 +437,9 @@ class LiveSessionView(QWidget):
             if not isinstance(safety, SafetyIndex):
                 safety = empty_safety()
             card = LiveDriverCard()
+            trend = entry.get("safety_trend")
+            if trend is not None and not isinstance(trend, SafetyTrend):
+                trend = None
             card.set_driver(
                 cust_id=entry["cust_id"],
                 name=entry.get("name") or "Unknown",
@@ -319,6 +448,7 @@ class LiveSessionView(QWidget):
                 last_sr=entry.get("last_sr"),
                 has_note=bool(entry.get("has_note")),
                 pref=entry.get("pref"),
+                safety_trend=trend,
             )
             card.clicked.connect(self.driver_clicked.emit)
             self.cards_layout.addWidget(card)

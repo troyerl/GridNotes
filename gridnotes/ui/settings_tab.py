@@ -24,6 +24,7 @@ from ..services.app_update import (
     UpdateCheckResult,
     is_frozen_build,
 )
+from ..services.audio_spotter import AUDIO_SPOTTER_KEY, is_audio_spotter_setting_enabled
 from ..app.app_version import installed_version
 from .appearance import (
     THEME_OPTIONS,
@@ -48,6 +49,7 @@ from ..iracing.iracing_oauth_guide import (
     oauth_registration_paused_plain,
 )
 from .a11y import set_accessible
+from .scouting_guide_dialog import show_scouting_guide
 from .ui_widgets import Accordion, HtmlHintLabel, SettingsSectionNavigator
 from .theme import configure_scroll_area, status_message_color
 from ..services.user_feedback import log_user_error
@@ -68,6 +70,7 @@ class SettingsTab(QWidget):
     support_bundle_requested = pyqtSignal()
     open_logs_folder_requested = pyqtSignal()
     api_test_requested = pyqtSignal(str)  # access_token
+    audio_spotter_changed = pyqtSignal(bool)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -106,7 +109,9 @@ class SettingsTab(QWidget):
         if iracing_data_api_auto_import_enabled():
             self._auto_import_page = self._build_auto_import_page()
             self._section_nav.add_section("Auto-import", self._auto_import_page)
+        self._section_nav.add_section("Appearance", self._build_appearance_page())
         self._section_nav.add_section("Data", self._build_data_page())
+        self._section_nav.add_section("Live Mode", self._build_live_mode_page())
         self._section_nav.add_section("Maintenance", self._build_maintenance_page())
 
         body = QFrame()
@@ -144,6 +149,14 @@ class SettingsTab(QWidget):
     def _configure_accessibility(self) -> None:
         set_accessible(self.btn_save_settings, "Save settings")
         set_accessible(self._content_scroll, "Settings content")
+        if hasattr(self, "btn_scouting_guide"):
+            set_accessible(
+                self.btn_scouting_guide,
+                "Scouting guide",
+                "Open reference for Safety Index, form arrows, and marks.",
+            )
+        if hasattr(self, "theme_combo"):
+            set_accessible(self.theme_combo, "Color theme")
         set_accessible(
             self.btn_check_updates,
             "Check for updates",
@@ -167,6 +180,12 @@ class SettingsTab(QWidget):
             self.chk_uninstall_remove_data,
             "Also delete my notes, database, and settings",
         )
+        if hasattr(self, "chk_audio_spotter"):
+            set_accessible(
+                self.chk_audio_spotter,
+                "Audio spotter",
+                "Speak warnings when a flagged driver is within 1.5 seconds behind you.",
+            )
 
     def _section_hint(self, text: str) -> QLabel:
         label = QLabel(text)
@@ -244,23 +263,57 @@ class SettingsTab(QWidget):
         layout.addStretch()
         return page
 
-    def _build_data_page(self) -> QWidget:
+    def _build_live_mode_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(12)
 
-        appearance_group = QGroupBox("Appearance")
-        appearance_layout = QVBoxLayout(appearance_group)
-        appearance_layout.setSpacing(10)
+        layout.addWidget(
+            self._section_hint(
+                "Live Mode shows large driver cards while iRacing is connected. "
+                "Use Grid Walk in the Live Mode header for a starting-grid layout "
+                "between qualifying and the race."
+            )
+        )
 
-        appearance_layout.addWidget(
+        spotter_group = QGroupBox("Audio spotter")
+        spotter_layout = QVBoxLayout(spotter_group)
+        spotter_layout.setSpacing(10)
+        spotter_layout.addWidget(
+            self._section_hint(
+                "Uses Windows text-to-speech to warn you when a disliked or high-risk "
+                "driver is within about 1.5 seconds behind you during a green-flag run. "
+                "You can also toggle this from the Live Mode screen header."
+            )
+        )
+        self.chk_audio_spotter = QCheckBox("Enable audio spotter (co-driver warnings)")
+        self.chk_audio_spotter.setChecked(
+            is_audio_spotter_setting_enabled(get_setting(AUDIO_SPOTTER_KEY))
+        )
+        self.chk_audio_spotter.stateChanged.connect(self._on_audio_spotter_changed)
+        spotter_layout.addWidget(self.chk_audio_spotter)
+        layout.addWidget(spotter_group)
+        layout.addStretch()
+        return page
+
+    def _build_appearance_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(12)
+
+        layout.addWidget(
             self._section_hint("Choose light or dark colors for the whole application.")
         )
 
-        theme_label = QLabel("Color theme")
+        theme_group = QGroupBox("Color theme")
+        theme_layout = QVBoxLayout(theme_group)
+        theme_layout.setSpacing(10)
+
+        theme_label = QLabel("Theme")
         theme_label.setObjectName("statInlineLabel")
-        appearance_layout.addWidget(theme_label)
+        theme_layout.addWidget(theme_label)
 
         self.theme_combo = QComboBox()
         self.theme_combo.setObjectName("settingsCombo")
@@ -270,9 +323,17 @@ class SettingsTab(QWidget):
         theme_idx = self.theme_combo.findData(current_theme)
         self.theme_combo.setCurrentIndex(theme_idx if theme_idx >= 0 else 0)
         self.theme_combo.currentIndexChanged.connect(self._on_theme_combo_changed)
-        appearance_layout.addWidget(self.theme_combo)
+        theme_layout.addWidget(self.theme_combo)
 
-        layout.addWidget(appearance_group)
+        layout.addWidget(theme_group)
+        layout.addStretch()
+        return page
+
+    def _build_data_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(12)
 
         retention_group = QGroupBox("Race history retention")
         retention_layout = QVBoxLayout(retention_group)
@@ -305,6 +366,50 @@ class SettingsTab(QWidget):
         self._update_retention_status_label()
 
         layout.addWidget(retention_group)
+
+        backup_group = QGroupBox("Backup & restore")
+        backup_layout = QVBoxLayout(backup_group)
+        backup_layout.setSpacing(10)
+        backup_layout.addWidget(
+            self._section_hint(
+                "Save a copy of your notes and race history, or restore from a "
+                "backup file you saved earlier."
+            )
+        )
+        backup_btn_row = QHBoxLayout()
+        backup_btn_row.setSpacing(8)
+        self.btn_export_backup = QPushButton("Back up database…")
+        self.btn_export_backup.clicked.connect(self._request_backup_export)
+        backup_btn_row.addWidget(self.btn_export_backup)
+        self.btn_import_backup = QPushButton("Restore from backup…")
+        self.btn_import_backup.clicked.connect(self._request_backup_import)
+        backup_btn_row.addWidget(self.btn_import_backup)
+        backup_btn_row.addStretch()
+        backup_layout.addLayout(backup_btn_row)
+        self.backup_status = QLabel("")
+        self.backup_status.setObjectName("sectionHint")
+        self.backup_status.setWordWrap(True)
+        backup_layout.addWidget(self.backup_status)
+        layout.addWidget(backup_group)
+
+        cleanup_group = QGroupBox("Driver cleanup")
+        cleanup_layout = QVBoxLayout(cleanup_group)
+        cleanup_layout.setSpacing(10)
+        cleanup_layout.addWidget(
+            self._section_hint(
+                "Remove drivers with no imported race results, including live-session "
+                "placeholders and their scouting notes."
+            )
+        )
+        self.zero_race_status = QLabel("")
+        self.zero_race_status.setObjectName("sectionHint")
+        self.zero_race_status.setWordWrap(True)
+        cleanup_layout.addWidget(self.zero_race_status)
+        self._update_zero_race_status_label()
+        self.btn_remove_zero_race = QPushButton("Remove drivers with 0 races")
+        self.btn_remove_zero_race.clicked.connect(self._request_zero_race_cleanup)
+        cleanup_layout.addWidget(self.btn_remove_zero_race)
+        layout.addWidget(cleanup_group)
 
         storage_group = QGroupBox("Storage location")
         storage_layout = QVBoxLayout(storage_group)
@@ -344,29 +449,6 @@ class SettingsTab(QWidget):
         layout = QVBoxLayout(page)
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(12)
-
-        cleanup_group = QGroupBox("Driver cleanup")
-        cleanup_layout = QVBoxLayout(cleanup_group)
-        cleanup_layout.setSpacing(10)
-
-        cleanup_layout.addWidget(
-            self._section_hint(
-                "Remove drivers with no imported race results, including live-session "
-                "placeholders and their scouting notes."
-            )
-        )
-
-        self.zero_race_status = QLabel("")
-        self.zero_race_status.setObjectName("sectionHint")
-        self.zero_race_status.setWordWrap(True)
-        cleanup_layout.addWidget(self.zero_race_status)
-        self._update_zero_race_status_label()
-
-        self.btn_remove_zero_race = QPushButton("Remove drivers with 0 races")
-        self.btn_remove_zero_race.clicked.connect(self._request_zero_race_cleanup)
-        cleanup_layout.addWidget(self.btn_remove_zero_race)
-
-        layout.addWidget(cleanup_group)
 
         updates_group = QGroupBox("Application updates")
         updates_layout = QVBoxLayout(updates_group)
@@ -429,11 +511,18 @@ class SettingsTab(QWidget):
         help_layout.addWidget(
             self._section_hint(
                 "If something goes wrong, save a support file to email to the developer, "
-                "or open the folder where logs are stored."
+                "or open the folder where logs are stored. "
+                "The scouting guide explains Safety Index, form arrows, and marks."
             )
         )
         help_btn_row = QHBoxLayout()
         help_btn_row.setSpacing(8)
+        self.btn_scouting_guide = QPushButton("Scouting guide…")
+        self.btn_scouting_guide.setToolTip(
+            "Safety Index tiers, form arrows (↗ ↘ →), liked/disliked/risk marks"
+        )
+        self.btn_scouting_guide.clicked.connect(lambda: show_scouting_guide(self))
+        help_btn_row.addWidget(self.btn_scouting_guide)
         self.btn_support_bundle = QPushButton("Save support file…")
         self.btn_support_bundle.clicked.connect(self._request_support_bundle)
         help_btn_row.addWidget(self.btn_support_bundle)
@@ -447,31 +536,6 @@ class SettingsTab(QWidget):
         self.support_status.setWordWrap(True)
         help_layout.addWidget(self.support_status)
         layout.addWidget(help_group)
-
-        backup_group = QGroupBox("Backup & restore")
-        backup_layout = QVBoxLayout(backup_group)
-        backup_layout.setSpacing(10)
-        backup_layout.addWidget(
-            self._section_hint(
-                "Save a copy of your notes and race history, or restore from a "
-                "backup file you saved earlier."
-            )
-        )
-        backup_btn_row = QHBoxLayout()
-        backup_btn_row.setSpacing(8)
-        self.btn_export_backup = QPushButton("Back up database…")
-        self.btn_export_backup.clicked.connect(self._request_backup_export)
-        backup_btn_row.addWidget(self.btn_export_backup)
-        self.btn_import_backup = QPushButton("Restore from backup…")
-        self.btn_import_backup.clicked.connect(self._request_backup_import)
-        backup_btn_row.addWidget(self.btn_import_backup)
-        backup_btn_row.addStretch()
-        backup_layout.addLayout(backup_btn_row)
-        self.backup_status = QLabel("")
-        self.backup_status.setObjectName("sectionHint")
-        self.backup_status.setWordWrap(True)
-        backup_layout.addWidget(self.backup_status)
-        layout.addWidget(backup_group)
 
         uninstall_group = QGroupBox("Uninstall")
         uninstall_layout = QVBoxLayout(uninstall_group)
@@ -576,6 +640,19 @@ class SettingsTab(QWidget):
         theme_id = self.current_theme_value()
         self.theme_changed.emit(theme_id)
         self._on_settings_edited()
+
+    def _on_audio_spotter_changed(self, *_args: object) -> None:
+        enabled = self.chk_audio_spotter.isChecked()
+        set_setting(AUDIO_SPOTTER_KEY, "1" if enabled else "0")
+        self.audio_spotter_changed.emit(enabled)
+
+    def is_audio_spotter_enabled(self) -> bool:
+        return self.chk_audio_spotter.isChecked()
+
+    def set_audio_spotter_enabled(self, enabled: bool) -> None:
+        self.chk_audio_spotter.blockSignals(True)
+        self.chk_audio_spotter.setChecked(enabled)
+        self.chk_audio_spotter.blockSignals(False)
 
     def _update_retention_status_label(self) -> None:
         self.retention_status.setText(

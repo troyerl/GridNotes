@@ -4,8 +4,18 @@ import sys
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from .session_kind import SESSION_KIND_OTHER, current_session_kind, is_race_session
+from .grid_walk import parse_starting_grid, slots_to_payload
+from .spotter_telemetry import (
+    build_car_idx_to_cust_id,
+    is_green_flag_run,
+    resolve_cust_id_behind,
+)
 
 logger = logging.getLogger(__name__)
+
+_TICK_MS = 100
+_SESSION_INTERVAL_TICKS = 10
+_SPOTTER_INTERVAL_TICKS = 2
 
 
 def _parse_session_drivers(ir) -> tuple[list[dict], int]:
@@ -64,6 +74,8 @@ class IRacingWorker(QThread):
 
     drivers_updated = pyqtSignal(list, int, str)  # (driver_list, subsession_id, session_kind)
     connection_changed = pyqtSignal(bool, int, str)  # (connected, subsession_id, session_kind)
+    spotter_car_behind = pyqtSignal(int, float)  # (cust_id, gap_seconds)
+    grid_updated = pyqtSignal(list, object)  # (slot dicts, player_cust_id | None)
 
     def __init__(self):
         super().__init__()
@@ -72,9 +84,15 @@ class IRacingWorker(QThread):
         self.unavailable_reason = ""
         self.ir = None
         self._sdk_connected = False
+        self._spotter_enabled = False
+        self._grid_walk_enabled = False
+        self._car_idx_to_cust: dict[int, int] = {}
         self._last_emit_key: tuple | None = None
         self._last_connection_key: tuple | None = None
+        self._last_spotter_cust_id: int | None = None
+        self._last_grid_key: tuple | None = None
         self._wait_log_counter = 0
+        self._tick = 0
 
         logger.info("IRacingWorker init (platform=%s)", sys.platform)
 
@@ -102,6 +120,36 @@ class IRacingWorker(QThread):
             self.ir = None
             self.available = False
 
+    def set_spotter_enabled(self, enabled: bool) -> None:
+        self._spotter_enabled = bool(enabled)
+        if not enabled:
+            self._last_spotter_cust_id = None
+
+    def set_grid_walk_enabled(self, enabled: bool) -> None:
+        self._grid_walk_enabled = bool(enabled)
+        if not enabled:
+            self._last_grid_key = None
+
+    def request_grid_refresh(self) -> None:
+        self._last_grid_key = None
+        self._poll_grid()
+
+    def _poll_grid(self) -> None:
+        if not self._grid_walk_enabled or self.ir is None or not self._sdk_connected:
+            return
+
+        parsed = parse_starting_grid(self.ir)
+        if parsed is None:
+            return
+
+        slots, player_cust_id = parsed
+        payload = slots_to_payload(slots)
+        key = (tuple((p["position"], p["cust_id"]) for p in payload), player_cust_id)
+        if key == self._last_grid_key:
+            return
+        self._last_grid_key = key
+        self.grid_updated.emit(payload, player_cust_id)
+
     def _emit_connection(self, connected: bool, subsession_id: int = 0, session_kind: str = SESSION_KIND_OTHER) -> None:
         key = (connected, subsession_id if connected else 0, session_kind if connected else "")
         if self._last_connection_key == key:
@@ -115,6 +163,56 @@ class IRacingWorker(QThread):
         )
         self.connection_changed.emit(connected, subsession_id, session_kind)
 
+    def _poll_spotter(self) -> None:
+        if not self._spotter_enabled or self.ir is None or not self._sdk_connected:
+            return
+        if not self._car_idx_to_cust:
+            return
+        if not is_green_flag_run(self.ir):
+            self._last_spotter_cust_id = None
+            return
+
+        resolved = resolve_cust_id_behind(self.ir, self._car_idx_to_cust)
+        if resolved is None:
+            self._last_spotter_cust_id = None
+            return
+
+        cust_id, gap = resolved
+        if cust_id == self._last_spotter_cust_id:
+            return
+        self._last_spotter_cust_id = cust_id
+        self.spotter_car_behind.emit(cust_id, gap)
+
+    def _poll_session(self) -> None:
+        if self.ir is None or not self._sdk_connected:
+            return
+
+        is_connected = bool(getattr(self.ir, "is_connected", False))
+        active_drivers, subsession_id, session_kind = _parse_session(self.ir)
+        self._car_idx_to_cust = build_car_idx_to_cust_id(self.ir)
+
+        if not is_connected and not active_drivers:
+            self._emit_connection(True, subsession_id, session_kind)
+            return
+
+        emit_key = (
+            subsession_id,
+            session_kind,
+            tuple((d["cust_id"], d["name"]) for d in active_drivers),
+        )
+        if emit_key == self._last_emit_key:
+            return
+
+        self._last_emit_key = emit_key
+        logger.info(
+            "Session update: subsession=%s kind=%s drivers=%s",
+            subsession_id,
+            session_kind,
+            len(active_drivers),
+        )
+        self._emit_connection(True, subsession_id, session_kind)
+        self.drivers_updated.emit(active_drivers, subsession_id, session_kind)
+
     def run(self):
         if not self.available or self.ir is None:
             logger.warning(
@@ -127,7 +225,8 @@ class IRacingWorker(QThread):
         logger.info("SDK worker thread started — polling iRacing shared memory")
 
         while self.running:
-            self.msleep(1000)
+            self.msleep(_TICK_MS)
+            self._tick += 1
 
             try:
                 is_initialized = bool(getattr(self.ir, "is_initialized", False))
@@ -138,6 +237,9 @@ class IRacingWorker(QThread):
                     self._sdk_connected = False
                     self._last_emit_key = None
                     self._last_connection_key = None
+                    self._last_spotter_cust_id = None
+                    self._last_grid_key = None
+                    self._car_idx_to_cust = {}
                     self.ir.shutdown()
                     self._emit_connection(False)
 
@@ -176,29 +278,14 @@ class IRacingWorker(QThread):
                 if not self._sdk_connected:
                     continue
 
-                active_drivers, subsession_id, session_kind = _parse_session(self.ir)
+                if self._spotter_enabled and self._tick % _SPOTTER_INTERVAL_TICKS == 0:
+                    self._poll_spotter()
 
-                if not is_connected and not active_drivers:
-                    self._emit_connection(True, subsession_id, session_kind)
-                    continue
+                if self._grid_walk_enabled and self._tick % _SESSION_INTERVAL_TICKS == 0:
+                    self._poll_grid()
 
-                emit_key = (
-                    subsession_id,
-                    session_kind,
-                    tuple((d["cust_id"], d["name"]) for d in active_drivers),
-                )
-                if emit_key == self._last_emit_key:
-                    continue
-
-                self._last_emit_key = emit_key
-                logger.info(
-                    "Session update: subsession=%s kind=%s drivers=%s",
-                    subsession_id,
-                    session_kind,
-                    len(active_drivers),
-                )
-                self._emit_connection(True, subsession_id, session_kind)
-                self.drivers_updated.emit(active_drivers, subsession_id, session_kind)
+                if self._tick % _SESSION_INTERVAL_TICKS == 0:
+                    self._poll_session()
 
             except Exception:
                 logger.exception("Error reading iRacing SDK")

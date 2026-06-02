@@ -9,10 +9,10 @@ from PyQt6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem, Q
 from .appearance import get_theme_id
 from ..safety.safety_index import (
     SafetyIndex,
-    safety_tooltip,
     tier_qcolor,
     unknown_history_message,
 )
+from ..safety.safety_trend import SafetyTrend, combined_safety_tooltip
 from .a11y import driver_mark_label
 from .theme import table_row_color
 from ..core.utils import sqlite_row_to_int
@@ -21,6 +21,8 @@ PREF_DATA_ROLE = Qt.ItemDataRole.UserRole + 1
 RISK_DATA_ROLE = Qt.ItemDataRole.UserRole + 2
 SAFETY_TIER_DATA_ROLE = Qt.ItemDataRole.UserRole + 3
 SAFETY_SORT_DATA_ROLE = Qt.ItemDataRole.UserRole + 4
+SAFETY_TREND_DIRECTION_ROLE = Qt.ItemDataRole.UserRole + 5
+REAL_NAME_DATA_ROLE = Qt.ItemDataRole.UserRole + 6
 UNKNOWN_SAFETY_SORT = -1
 EMPTY_CELL = "—"
 
@@ -273,7 +275,10 @@ def make_note_item(has_note: bool) -> QTableWidgetItem:
     return item
 
 
-def make_safety_item(safety: SafetyIndex) -> QTableWidgetItem:
+def make_safety_item(
+    safety: SafetyIndex,
+    trend: SafetyTrend | None = None,
+) -> QTableWidgetItem:
     item = QTableWidgetItem()
     item.setFlags(item.flags() ^ Qt.ItemFlag.ItemIsEditable)
     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -285,11 +290,19 @@ def make_safety_item(safety: SafetyIndex) -> QTableWidgetItem:
         item.setToolTip(unknown_history_message(safety.total_races, for_table=True))
         item.setForeground(tier_qcolor("unknown"))
     else:
-        item.setText(f"{safety.score:.0f}")
+        text = f"{safety.score:.0f}"
+        if trend is not None and trend.arrow:
+            text = f"{text} {trend.arrow}"
+        item.setText(text)
         item.setData(Qt.ItemDataRole.EditRole, safety.score)
         item.setData(SAFETY_SORT_DATA_ROLE, safety.score)
-        item.setToolTip(safety_tooltip(safety))
-        item.setForeground(tier_qcolor(safety.tier))
+        item.setToolTip(combined_safety_tooltip(safety, trend))
+        trend_dir = trend.direction if trend is not None else ""
+        item.setData(SAFETY_TREND_DIRECTION_ROLE, trend_dir)
+        if trend is not None and trend.direction in ("improving", "worsening"):
+            item.setForeground(QColor(trend.color_hex))
+        else:
+            item.setForeground(tier_qcolor(safety.tier))
 
     font = item.font()
     font.setBold(True)
@@ -302,5 +315,9 @@ def reapply_safety_cell_style(table: QTableWidget, row_idx: int) -> None:
     if item is None:
         return
     tier = item.data(SAFETY_TIER_DATA_ROLE)
-    if tier:
+    trend_dir = item.data(SAFETY_TREND_DIRECTION_ROLE) or ""
+    if trend_dir in ("improving", "worsening"):
+        trend = SafetyTrend(trend_dir, None, None, 0)
+        item.setForeground(QColor(trend.color_hex))
+    elif tier:
         item.setForeground(tier_qcolor(tier))

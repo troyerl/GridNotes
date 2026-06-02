@@ -4,7 +4,24 @@ GridNotes is a desktop app for **iRacing driver scouting**. It keeps your notes,
 
 New versions are listed below with the newest first.
 
-When you push a tag (for example `v1.0.22`), the GitHub **Release** workflow uses the matching `## v…` section from this file as the release description on GitHub.
+When you push a tag (for example `v1.0.23`), the GitHub **Release** workflow uses the matching `## v…` section from this file as the release description on GitHub.
+
+---
+
+## v1.0.23 — 2026-06-02
+
+### Added
+
+- **Form guide** — Safety Index column and detail panel show a recent-form arrow (↗ ↘ →) comparing lifetime risk to the last five races; tooltips explain lifetime vs recent scores.
+- **Grid Walk** — Live Mode starting-grid view between qualifying and the race, with position order and Liked / Disliked / Risk marks; toggle in the Live Mode header.
+- **Audio spotter** — Optional Windows text-to-speech warnings when a disliked or high-risk driver is about 1.5 seconds behind you on a green-flag run (Settings → Live Mode and Live header toggle).
+- **Streamer mode** — Title-bar toggle replaces driver names on screen with stable aliases (e.g. `Driver #14 (Moderate risk)`) for streaming and screenshots; database and notes are unchanged. Modal progress while names are hidden or restored.
+- **Scouting guide** — Scrollable reference dialog for Safety Index tiers, form arrows, marks, and risk factors; open from **Scouting guide…** on the Drivers tab, **Guide** in the detail panel and Live Mode, or Settings → Maintenance.
+
+### Improved
+
+- **Settings** — Sidebar sections reorganized: **Appearance**, **Data** (retention, backup & restore, driver cleanup), **Live Mode** (audio spotter), and **Maintenance** (updates, help, uninstall).
+- **Driver table** — Search still matches real names while streamer mode is on (aliases shown in the grid); customer ID column hidden during streamer mode.
 
 ---
 

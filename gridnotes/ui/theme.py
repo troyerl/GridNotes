@@ -517,6 +517,35 @@ QLabel#sectionHint a {
     color: {{link}};
 }
 
+QPushButton#hintLinkBtn {
+    color: {{link}};
+    border: none;
+    padding: 2px 8px;
+    font-weight: 600;
+    background: transparent;
+}
+
+QPushButton#hintLinkBtn:hover {
+    text-decoration: underline;
+    background-color: {{bg_header}};
+}
+
+QTextBrowser#scoutingGuideBrowser {
+    background-color: {{bg_window}};
+    border: 1px solid {{border}};
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-size: 12px;
+    color: {{text_secondary}};
+}
+
+QTextBrowser#scoutingGuideBrowser h2 {
+    color: {{scrollbar_arrow_hover}};
+    font-size: 14px;
+    margin-top: 14px;
+    margin-bottom: 6px;
+}
+
 QWidget#liveCardsContainer {
     background: transparent;
 }
@@ -589,6 +618,92 @@ QPushButton#liveModeBtn[active="true"] {
     border-color: {{warning_accent}};
     color: {{warning_text}};
     font-weight: 700;
+}
+
+QPushButton#streamerModeBtn[active="true"] {
+    background-color: {{selection_bg}};
+    border-color: {{accent_border}};
+    color: {{text_heading}};
+    font-weight: 700;
+}
+
+QPushButton#liveGridWalkBtn[active="true"] {
+    background-color: {{accent}};
+    border-color: {{accent_border_light}};
+    color: {{text_on_accent}};
+    font-weight: 700;
+}
+
+/* --- Grid Walk --- */
+QWidget#gridWalkRoot {
+    background-color: {{live_root_bg}};
+}
+
+QLabel#gridWalkSummary {
+    font-size: 16px;
+    font-weight: 700;
+    color: {{text_heading}};
+}
+
+QScrollArea#gridWalkScroll {
+    background: transparent;
+    border: none;
+}
+
+QFrame#gridWalkRow {
+    background-color: {{live_card_bg}};
+    border: 1px solid {{live_card_border}};
+    border-radius: 8px;
+}
+
+QFrame#gridWalkRow[role="you"] {
+    background-color: {{selection_bg}};
+    border: 2px solid {{accent_border}};
+}
+
+QFrame#gridWalkRow[role="you"] QLabel#gridWalkName,
+QFrame#gridWalkRow[role="you"] QLabel#gridWalkPos {
+    color: {{text_on_accent}};
+    font-weight: 800;
+}
+
+QFrame#gridWalkRow[role="ahead"],
+QFrame#gridWalkRow[role="behind"] {
+    border: 2px solid {{warning_accent}};
+    background-color: {{warning_bg}};
+}
+
+QFrame#gridWalkRow[pref="dislike"] {
+    background-color: {{dislike_bg}};
+    border-color: {{danger_border}};
+}
+
+QFrame#gridWalkRow[risky="true"] {
+    border-left: 5px solid {{warning_text}};
+}
+
+QFrame#gridWalkRow:focus {
+    border: 2px solid {{focus_ring}};
+    outline: none;
+}
+
+QLabel#gridWalkPos {
+    font-size: 15px;
+    font-weight: 800;
+    color: {{text_muted}};
+}
+
+QLabel#gridWalkName {
+    font-size: 17px;
+    font-weight: 700;
+    color: {{text_heading}};
+}
+
+QLabel#gridWalkMark {
+    font-size: 13px;
+    font-weight: 700;
+    color: {{warning_text}};
+    min-width: 88px;
 }
 
 /* --- Safety Index panel --- */
@@ -796,6 +911,33 @@ QProgressBar#updateProgressBar::chunk {
 }
 
 QLabel#updateProgressStatus {
+    color: {{text_tab}};
+    font-size: 13px;
+}
+
+QDialog#streamerModeProgressDialog {
+    background-color: {{bg_window}};
+}
+
+QLabel#streamerModeProgressTitle {
+    font-size: 15px;
+    font-weight: 600;
+    color: {{text_heading}};
+}
+
+QProgressBar#streamerModeProgressBar {
+    border: 1px solid {{border}};
+    border-radius: 6px;
+    background-color: {{bg_elevated}};
+    min-height: 22px;
+}
+
+QProgressBar#streamerModeProgressBar::chunk {
+    background-color: {{accent}};
+    border-radius: 5px;
+}
+
+QLabel#streamerModeProgressStatus {
     color: {{text_tab}};
     font-size: 13px;
 }

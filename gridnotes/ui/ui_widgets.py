@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QSize, pyqtSignal
+from PyQt6.QtGui import QTextDocument
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QFrame,
@@ -48,6 +49,8 @@ class WrappingLabel(QLabel):
 class HtmlHintLabel(QLabel):
     """Word-wrapped label that supports simple HTML and external links."""
 
+    _HEIGHT_PAD = 8
+
     def __init__(self, html: str = "", parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("sectionHint")
@@ -59,25 +62,67 @@ class HtmlHintLabel(QLabel):
         )
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         self.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self._layout_width = -1
         if html:
             self.setText(html)
+
+    def setText(self, text: str) -> None:
+        super().setText(text)
+        self._layout_width = -1
+        self._apply_wrapped_height()
 
     def hasHeightForWidth(self) -> bool:
         return True
 
+    def _content_width(self) -> int:
+        width = self.width()
+        if width > 0:
+            return width
+        parent = self.parentWidget()
+        if parent is not None and parent.width() > 0:
+            margins = 24
+            return max(1, parent.width() - margins)
+        return 0
+
+    def _document_height(self, width: int) -> int:
+        doc = QTextDocument()
+        doc.setDefaultFont(self.font())
+        doc.setDocumentMargin(2)
+        doc.setHtml(self.text())
+        doc.setTextWidth(float(max(1, width)))
+        return int(doc.size().height())
+
     def heightForWidth(self, width: int) -> int:
         if width <= 0:
             return super().sizeHint().height()
-        doc = self.fontMetrics()
-        bounds = doc.boundingRect(
-            0,
-            0,
-            width,
-            10_000,
-            int(Qt.TextFlag.TextWordWrap),
-            self.text(),
-        )
-        return bounds.height() + 8
+        return self._document_height(width) + self._HEIGHT_PAD
+
+    def sizeHint(self) -> QSize:
+        width = self._content_width() or 320
+        return QSize(width, self.heightForWidth(width))
+
+    def minimumSizeHint(self) -> QSize:
+        return self.sizeHint()
+
+    def _apply_wrapped_height(self) -> None:
+        width = self._content_width()
+        if width <= 0:
+            return
+        need = self.heightForWidth(width)
+        if self.minimumHeight() != need:
+            self.setMinimumHeight(need)
+        self.updateGeometry()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        width = event.size().width()
+        if width > 0 and width != self._layout_width:
+            self._layout_width = width
+            self._apply_wrapped_height()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self._apply_wrapped_height()
 
 
 class AccordionSection(QFrame):
@@ -137,6 +182,10 @@ class AccordionSection(QFrame):
         expanded = self._header.isChecked()
         self._body.setVisible(expanded)
         self._sync_header_text()
+        if expanded:
+            self._label._apply_wrapped_height()
+            self._body.updateGeometry()
+            self.updateGeometry()
         self.toggled.emit(expanded)
 
 

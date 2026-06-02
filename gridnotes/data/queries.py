@@ -116,6 +116,60 @@ def table_data_for_cust_ids_sql(cust_ids: list[int]) -> tuple[str, list[int]]:
     return sql, cust_ids
 
 
+def fetch_recent_races_by_cust_ids(
+    conn,
+    cust_ids: list[int],
+    *,
+    limit: int = 5,
+) -> dict[int, list[tuple]]:
+    """
+    Last *limit* race results per driver (newest first).
+
+    Each value is a list of
+    (incidents, finish_position, starting_position, reason_out_id).
+    """
+    if not cust_ids or limit <= 0:
+        return {}
+
+    placeholders = ",".join("?" * len(cust_ids))
+    sql = f"""
+        WITH ranked AS (
+            SELECT
+                cust_id,
+                incidents,
+                finish_position,
+                starting_position,
+                reason_out_id,
+                ROW_NUMBER() OVER (
+                    PARTITION BY cust_id
+                    ORDER BY
+                        COALESCE(NULLIF(TRIM(race_at), ''), '1970-01-01') DESC,
+                        id DESC
+                ) AS rn
+            FROM race_results
+            WHERE cust_id IN ({placeholders})
+        )
+        SELECT
+            cust_id,
+            incidents,
+            finish_position,
+            starting_position,
+            reason_out_id
+        FROM ranked
+        WHERE rn <= ?
+        ORDER BY cust_id ASC, rn ASC
+    """
+    cursor = conn.cursor()
+    cursor.execute(sql, [*cust_ids, limit])
+
+    by_cust: dict[int, list[tuple]] = {cid: [] for cid in cust_ids}
+    for cust_id, incidents, finish, start, reason_out in cursor.fetchall():
+        by_cust[int(cust_id)].append(
+            (incidents, finish, start, reason_out)
+        )
+    return by_cust
+
+
 def driver_detail_sql() -> str:
     return f"""
         WITH agg AS (

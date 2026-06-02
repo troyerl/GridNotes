@@ -3,7 +3,7 @@ import os
 import sys
 from pathlib import Path
 
-from PyQt6.QtCore import QEvent, Qt, QTimer, QUrl
+from PyQt6.QtCore import QEvent, QEventLoop, Qt, QTimer, QUrl
 from PyQt6.QtGui import QDesktopServices, QFont, QKeySequence, QShortcut, QShowEvent, QTextCursor
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -45,6 +45,14 @@ from ..data.db import close_sqlite_connection, connect_db, get_setting, init_db,
 from ..data.driver_cleanup import count_zero_race_drivers, purge_zero_race_drivers
 from ..data.driver_models import DriverDetailRow, DriverTableRow, build_live_session_entries
 from ..ui.a11y import driver_mark_label, set_accessible
+from ..privacy.streamer_mode import (
+    STREAMER_MODE_KEY,
+    display_driver_name,
+    is_streamer_mode_enabled,
+    mask_cust_id_display,
+    streamer_detail_meta,
+    streamer_display_name,
+)
 from ..ui.driver_table import (
     COL_CUST_ID,
     COL_MARK,
@@ -55,6 +63,7 @@ from ..ui.driver_table import (
     COLUMN_COUNT,
     DRIVER_TABLE_HEADERS,
     PREF_DATA_ROLE,
+    REAL_NAME_DATA_ROLE,
     RESIZE_TO_CONTENTS_COLUMNS,
     RISK_DATA_ROLE,
     configure_driver_table_theme,
@@ -77,9 +86,21 @@ from ..iracing.iracing_data_api_config import is_auto_fetch_enabled
 from ..iracing.iracing_worker import IRacingWorker
 from ..iracing.iracing_import import sync_live_session_drivers
 from ..ui.live_session import LiveSessionView
-from ..data.queries import driver_detail_sql, table_data_for_cust_ids_sql, table_data_sql
+from ..ui.scouting_guide_dialog import show_scouting_guide
+from ..ui.streamer_mode_progress_dialog import StreamerModeProgressDialog
+from ..data.queries import (
+    driver_detail_sql,
+    fetch_recent_races_by_cust_ids,
+    table_data_for_cust_ids_sql,
+    table_data_sql,
+)
 from ..iracing.session_kind import is_live_scouting_session, is_race_session, session_kind_label
 from ..safety.safety_index import SafetyIndex, empty_safety, safety_tooltip
+from ..safety.safety_trend import (
+    SafetyTrend,
+    compute_safety_trend,
+    compute_safety_trends_for_cust_ids,
+)
 from ..ui.safety_widgets import SafetyIndexPanel
 from ..ui.settings_tab import SettingsTab
 from ..core.timestamps import format_last_seen_et
@@ -140,7 +161,20 @@ class GridNotesApp(QMainWindow):
         self._hover_row: int | None = None
         self._did_initial_column_resize = False
         self._live_mode_active = get_setting("live_mode", "0") == "1"
+        self._streamer_mode = is_streamer_mode_enabled(get_setting(STREAMER_MODE_KEY))
+        self._streamer_refresh_busy = False
+        self._streamer_progress_dialog: StreamerModeProgressDialog | None = None
         self._sdk_connected = False
+        from ..services.audio_spotter import (
+            AUDIO_SPOTTER_KEY,
+            AudioSpotterService,
+            is_audio_spotter_setting_enabled,
+        )
+
+        self._audio_spotter_enabled = is_audio_spotter_setting_enabled(
+            get_setting(AUDIO_SPOTTER_KEY)
+        )
+        self._audio_spotter = AudioSpotterService()
 
         init_db()
         self._db_conn = connect_db()
@@ -367,6 +401,58 @@ class GridNotesApp(QMainWindow):
         if not active:
             self.chk_current_race_only.setChecked(False)
 
+    def _show_scouting_guide(self) -> None:
+        show_scouting_guide(self)
+
+    def _toggle_streamer_mode(self) -> None:
+        if self._streamer_refresh_busy:
+            return
+        active = self.btn_streamer_mode.isChecked()
+        self._streamer_mode = active
+        set_setting(STREAMER_MODE_KEY, "1" if active else "0")
+        self._polish_property(self.btn_streamer_mode, "active", active)
+        self.app_subtitle.setText(
+            "Streamer mode — names hidden on screen"
+            if active
+            else "Driver scouting notes & race history"
+        )
+        if active:
+            self.search_input.setPlaceholderText("Search by alias (#14) or real name…")
+        else:
+            self.search_input.setPlaceholderText("Search by name…")
+        self._begin_streamer_mode_refresh(enabling=active)
+        QTimer.singleShot(0, self._complete_streamer_mode_toggle)
+
+    def _begin_streamer_mode_refresh(self, *, enabling: bool) -> None:
+        self._streamer_refresh_busy = True
+        self.btn_streamer_mode.setEnabled(False)
+        self._streamer_progress_dialog = StreamerModeProgressDialog(
+            self, enabling=enabling
+        )
+        self._streamer_progress_dialog.show()
+        QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
+
+    def _end_streamer_mode_refresh(self) -> None:
+        if self._streamer_progress_dialog is not None:
+            self._streamer_progress_dialog.close()
+            self._streamer_progress_dialog.deleteLater()
+            self._streamer_progress_dialog = None
+        self.btn_streamer_mode.setEnabled(True)
+        self._streamer_refresh_busy = False
+
+    def _complete_streamer_mode_toggle(self) -> None:
+        try:
+            self._refresh_streamer_displays()
+        finally:
+            self._end_streamer_mode_refresh()
+
+    def _refresh_streamer_displays(self) -> None:
+        self._invalidate_table_fingerprint()
+        self._refresh_ui_table_now(force=True)
+        if self.selected_cust_id is not None:
+            self._populate_driver_details(self.selected_cust_id)
+        self._refresh_live_session_view()
+
     def _toggle_live_mode(self) -> None:
         self._set_live_mode(self.btn_live_mode.isChecked())
 
@@ -383,6 +469,93 @@ class GridNotesApp(QMainWindow):
             set_setting("live_mode", "1" if active else "0")
         if active:
             self._refresh_live_session_view()
+        self._sync_audio_spotter_worker()
+        if not active:
+            self._audio_spotter.reset_tracking()
+            if hasattr(self, "live_session_view"):
+                self.live_session_view.set_grid_walk_mode(False, emit=False)
+            self._sync_grid_walk_worker()
+
+    def _on_grid_walk_toggled(self, active: bool) -> None:
+        self._sync_grid_walk_worker()
+        if active:
+            if self.worker is not None:
+                self.worker.request_grid_refresh()
+            self._refresh_grid_walk_view()
+        else:
+            self._refresh_live_session_view()
+
+    def _sync_grid_walk_worker(self) -> None:
+        if self.worker is None:
+            return
+        enabled = self._live_mode_active and self.live_session_view.is_grid_walk_mode()
+        self.worker.set_grid_walk_enabled(enabled)
+
+    def _refresh_grid_walk_view(self) -> None:
+        if not hasattr(self, "live_session_view") or not self.live_session_view.is_grid_walk_mode():
+            return
+        if self.worker is not None and self._sdk_connected:
+            self.worker.request_grid_refresh()
+            return
+        entries = self._build_live_session_entries()
+        by_cust = {int(e["cust_id"]): e for e in entries}
+        self.live_session_view.update_grid(
+            [], None, by_cust, streamer_mode=self._streamer_mode
+        )
+
+    def _on_grid_updated(self, slots: list, player_cust_id) -> None:
+        if not self._live_mode_active or not self.live_session_view.is_grid_walk_mode():
+            return
+        entries = self._build_live_session_entries()
+        by_cust = {int(e["cust_id"]): e for e in entries}
+        cust_id = int(player_cust_id) if player_cust_id is not None else None
+        self.live_session_view.update_grid(
+            slots, cust_id, by_cust, streamer_mode=self._streamer_mode
+        )
+
+    def _on_audio_spotter_setting_changed(self, enabled: bool) -> None:
+        if self._audio_spotter_enabled == enabled:
+            return
+        self._audio_spotter_enabled = enabled
+        set_setting(AUDIO_SPOTTER_KEY, "1" if enabled else "0")
+        if hasattr(self, "settings_tab"):
+            self.settings_tab.set_audio_spotter_enabled(enabled)
+        if hasattr(self, "live_session_view"):
+            self.live_session_view.set_audio_spotter_enabled(enabled)
+        self._sync_audio_spotter_worker()
+        if not enabled:
+            self._audio_spotter.reset_tracking()
+
+    def _sync_audio_spotter_worker(self) -> None:
+        if self.worker is None:
+            return
+        active = (
+            self._live_mode_active
+            and self._audio_spotter_enabled
+            and sys.platform == "win32"
+        )
+        self.worker.set_spotter_enabled(active)
+
+    def _on_spotter_car_behind(self, cust_id: int, gap: float) -> None:
+        from ..services.audio_spotter import load_spotter_driver
+
+        if not self._live_mode_active or not self._audio_spotter_enabled:
+            return
+        info = load_spotter_driver(self._db_conn, int(cust_id))
+        if info is None:
+            return
+        logger.info(
+            "Spotter: car behind cust_id=%s gap=%.2fs name=%s",
+            cust_id,
+            gap,
+            info.name,
+        )
+        announce_name = None
+        if self._streamer_mode:
+            announce_name = streamer_display_name(int(cust_id), info.safety)
+        self._audio_spotter.maybe_announce(
+            int(cust_id), info, announce_name=announce_name
+        )
 
     def _build_live_session_entries(self) -> list[dict]:
         if not self.active_cust_ids:
@@ -391,11 +564,27 @@ class GridNotesApp(QMainWindow):
         sql, params = table_data_for_cust_ids_sql(sorted(self.active_cust_ids))
         cursor.execute(sql, params)
         rows = [DriverTableRow.from_sql_row(row) for row in cursor.fetchall()]
-        return build_live_session_entries(
+        entries = build_live_session_entries(
             self.active_cust_ids,
             self.active_driver_names,
             rows,
         )
+        lifetime_by_cust = {
+            int(e["cust_id"]): e["safety"]
+            for e in entries
+            if isinstance(e.get("safety"), SafetyIndex) and e["safety"].tier != "unknown"
+        }
+        trends = compute_safety_trends_for_cust_ids(self._db_conn, lifetime_by_cust)
+        for entry in entries:
+            entry["safety_trend"] = trends.get(int(entry["cust_id"]))
+        if self._streamer_mode:
+            for entry in entries:
+                cid = int(entry["cust_id"])
+                safety = entry.get("safety")
+                if not isinstance(safety, SafetyIndex):
+                    safety = None
+                entry["name"] = streamer_display_name(cid, safety)
+        return entries
 
     def _refresh_live_session_view(self) -> None:
         if not hasattr(self, "live_session_view"):
@@ -410,7 +599,10 @@ class GridNotesApp(QMainWindow):
             persist_drivers=is_race_session(self.current_session_kind),
         )
         if self._sdk_connected and scouting and self.active_cust_ids:
-            self.live_session_view.rebuild_if_changed(self._build_live_session_entries())
+            if self.live_session_view.is_grid_walk_mode():
+                self._refresh_grid_walk_view()
+            else:
+                self.live_session_view.rebuild_if_changed(self._build_live_session_entries())
 
     def _on_live_driver_clicked(self, cust_id: int) -> None:
         self._set_live_mode(False)
@@ -449,10 +641,16 @@ class GridNotesApp(QMainWindow):
         last_seen_fmt = format_last_seen_et(detail.last_seen_at)
         breakdown = detail.dnf_breakdown
 
-        self.driver_name_label.setText(detail.name or "Unknown driver")
-        self.driver_meta_label.setText(
-            f"ID {cust_id}  ·  Last raced {last_seen_fmt} ET"
-        )
+        if self._streamer_mode:
+            self.driver_name_label.setText(
+                streamer_display_name(cust_id, detail.safety)
+            )
+            self.driver_meta_label.setText(streamer_detail_meta(last_seen_fmt=last_seen_fmt))
+        else:
+            self.driver_name_label.setText(detail.name or "Unknown driver")
+            self.driver_meta_label.setText(
+                f"ID {cust_id}  ·  Last raced {last_seen_fmt} ET"
+            )
         self._set_detail_field("series", detail.last_series)
         self._set_detail_field("avg_finish", detail.avg_fin)
         self._set_detail_field("avg_incidents", detail.avg_inc)
@@ -462,7 +660,11 @@ class GridNotesApp(QMainWindow):
         self._set_detail_field("avg_pos_delta", detail.avg_pos_delta)
         self._set_detail_field("dnfs", detail.dnf_total)
         self._set_detail_field("dnf_breakdown", breakdown if breakdown else None)
-        self.safety_index_panel.update_safety(detail.safety)
+        recent = fetch_recent_races_by_cust_ids(
+            self._db_conn, [cust_id], limit=5
+        )
+        trend = compute_safety_trend(detail.safety, recent.get(cust_id, []))
+        self.safety_index_panel.update_safety(detail.safety, trend)
 
     def _set_driver_panel_enabled(self, enabled: bool) -> None:
         self.empty_state_label.setVisible(not enabled)
@@ -485,12 +687,28 @@ class GridNotesApp(QMainWindow):
         title_block.setSpacing(2)
         app_title = QLabel("GridNotes")
         app_title.setObjectName("appTitle")
-        app_subtitle = QLabel("Driver scouting notes & race history")
-        app_subtitle.setObjectName("appSubtitle")
+        self.app_subtitle = QLabel("Driver scouting notes & race history")
+        self.app_subtitle.setObjectName("appSubtitle")
         title_block.addWidget(app_title)
-        title_block.addWidget(app_subtitle)
+        title_block.addWidget(self.app_subtitle)
         header.addLayout(title_block)
         header.addStretch()
+        self.btn_streamer_mode = QPushButton("Streamer mode")
+        self.btn_streamer_mode.setObjectName("streamerModeBtn")
+        self.btn_streamer_mode.setCheckable(True)
+        self.btn_streamer_mode.setChecked(self._streamer_mode)
+        self.btn_streamer_mode.setToolTip(
+            "Replace driver names with aliases on screen (e.g. Driver #14). "
+            "Your database and notes are not changed."
+        )
+        self.btn_streamer_mode.clicked.connect(self._toggle_streamer_mode)
+        self._polish_property(self.btn_streamer_mode, "active", self._streamer_mode)
+        if self._streamer_mode:
+            self.app_subtitle.setText("Streamer mode — names hidden on screen")
+        header.addWidget(
+            self.btn_streamer_mode,
+            alignment=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+        )
         self.status_label = QLabel("Waiting for iRacing…")
         self.status_label.setObjectName("statusBadge")
         self._set_status(STATUS_WAITING, "Waiting for iRacing…")
@@ -588,7 +806,11 @@ class GridNotesApp(QMainWindow):
         self.search_input = QLineEdit()
         search_label = QLabel("Search drivers")
         search_label.setBuddy(self.search_input)
-        self.search_input.setPlaceholderText("Search by name…")
+        self.search_input.setPlaceholderText(
+            "Search by alias (#14) or real name…"
+            if self._streamer_mode
+            else "Search by name…"
+        )
         self.search_input.setClearButtonEnabled(True)
         self.search_input.textChanged.connect(self.apply_driver_filters)
         controls_layout.addWidget(search_label, 1, 0)
@@ -608,11 +830,19 @@ class GridNotesApp(QMainWindow):
         self.btn_save_ignore.clicked.connect(self.save_ignore_name)
         controls_layout.addWidget(self.btn_save_ignore, 2, 2, 1, 2)
 
+        self.btn_scouting_guide = QPushButton("Scouting guide…")
+        self.btn_scouting_guide.setToolTip(
+            "Safety Index, form arrows (↗ ↘ →), liked/disliked/risk marks, and risk factors"
+        )
+        self.btn_scouting_guide.clicked.connect(self._show_scouting_guide)
+        controls_layout.addWidget(self.btn_scouting_guide, 2, 0, 1, 2)
+
         left_layout.addWidget(controls_group)
 
         drivers_label = QLabel(
             "Drivers — select a row for notes (arrow keys, Enter)  ·  "
-            "Mark column shows Liked, Disliked, or Risk  ·  scroll horizontally for all columns"
+            "Mark: Liked, Disliked, or Risk  ·  Safety Index may show form arrows (↗ ↘)  ·  "
+            "open Scouting guide for details"
         )
         drivers_label.setObjectName("sectionHint")
         left_layout.addWidget(drivers_label)
@@ -677,6 +907,7 @@ class GridNotesApp(QMainWindow):
         detail_layout.addWidget(self.driver_meta_label)
 
         self.safety_index_panel = SafetyIndexPanel()
+        self.safety_index_panel.guide_requested.connect(self._show_scouting_guide)
         detail_layout.addWidget(self.safety_index_panel)
 
         series_title = QLabel("Series")
@@ -808,7 +1039,21 @@ class GridNotesApp(QMainWindow):
 
         self.live_session_view = LiveSessionView()
         self.live_session_view.driver_clicked.connect(self._on_live_driver_clicked)
+        self.live_session_view.audio_spotter_changed.connect(
+            self._on_audio_spotter_setting_changed
+        )
+        self.live_session_view.grid_walk_toggled.connect(self._on_grid_walk_toggled)
+        self.live_session_view.scouting_guide_requested.connect(self._show_scouting_guide)
+        self.live_session_view.set_audio_spotter_enabled(self._audio_spotter_enabled)
+        if sys.platform != "win32":
+            self.live_session_view.chk_audio_spotter.setEnabled(False)
         self.view_stack.addWidget(self.live_session_view)
+
+        self.settings_tab.audio_spotter_changed.connect(
+            self._on_audio_spotter_setting_changed
+        )
+        if sys.platform != "win32":
+            self.settings_tab.chk_audio_spotter.setEnabled(False)
 
         self._set_live_mode(self._live_mode_active, persist=False)
 
@@ -838,6 +1083,11 @@ class GridNotesApp(QMainWindow):
         )
         set_accessible(self.btn_save_ignore, "Save hidden name")
         set_accessible(
+            self.btn_scouting_guide,
+            "Scouting guide",
+            "Open reference for Safety Index, form arrows, marks, and risk factors.",
+        )
+        set_accessible(
             self.btn_import,
             "Import race JSON",
             "Import iRacing event result JSON or custom race logs.",
@@ -856,6 +1106,11 @@ class GridNotesApp(QMainWindow):
             self.btn_live_mode,
             "Live Mode",
             "Switch to high-contrast live session view for in-race scouting.",
+        )
+        set_accessible(
+            self.btn_streamer_mode,
+            "Streamer mode",
+            "Replace driver names with aliases on screen. Database unchanged.",
         )
         set_accessible(self.status_label, "iRacing connection status")
         set_accessible(
@@ -969,20 +1224,27 @@ class GridNotesApp(QMainWindow):
 
         for row in range(self.table.rowCount()):
             name_item = self.table.item(row, COL_NAME)
-            name = (name_item.text() if name_item else "").strip()
-            name_lc = name.lower()
+            display_name = (name_item.text() if name_item else "").strip()
+            display_lc = display_name.lower()
+            real_name = ""
+            if name_item is not None:
+                stored = name_item.data(REAL_NAME_DATA_ROLE)
+                if stored is not None:
+                    real_name = str(stored).strip()
+            name_lc = (real_name or display_name).lower()
 
             hidden = False
-            if q and q not in name_lc:
+            if q and q not in name_lc and q not in display_lc:
                 hidden = True
             if ignore_name and name_lc == ignore_name:
                 hidden = True
             if current_only:
-                cust_item = self.table.item(row, COL_CUST_ID)
-                try:
-                    cust_id = int(cust_item.text()) if cust_item else None
-                except Exception:
-                    cust_id = None
+                cust_id = None
+                if name_item is not None:
+                    try:
+                        cust_id = int(name_item.data(Qt.ItemDataRole.UserRole))
+                    except (TypeError, ValueError):
+                        cust_id = None
                 if cust_id is None or cust_id not in self.active_cust_ids:
                     hidden = True
             self.table.setRowHidden(row, hidden)
@@ -1035,7 +1297,11 @@ class GridNotesApp(QMainWindow):
         self.worker = worker
         self.worker.connection_changed.connect(self.handle_sdk_connection)
         self.worker.drivers_updated.connect(self.handle_sdk_update)
+        self.worker.spotter_car_behind.connect(self._on_spotter_car_behind)
+        self.worker.grid_updated.connect(self._on_grid_updated)
         self.worker.start()
+        self._sync_audio_spotter_worker()
+        self._sync_grid_walk_worker()
         self._update_live_session_filter(active=False, hint=MSG_SESSION_NOT_CONNECTED)
 
     def _session_status_label(self, driver_count: int) -> str:
@@ -1332,6 +1598,8 @@ class GridNotesApp(QMainWindow):
             self._apply_update_worker.wait(120000)
         if self.worker is not None:
             self.worker.stop()
+        if hasattr(self, "_audio_spotter"):
+            self._audio_spotter.stop()
 
     def _release_resources_before_exit(self) -> None:
         """Close DB and log files so uninstall/update can remove user or app data."""
@@ -1558,7 +1826,9 @@ class GridNotesApp(QMainWindow):
         self._last_table_fingerprint = None
 
     def _table_data_fingerprint(self, rows: list[tuple]) -> tuple:
-        return tuple(
+        return (
+            self._streamer_mode,
+            tuple(
             (
                 row[8],  # cust_id
                 row[0],  # name
@@ -1572,6 +1842,7 @@ class GridNotesApp(QMainWindow):
                 row[6],  # last_series
             )
             for row in rows
+            ),
         )
 
     def _refresh_ui_table_now(self, *, force: bool = False) -> None:
@@ -1588,14 +1859,27 @@ class GridNotesApp(QMainWindow):
         if was_sorting:
             self.table.setSortingEnabled(False)
 
+        trends = self._safety_trends_for_table_rows(rows)
+
         self._clear_table_row_hover()
         self.table.setUpdatesEnabled(False)
         self.table.blockSignals(True)
         try:
             self.table.setRowCount(row_count)
             for row_idx, row_data in enumerate(rows):
-                display_row, cust_id, pref, risky, risky_tip, safety = self._build_display_row(row_data)
-                self._render_table_row(row_idx, display_row, cust_id, pref, risky=risky, safety=safety)
+                display_row, cust_id, pref, risky, risky_tip, safety, real_name = (
+                    self._build_display_row(row_data)
+                )
+                self._render_table_row(
+                    row_idx,
+                    display_row,
+                    cust_id,
+                    pref,
+                    risky=risky,
+                    safety=safety,
+                    trend=trends.get(cust_id),
+                    real_name=real_name,
+                )
                 if risky:
                     self._apply_risky_row_style(row_idx, risky_tip)
         finally:
@@ -1638,9 +1922,12 @@ class GridNotesApp(QMainWindow):
         selected_cust_id = self.selected_cust_id
         self.table.setUpdatesEnabled(False)
         self.table.blockSignals(True)
+        trends = self._safety_trends_for_table_rows(new_rows)
         try:
             for row_data in sorted(new_rows, key=lambda row: (row[0] or "").lower(), reverse=True):
-                display_row, cust_id, pref, risky, risky_tip, safety = self._build_display_row(row_data)
+                display_row, cust_id, pref, risky, risky_tip, safety, real_name = (
+                    self._build_display_row(row_data)
+                )
                 insert_at = self._find_insert_row(display_row[COL_NAME])
                 self.table.insertRow(insert_at)
                 self._render_table_row(
@@ -1650,6 +1937,8 @@ class GridNotesApp(QMainWindow):
                     pref,
                     risky=risky,
                     safety=safety,
+                    trend=trends.get(cust_id),
+                    real_name=real_name,
                 )
                 if risky:
                     self._apply_risky_row_style(insert_at, risky_tip)
@@ -1668,14 +1957,33 @@ class GridNotesApp(QMainWindow):
         cursor.execute(table_data_sql())
         return cursor.fetchall()
 
-    def _build_display_row(self, row_data: tuple) -> tuple[list, int, int | None, bool, str, SafetyIndex]:
+    def _safety_trends_for_table_rows(
+        self, row_data_list: list[tuple]
+    ) -> dict[int, SafetyTrend]:
+        lifetime_by_cust: dict[int, SafetyIndex] = {}
+        for row_data in row_data_list:
+            driver = DriverTableRow.from_sql_row(row_data)
+            if driver.safety.tier != "unknown":
+                lifetime_by_cust[driver.cust_id] = driver.safety
+        return compute_safety_trends_for_cust_ids(self._db_conn, lifetime_by_cust)
+
+    def _build_display_row(
+        self, row_data: tuple
+    ) -> tuple[list, int, int | None, bool, str, SafetyIndex, str]:
         driver = DriverTableRow.from_sql_row(row_data)
         safety = driver.safety
         breakdown = driver.dnf_breakdown or "—"
         risky_tooltip = safety_tooltip(safety) if safety.risky else ""
+        display_name = display_driver_name(
+            driver.cust_id,
+            driver.name,
+            safety,
+            streamer_mode=self._streamer_mode,
+            compact_table=True,
+        )
         return (
             [
-                driver.name,
+                display_name,
                 driver_mark_label(driver.race_preference, safety.risky),
                 driver.total_races,
                 safety.score if safety.tier != "unknown" else None,
@@ -1688,13 +1996,14 @@ class GridNotesApp(QMainWindow):
                 driver.last_series,
                 breakdown,
                 driver.has_notes,
-                driver.cust_id,
+                mask_cust_id_display(driver.cust_id, streamer_mode=self._streamer_mode),
             ],
             driver.cust_id,
             driver.race_preference,
             safety.risky,
             risky_tooltip,
             safety,
+            driver.name,
         )
 
     def _render_table_row(
@@ -1705,10 +2014,12 @@ class GridNotesApp(QMainWindow):
         pref: int | None = None,
         risky: bool = False,
         safety: SafetyIndex | None = None,
+        trend: SafetyTrend | None = None,
+        real_name: str = "",
     ) -> None:
         for col_idx, value in enumerate(display_row):
             if col_idx == COL_SAFETY and safety is not None:
-                item = make_safety_item(safety)
+                item = make_safety_item(safety, trend)
             elif col_idx == COL_MARK:
                 item = make_mark_item(pref, risky)
             elif col_idx == COL_NOTE:
@@ -1717,8 +2028,11 @@ class GridNotesApp(QMainWindow):
                 item = make_table_item(value)
             if col_idx == COL_NAME:
                 item.setData(Qt.ItemDataRole.UserRole, cust_id)
+                item.setData(REAL_NAME_DATA_ROLE, real_name or display_row[COL_NAME])
                 item.setData(PREF_DATA_ROLE, pref)
                 item.setData(RISK_DATA_ROLE, 1 if risky else 0)
+                if self._streamer_mode:
+                    item.setToolTip("Streamer mode — real name hidden on screen")
             self.table.setItem(row_idx, col_idx, item)
 
     def _apply_risky_row_style(self, row_idx: int, tooltip: str) -> None:

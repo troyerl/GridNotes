@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -10,12 +10,15 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QProgressBar,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
+from .a11y import set_accessible
 from .appearance import get_theme_id
 from ..safety.safety_index import MIN_RACES_FOR_SCORE, SafetyIndex, tier_color_hex
+from ..safety.safety_trend import SafetyTrend
 from .theme import safety_progress_bar_style
 
 
@@ -35,6 +38,8 @@ def _tier_label(tier: str) -> str:
 class SafetyIndexPanel(QGroupBox):
     """Visual breakdown of Grid Safety Index in the details panel."""
 
+    guide_requested = pyqtSignal()
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__("Grid Safety Index", parent)
 
@@ -48,10 +53,25 @@ class SafetyIndexPanel(QGroupBox):
         self.score_label.setObjectName("safetyScoreValue")
         self.tier_label = QLabel("")
         self.tier_label.setObjectName("safetyTierBadge")
+        self.trend_label = QLabel("")
+        self.trend_label.setObjectName("safetyTrendArrow")
         header.addWidget(self.score_label)
+        header.addWidget(self.trend_label)
         header.addWidget(self.tier_label)
         header.addStretch()
+        self.btn_guide = QPushButton("Guide")
+        self.btn_guide.setObjectName("hintLinkBtn")
+        self.btn_guide.setFlat(True)
+        self.btn_guide.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_guide.setToolTip("Open scouting guide (Safety Index, form arrows, marks)")
+        self.btn_guide.clicked.connect(self.guide_requested.emit)
+        header.addWidget(self.btn_guide)
         layout.addLayout(header)
+        set_accessible(
+            self.btn_guide,
+            "Scouting guide",
+            "Open reference for Safety Index, form arrows, and marks.",
+        )
 
         self.overall_bar = QProgressBar()
         self.overall_bar.setObjectName("safetyOverallBar")
@@ -111,18 +131,26 @@ class SafetyIndexPanel(QGroupBox):
         layout.addWidget(self.reasons_label)
 
         self._last_safety: SafetyIndex | None = None
+        self._last_trend: SafetyTrend | None = None
 
     def refresh_theme(self) -> None:
         if self._last_safety is not None:
-            self.update_safety(self._last_safety)
+            self.update_safety(self._last_safety, self._last_trend)
 
-    def update_safety(self, safety: SafetyIndex) -> None:
+    def update_safety(
+        self,
+        safety: SafetyIndex,
+        trend: SafetyTrend | None = None,
+    ) -> None:
         self._last_safety = safety
+        self._last_trend = trend
         color = _bar_color(safety.tier)
 
         if safety.tier == "unknown":
             self.score_label.setText("—")
             self.tier_label.setText("")
+            self.trend_label.setText("")
+            self.trend_label.setToolTip("")
             self.overall_bar.setValue(0)
             self.overall_bar.setFormat(f"Need {MIN_RACES_FOR_SCORE}+ races")
             self.profile_label.setText(safety.profile)
@@ -136,6 +164,17 @@ class SafetyIndexPanel(QGroupBox):
 
         self.score_label.setText(f"{safety.score:.0f}")
         self.score_label.setStyleSheet(f"color: {color};")
+        if trend is not None and trend.arrow:
+            self.trend_label.setText(trend.arrow)
+            trend_color = trend.color_hex if trend.direction in ("improving", "worsening") else color
+            self.trend_label.setStyleSheet(
+                f"color: {trend_color}; font-size: 18px; font-weight: 700; padding: 0 4px;"
+            )
+            self.trend_label.setToolTip("\n".join(trend.tooltip_lines()))
+        else:
+            self.trend_label.setText("")
+            self.trend_label.setStyleSheet("")
+            self.trend_label.setToolTip("")
         self.tier_label.setText(_tier_label(safety.tier))
         self.tier_label.setStyleSheet(
             f"color: {color}; font-weight: 700; padding-left: 8px;"
