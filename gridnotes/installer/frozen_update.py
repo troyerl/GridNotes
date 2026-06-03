@@ -12,6 +12,11 @@ from pathlib import Path
 import requests
 
 from ..services.app_update import REQUEST_TIMEOUT_SEC, _GITHUB_HEADERS, _normalize_tag
+from .logic import (
+    needs_elevated_windows_update,
+    windows_update_pointer_batch_lines,
+    windows_update_relaunch_batch_lines,
+)
 from .portable_update import (
     ProgressCallback,
     _append_update_log,
@@ -108,6 +113,8 @@ def _write_frozen_apply_batch(
     dest = str(install_root.resolve())
     log_file = str(log_path.resolve())
     exe = str((install_root / "GridNotes.exe").resolve())
+    pointer_lines = "".join(windows_update_pointer_batch_lines(install_root))
+    relaunch_block = "\r\n".join(windows_update_relaunch_batch_lines(install_root))
     bat_path.write_text(
         "@echo off\r\n"
         "setlocal EnableExtensions\r\n"
@@ -122,19 +129,25 @@ def _write_frozen_apply_batch(
         "  ping -n 2 127.0.0.1 >nul\r\n"
         "  goto wait_pid\r\n"
         ")\r\n"
-        "ping -n 5 127.0.0.1 >nul\r\n"
+        "ping -n 8 127.0.0.1 >nul\r\n"
+        'echo [%date% %time%] Preparing destination folder...>>"%LOG%"\r\n'
+        'if exist "%DEST%\\GridNotes.exe" (\r\n'
+        '  del /f /q "%DEST%\\GridNotes.exe.old" 2>nul\r\n'
+        '  move /y "%DEST%\\GridNotes.exe" "%DEST%\\GridNotes.exe.old" 2>nul\r\n'
+        ")\r\n"
         'echo [%date% %time%] Copying application files...>>"%LOG%"\r\n'
-        'robocopy "%SRC%" "%DEST%" /E /NFL /NDL /NJH /NJS /NC /NS\r\n'
+        'robocopy "%SRC%" "%DEST%" /E /NFL /NDL /NJH /NJS /NC /NS /R:2 /W:2\r\n'
         "set \"ROBOCOPY_CODE=%ERRORLEVEL%\"\r\n"
         'echo [%date% %time%] robocopy exit code %ROBOCOPY_CODE%>>"%LOG%"\r\n'
         "if %ROBOCOPY_CODE% GEQ 8 (\r\n"
         '  echo [%date% %time%] robocopy failed>>"%LOG%"\r\n'
         "  goto cleanup\r\n"
         ")\r\n"
+        'del /f /q "%DEST%\\GridNotes.exe.old" 2>nul\r\n'
         f'echo {release_version}>"%DEST%\\.gridnotes-version"\r\n'
-        'echo [%date% %time%] Relaunching GridNotes...>>"%LOG%"\r\n'
-        f'start "" /D "{dest}" "{exe}"\r\n'
-        "ping -n 2 127.0.0.1 >nul\r\n"
+        f"{pointer_lines}"
+        'echo [%date% %time%] Update finished>>"%LOG%"\r\n'
+        f"{relaunch_block}\r\n"
         ":cleanup\r\n"
         f'rd /s /q "{src}" 2>nul\r\n'
         "del \"%~f0\"\r\n",
@@ -208,11 +221,21 @@ def apply_frozen_update(
         log_path=log_path,
         release_version=version,
     )
-    _write_windows_apply_launcher(vbs_path, bat_path)
+    _write_windows_apply_launcher(
+        vbs_path,
+        bat_path,
+        elevate=needs_elevated_windows_update(install_root),
+    )
     _append_update_log(f"Scheduled frozen update batch: {bat_path}")
+    time.sleep(0.5)
     _launch_windows_updater(bat_path, vbs_path)
     report("Closing GridNotes to finish installing…", 100)
     from .user_messages import portable_update_scheduled_message
 
+    message = portable_update_scheduled_message()
+    if needs_elevated_windows_update(install_root):
+        message += (
+            "\n\nWindows may ask once for permission to finish installing in the background."
+        )
     _append_update_log(f"Update log: {log_path}")
-    return True, portable_update_scheduled_message(), False
+    return True, message, False

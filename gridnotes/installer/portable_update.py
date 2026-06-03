@@ -20,6 +20,7 @@ import requests
 from .logic import (
     VENV_DIR_NAME,
     copy_source_to_install_root,
+    needs_elevated_windows_update,
     relaunch_gridnotes,
     venv_python,
     windows_update_relaunch_batch_lines,
@@ -238,8 +239,18 @@ def _write_windows_apply_batch(
     )
 
 
-def _write_windows_apply_launcher(vbs_path: Path, bat_path: Path) -> None:
+def _write_windows_apply_launcher(
+    vbs_path: Path, bat_path: Path, *, elevate: bool = False
+) -> None:
     bat_cmd = str(bat_path.resolve())
+    if elevate:
+        escaped = bat_cmd.replace('"', '""')
+        vbs_path.write_text(
+            'Set launcher = CreateObject("Shell.Application")\r\n'
+            f'launcher.ShellExecute "cmd.exe", "/c ""{escaped}""", "", "runas", 0\r\n',
+            encoding="utf-8",
+        )
+        return
     vbs_path.write_text(
         'Set shell = CreateObject("WScript.Shell")\r\n'
         f'shell.Run "cmd.exe /c ""{bat_cmd}""", 0, False\r\n',
@@ -333,7 +344,11 @@ def apply_portable_update(
             log_path=log_path,
             release_version=version,
         )
-        _write_windows_apply_launcher(vbs_path, bat_path)
+        _write_windows_apply_launcher(
+            vbs_path,
+            bat_path,
+            elevate=needs_elevated_windows_update(install_root),
+        )
         _append_update_log(f"Scheduled update batch: {bat_path}")
         _launch_windows_updater(bat_path, vbs_path)
         report("Closing GridNotes to finish installing…", 100)

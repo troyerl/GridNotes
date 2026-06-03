@@ -5,11 +5,16 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import time
 from pathlib import Path
 
 import requests
 
 from ..services.app_update import REQUEST_TIMEOUT_SEC, _GITHUB_HEADERS, _normalize_tag
+from .logic import (
+    windows_update_pointer_batch_lines,
+    windows_update_relaunch_batch_lines,
+)
 from .frozen_update import download_release_file
 from .portable_update import (
     ProgressCallback,
@@ -23,6 +28,7 @@ from .update_paths import prune_old_update_workspaces, update_log_path, update_w
 logger = logging.getLogger(__name__)
 
 # Inno Setup silent flags (see Inno Setup /VERYSILENT documentation).
+# /NORESTART — we relaunch GridNotes from the batch after a successful install.
 _INNO_SILENT_FLAGS = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS"
 
 
@@ -87,12 +93,14 @@ def apply_installer_update(
     _write_installer_apply_batch(
         bat_path,
         setup_exe=setup_path,
+        install_root=install_root,
         wait_pid=pid,
         log_path=log_path,
         release_version=version,
     )
     _write_windows_apply_launcher(vbs_path, bat_path)
     _append_update_log(f"Scheduled installer update batch: {bat_path}")
+    time.sleep(0.5)
     _launch_windows_updater(bat_path, vbs_path)
     report("Closing GridNotes to finish installing…", 100)
     from .user_messages import portable_update_scheduled_message
@@ -105,16 +113,21 @@ def _write_installer_apply_batch(
     bat_path: Path,
     *,
     setup_exe: Path,
+    install_root: Path,
     wait_pid: int,
     log_path: Path,
     release_version: str,
 ) -> None:
     setup = str(setup_exe.resolve())
+    dest = str(install_root.resolve())
     log_file = str(log_path.resolve())
+    pointer_lines = "".join(windows_update_pointer_batch_lines(install_root))
+    relaunch_block = "\r\n".join(windows_update_relaunch_batch_lines(install_root))
     bat_path.write_text(
         "@echo off\r\n"
         "setlocal EnableExtensions\r\n"
         f'set "SETUP={setup}"\r\n'
+        f'set "DEST={dest}"\r\n'
         f'set "LOG={log_file}"\r\n'
         f"set \"WAITPID={wait_pid}\"\r\n"
         f'echo [%date% %time%] GridNotes installer update started>>"%LOG%"\r\n'
@@ -126,9 +139,14 @@ def _write_installer_apply_batch(
         ")\r\n"
         "ping -n 3 127.0.0.1 >nul\r\n"
         f'echo [%date% %time%] Running silent installer for v{release_version}>>"%LOG%"\r\n'
-        f'"%SETUP%" {_INNO_SILENT_FLAGS} /LOG="{log_file}.inno.txt"\r\n'
+        f'"%SETUP%" {_INNO_SILENT_FLAGS} /DIR="%DEST%" /LOG="{log_file}.inno.txt"\r\n'
         "set \"SETUP_CODE=%ERRORLEVEL%\"\r\n"
         'echo [%date% %time%] Installer exit code %SETUP_CODE%>>"%LOG%"\r\n'
+        "if not %SETUP_CODE%==0 goto cleanup\r\n"
+        f'echo {release_version}>"%DEST%\\.gridnotes-version"\r\n'
+        f"{pointer_lines}"
+        'echo [%date% %time%] Installer update finished>>"%LOG%"\r\n'
+        f"{relaunch_block}\r\n"
         ":cleanup\r\n"
         f'del /f /q "{setup}" 2>nul\r\n'
         "del \"%~f0\"\r\n",

@@ -152,6 +152,11 @@ def install_path_under_program_files(path: Path) -> bool:
     return False
 
 
+def needs_elevated_windows_update(install_root: Path) -> bool:
+    """True when the background updater must run elevated to replace Program Files."""
+    return install_path_under_program_files(install_root) and not is_windows_admin()
+
+
 def permission_denied_install_message(install_root: Path) -> str:
     from .user_messages import permission_denied_message
 
@@ -938,6 +943,14 @@ def windows_update_relaunch_batch_lines(install_root: Path) -> list[str]:
 
     lines.append("ping -n 2 127.0.0.1 >nul")
     return lines
+
+
+def windows_update_pointer_batch_lines(install_root: Path) -> list[str]:
+    """Batch lines to sync install-path.txt after an in-app update."""
+    return [
+        'if not exist "%LOCALAPPDATA%\\GridNotes" mkdir "%LOCALAPPDATA%\\GridNotes" 2>nul\r\n',
+        '<nul set /p="%DEST%">"%LOCALAPPDATA%\\GridNotes\\install-path.txt"\r\n',
+    ]
 
 
 def write_uninstaller_scripts(root: Path, venv_dir: Path) -> list[Path]:

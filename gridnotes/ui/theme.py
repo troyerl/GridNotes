@@ -868,6 +868,15 @@ QWidget#settingsContent QLineEdit:focus {
     border-color: {{accent_border}};
 }
 
+QWidget#settingsContent QLineEdit#noteTagInput {
+    background: transparent;
+    background-color: transparent;
+}
+
+QWidget#settingsContent QLineEdit#noteTagInput:focus {
+    border-color: {{accent_border}};
+}
+
 QComboBox#settingsCombo {
     background-color: {{bg_window}};
     color: {{text_primary}};

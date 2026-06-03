@@ -217,7 +217,10 @@ def portable_update_scheduled_message() -> str:
 def portable_update_failed_message() -> str:
     return (
         "The update could not be completed.\n\n"
-        "Check your internet connection and try again from Settings → Check for updates."
+        "Check your internet connection and try again from Settings → Check for updates.\n\n"
+        "If the problem continues, open "
+        "%APPDATA%\\GridNotes\\gridnotes-update.log for details, or install the latest "
+        "GridNotes-Setup.exe from GitHub Releases."
     )
 
 

@@ -10,6 +10,20 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.39 — 2026-06-02
+
+### Improved
+
+- **Quick note tags** — Chip label and note inputs in **Settings → Quick note tags** use a transparent background so they blend with the panel instead of a filled box.
+
+### Fixed
+
+- **In-app update on Windows** — **Update now** again closes GridNotes briefly, applies the update in the background, and reopens automatically (same flow as before). Program Files installs request elevation when needed so files can be replaced; the app relaunches when finished and syncs the install pointer and version marker.
+- **Installer fallback** — When only **GridNotes-Setup.exe** is available, the silent installer targets your existing install folder and relaunches GridNotes afterward.
+- **Update diagnostics** — Failed updates point you to `%APPDATA%\\GridNotes\\gridnotes-update.log` for details.
+
+---
+
 ## v1.0.38 — 2026-06-02
 
 ### Improved

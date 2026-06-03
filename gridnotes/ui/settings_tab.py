@@ -576,6 +576,7 @@ class SettingsTab(QWidget):
         row.setSpacing(8)
 
         label_edit = QLineEdit()
+        label_edit.setObjectName("noteTagInput")
         label_edit.setPlaceholderText("e.g. Clean")
         label_edit.setClearButtonEnabled(True)
         label_edit.setMaxLength(MAX_CHIP_LABEL_LENGTH)
@@ -584,6 +585,7 @@ class SettingsTab(QWidget):
         row.addWidget(label_edit, stretch=2)
 
         desc_edit = QLineEdit()
+        desc_edit.setObjectName("noteTagInput")
         desc_edit.setPlaceholderText("Optional longer note")
         desc_edit.setClearButtonEnabled(True)
         desc_edit.setMaxLength(MAX_DESCRIPTION_LENGTH)
