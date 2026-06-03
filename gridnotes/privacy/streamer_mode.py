@@ -68,10 +68,11 @@ def display_driver_name(
     return (real_name or "").strip() or "—"
 
 
-def streamer_detail_meta(*, last_seen_fmt: str) -> str:
+def streamer_detail_meta(*, last_seen_fmt: str, tz_label: str = "") -> str:
     """Detail panel subtitle while streamer mode is on (no cust ID or real name)."""
     if last_seen_fmt and last_seen_fmt != "—":
-        return f"Streamer mode · Last raced {last_seen_fmt} ET"
+        suffix = f" {tz_label}" if tz_label else ""
+        return f"Streamer mode · Last raced {last_seen_fmt}{suffix}"
     return "Streamer mode · Real names hidden on screen"
 
 

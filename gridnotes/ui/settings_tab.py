@@ -43,6 +43,12 @@ from ..data.note_tags import (
 from ..data.db import connect_db, get_data_dir_path, get_db_file_size, get_db_path, get_setting, set_setting
 from ..installer.uninstall import resolve_install_root
 from ..data.driver_cleanup import count_zero_race_drivers
+from ..core.timezone_settings import (
+    detect_system_timezone,
+    get_saved_timezone,
+    set_display_timezone,
+    timezone_combo_entries,
+)
 from ..app.feature_flags import iracing_data_api_auto_import_enabled
 from ..iracing.iracing_data_api import package_available, package_unavailable_reason
 from ..iracing.iracing_data_api_config import (
@@ -105,7 +111,7 @@ class SettingsTab(QWidget):
         self.btn_save_settings = QPushButton("Save settings")
         self.btn_save_settings.setObjectName("primaryBtn")
         self.btn_save_settings.setToolTip(
-            "Save appearance, retention, quick note tags, update, and OAuth token settings"
+            "Save appearance, timezone, retention, quick note tags, update, and OAuth token settings"
         )
         self.btn_save_settings.clicked.connect(self._save_settings)
         header_layout.addWidget(self.btn_save_settings)
@@ -320,8 +326,39 @@ class SettingsTab(QWidget):
         layout.setSpacing(12)
 
         layout.addWidget(
-            self._section_hint("Choose light or dark colors for the whole application.")
+            self._section_hint(
+                "Choose light or dark colors and how race dates and times are shown."
+            )
         )
+
+        timezone_group = QGroupBox("Timezone")
+        timezone_layout = QVBoxLayout(timezone_group)
+        timezone_layout.setSpacing(10)
+
+        timezone_layout.addWidget(
+            self._section_hint(
+                "Last raced and similar timestamps use this zone. "
+                "System default follows your PC clock (currently "
+                f"{detect_system_timezone().replace('_', ' ')})."
+            )
+        )
+
+        tz_label = QLabel("Display times in")
+        tz_label.setObjectName("statInlineLabel")
+        timezone_layout.addWidget(tz_label)
+
+        self.timezone_combo = QComboBox()
+        self.timezone_combo.setObjectName("settingsCombo")
+        for value, label in timezone_combo_entries():
+            self.timezone_combo.addItem(label, value)
+        saved = get_saved_timezone()
+        pick = saved if saved is not None else ""
+        tz_idx = self.timezone_combo.findData(pick)
+        self.timezone_combo.setCurrentIndex(tz_idx if tz_idx >= 0 else 0)
+        self.timezone_combo.currentIndexChanged.connect(self._on_settings_edited)
+        timezone_layout.addWidget(self.timezone_combo)
+
+        layout.addWidget(timezone_group)
 
         theme_group = QGroupBox("Color theme")
         theme_layout = QVBoxLayout(theme_group)
@@ -761,10 +798,15 @@ class SettingsTab(QWidget):
         value = self.theme_combo.currentData()
         return value if value else get_theme_id()
 
+    def current_timezone_value(self) -> str:
+        value = self.timezone_combo.currentData()
+        return "" if value is None else str(value)
+
     def _current_settings_snapshot(self) -> tuple[str, ...]:
         snapshot: list[str] = [
             self.current_retention_value(),
             self.current_theme_value(),
+            self.current_timezone_value(),
             "1" if self.chk_auto_check_updates.isChecked() else "0",
             "|".join(self._note_tags_snapshot()),
         ]
@@ -787,6 +829,7 @@ class SettingsTab(QWidget):
         self.btn_save_settings.setEnabled(self._settings_have_unsaved_changes())
 
     def _connect_settings_change_handlers(self) -> None:
+        self.timezone_combo.currentIndexChanged.connect(self._on_settings_edited)
         self.retention_combo.currentIndexChanged.connect(self._on_settings_edited)
         self.chk_auto_check_updates.stateChanged.connect(self._on_settings_edited)
         if iracing_data_api_auto_import_enabled():
@@ -1070,6 +1113,8 @@ class SettingsTab(QWidget):
     def _save_settings(self) -> None:
         set_setting(SETTING_KEY, self.current_retention_value())
         set_theme_id(self.current_theme_value())
+        tz = self.current_timezone_value()
+        set_display_timezone(tz if tz else None)
         set_setting(
             AUTO_CHECK_UPDATES_KEY,
             "1" if self.chk_auto_check_updates.isChecked() else "0",

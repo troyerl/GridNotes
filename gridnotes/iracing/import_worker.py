@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import dataclass, field
 
 from PyQt6.QtCore import QThread, pyqtSignal
@@ -32,6 +33,7 @@ class ImportWorker(QThread):
 
     finished = pyqtSignal(object)  # ImportJobResult
     failed = pyqtSignal(str)
+    file_progress = pyqtSignal(int, int, str)  # current, total, basename
 
     def __init__(self, file_paths: list[str], parent=None) -> None:
         super().__init__(parent)
@@ -49,8 +51,12 @@ class ImportWorker(QThread):
             cursor = conn.cursor()
             conn.execute("BEGIN")
 
-            for file_path in self._file_paths:
+            total_files = len(self._file_paths)
+            for index, file_path in enumerate(self._file_paths, start=1):
                 result.total_files += 1
+                self.file_progress.emit(
+                    index, total_files, os.path.basename(file_path) or file_path
+                )
                 try:
                     with open(file_path, "r", encoding="utf-8") as f:
                         data = json.load(f)

@@ -93,6 +93,7 @@ from ..iracing.iracing_worker import IRacingWorker
 from ..iracing.iracing_import import sync_live_session_drivers
 from ..ui.live_session import LiveSessionView
 from ..ui.scouting_guide_dialog import show_scouting_guide
+from ..ui.import_progress_dialog import ImportProgressDialog
 from ..ui.streamer_mode_progress_dialog import StreamerModeProgressDialog
 from ..data.queries import (
     driver_detail_sql,
@@ -109,7 +110,7 @@ from ..safety.safety_trend import (
 )
 from ..ui.safety_widgets import SafetyIndexPanel
 from ..ui.settings_tab import SettingsTab
-from ..core.timestamps import format_last_seen_et
+from ..core.timestamps import display_timezone_abbrev, format_last_seen
 from ..ui.theme import (
     STATUS_CONNECTED,
     STATUS_OFFLINE,
@@ -131,8 +132,6 @@ MSG_SESSION_NOT_CONNECTED = (
 )
 
 # Full table rebuild when more drivers changed than this after import.
-_IMPORT_FULL_REFRESH_THRESHOLD = 150
-
 
 class GridNotesApp(QMainWindow):
     def __init__(self):
@@ -152,6 +151,7 @@ class GridNotesApp(QMainWindow):
         self.selected_cust_id = None
         self.worker = None
         self._import_worker: ImportWorker | None = None
+        self._import_progress_dialog: ImportProgressDialog | None = None
         self._api_test_worker: ApiConnectionTestWorker | None = None
         self._update_check_worker: UpdateCheckWorker | None = None
         self._apply_update_worker: ApplyAppUpdateWorker | None = None
@@ -681,18 +681,21 @@ class GridNotesApp(QMainWindow):
             return
 
         detail = DriverDetailRow.from_sql_row(row)
-        last_seen_fmt = format_last_seen_et(detail.last_seen_at)
+        last_seen_fmt = format_last_seen(detail.last_seen_at)
+        tz_label = display_timezone_abbrev()
         breakdown = detail.dnf_breakdown
 
         if self._streamer_mode:
             self.driver_name_label.setText(
                 self._streamer_session_display_name(cust_id, detail.safety)
             )
-            self.driver_meta_label.setText(streamer_detail_meta(last_seen_fmt=last_seen_fmt))
+            self.driver_meta_label.setText(
+                streamer_detail_meta(last_seen_fmt=last_seen_fmt, tz_label=tz_label)
+            )
         else:
             self.driver_name_label.setText(detail.name or "—")
             self.driver_meta_label.setText(
-                f"ID {cust_id}  ·  Last raced {last_seen_fmt} ET"
+                f"ID {cust_id}  ·  Last raced {last_seen_fmt} {tz_label}"
             )
         self._set_detail_field("series", detail.last_series)
         self._set_detail_field("avg_finish", detail.avg_fin)
@@ -1195,6 +1198,8 @@ class GridNotesApp(QMainWindow):
     def _on_settings_saved(self) -> None:
         self._rebuild_note_template_buttons()
         deleted = self._run_data_retention_purge(show_status=True)
+        if self.selected_cust_id is not None:
+            self._populate_driver_details(self.selected_cust_id)
         if deleted and self.selected_cust_id is not None:
             row = self._row_for_cust_id(self.selected_cust_id)
             if row is None:
@@ -2042,6 +2047,10 @@ class GridNotesApp(QMainWindow):
                 )
                 if risky:
                     self._apply_risky_row_style(row_idx, risky_tip)
+                if row_idx and row_idx % 25 == 0:
+                    QApplication.processEvents(
+                        QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents
+                    )
         finally:
             self.table.blockSignals(False)
             self.table.setUpdatesEnabled(True)
@@ -2058,7 +2067,7 @@ class GridNotesApp(QMainWindow):
         affected_cust_ids: set[int],
         retention_deleted: int,
     ) -> None:
-        if retention_deleted or len(affected_cust_ids) > _IMPORT_FULL_REFRESH_THRESHOLD:
+        if retention_deleted:
             self._refresh_ui_table_now(force=True)
         elif affected_cust_ids:
             self._sync_table_rows_for_cust_ids(list(affected_cust_ids))
@@ -2347,15 +2356,33 @@ class GridNotesApp(QMainWindow):
 
         self.btn_import.setEnabled(False)
         self._set_status(STATUS_WAITING, "Importing race data…")
-        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        self._begin_import_progress(file_paths)
 
         self._import_worker = ImportWorker(file_paths, self)
+        self._import_worker.file_progress.connect(self._on_import_file_progress)
         self._import_worker.finished.connect(self._on_import_finished)
         self._import_worker.failed.connect(self._on_import_failed)
         self._import_worker.start()
 
+    def _begin_import_progress(self, file_paths: list[str]) -> None:
+        self._import_progress_dialog = ImportProgressDialog(
+            self, file_count=len(file_paths)
+        )
+        self._import_progress_dialog.show()
+        QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
+
+    def _on_import_file_progress(self, current: int, total: int, filename: str) -> None:
+        if self._import_progress_dialog is not None:
+            self._import_progress_dialog.set_file_progress(current, total, filename)
+
+    def _end_import_progress(self) -> None:
+        if self._import_progress_dialog is not None:
+            self._import_progress_dialog.close()
+            self._import_progress_dialog.deleteLater()
+            self._import_progress_dialog = None
+
     def _finish_import_ui(self) -> None:
-        QApplication.restoreOverrideCursor()
+        self._end_import_progress()
         self.btn_import.setEnabled(True)
         if self._sdk_connected:
             self._set_status(STATUS_CONNECTED, "Connected to iRacing")
@@ -2363,35 +2390,62 @@ class GridNotesApp(QMainWindow):
             self._set_status(STATUS_OFFLINE, "Not connected to iRacing")
 
     def _on_import_failed(self, message: str) -> None:
-        self._finish_import_ui()
-        show_critical(
-            self,
-            "Import Failed",
-            f"The import could not be completed.\n\n{message}",
-        )
+        try:
+            if self._import_progress_dialog is not None:
+                self._import_progress_dialog.set_status("Import failed.")
+                QApplication.processEvents(
+                    QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents
+                )
+            show_critical(
+                self,
+                "Import Failed",
+                f"The import could not be completed.\n\n{message}",
+            )
+        finally:
+            self._finish_import_ui()
 
     def _on_import_finished(self, result: ImportJobResult) -> None:
-        self._finish_import_ui()
-        QTimer.singleShot(0, lambda: self._complete_import_finished(result))
+        QTimer.singleShot(0, lambda r=result: self._complete_import_finished(r))
 
     def _complete_import_finished(self, result: ImportJobResult) -> None:
-        if result.retention_deleted and self.selected_cust_id is not None:
-            row = self._row_for_cust_id(self.selected_cust_id)
-            if row is None:
-                self.selected_cust_id = None
-                self._clear_driver_details()
-                self._set_driver_panel_enabled(False)
-                self.table.clearSelection()
-            elif int(self.selected_cust_id) not in result.affected_cust_ids:
-                self._populate_driver_details(self.selected_cust_id)
+        try:
+            if self._import_progress_dialog is not None:
+                self._import_progress_dialog.set_finalizing()
+                QApplication.processEvents(
+                    QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents
+                )
 
-        self._refresh_table_after_import(
-            affected_cust_ids=result.affected_cust_ids,
-            retention_deleted=result.retention_deleted,
-        )
-        if hasattr(self, "settings_tab"):
-            self.settings_tab.refresh_storage_info()
+            try:
+                self._db_conn.commit()
+            except Exception:
+                pass
 
+            if result.retention_deleted and self.selected_cust_id is not None:
+                row = self._row_for_cust_id(self.selected_cust_id)
+                if row is None:
+                    self.selected_cust_id = None
+                    self._clear_driver_details()
+                    self._set_driver_panel_enabled(False)
+                    self.table.clearSelection()
+                elif int(self.selected_cust_id) not in result.affected_cust_ids:
+                    self._populate_driver_details(self.selected_cust_id)
+
+            self._refresh_table_after_import(
+                affected_cust_ids=result.affected_cust_ids,
+                retention_deleted=result.retention_deleted,
+            )
+            if hasattr(self, "settings_tab"):
+                self.settings_tab.refresh_storage_info()
+
+            QApplication.processEvents(
+                QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents
+            )
+
+            self._show_import_result_dialogs(result)
+        finally:
+            self._finish_import_ui()
+
+    def _show_import_result_dialogs(self, result: ImportJobResult) -> None:
         total_files = result.total_files
         total_races_imported = result.total_races_imported
         total_results_imported = result.total_results_imported

@@ -970,6 +970,33 @@ QLabel#updateProgressStatus {
     font-size: 13px;
 }
 
+QDialog#importProgressDialog {
+    background-color: {{bg_window}};
+}
+
+QLabel#importProgressTitle {
+    font-size: 15px;
+    font-weight: 600;
+    color: {{text_heading}};
+}
+
+QProgressBar#importProgressBar {
+    border: 1px solid {{border}};
+    border-radius: 6px;
+    background-color: {{bg_elevated}};
+    min-height: 22px;
+}
+
+QProgressBar#importProgressBar::chunk {
+    background-color: {{accent}};
+    border-radius: 5px;
+}
+
+QLabel#importProgressStatus {
+    color: {{text_tab}};
+    font-size: 13px;
+}
+
 QDialog#streamerModeProgressDialog {
     background-color: {{bg_window}};
 }

@@ -10,6 +10,19 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.37 — 2026-06-02
+
+### Improved
+
+- **Display timezone** — **Settings → Appearance** lets you choose a timezone or use **System default** (your PC’s zone). Last-raced times and labels use that zone instead of a fixed US Eastern time.
+- **JSON import progress** — Importing race JSON shows a modal progress dialog with per-file status while data is loaded.
+
+### Fixed
+
+- **JSON import freeze** — The progress dialog stays open until the driver table finishes updating. Large imports update only changed rows instead of rebuilding the entire table, so the app stays responsive and new data appears when import completes.
+
+---
+
 ## v1.0.36 — 2026-06-02
 
 ### Fixed

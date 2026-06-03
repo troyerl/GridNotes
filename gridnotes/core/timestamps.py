@@ -2,42 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
-from functools import lru_cache
+from datetime import datetime, timezone
+
+from .timezone_settings import display_zone_info, display_timezone_abbrev
 
 _UTC = timezone.utc
-
-
-@lru_cache(maxsize=1)
-def _eastern_tz():
-    """US Eastern timezone; works in dev and PyInstaller builds with bundled tzdata."""
-    try:
-        from zoneinfo import ZoneInfo
-
-        return ZoneInfo("America/New_York")
-    except Exception:
-        pass
-
-    # PyInstaller: zoneinfo may need explicit TZPATH to bundled tzdata files.
-    try:
-        import os
-        import sys
-        from zoneinfo import ZoneInfo
-
-        if getattr(sys, "frozen", False):
-            base = getattr(sys, "_MEIPASS", "")
-            for subpath in ("tzdata/zoneinfo", "zoneinfo"):
-                tz_root = os.path.join(base, subpath)
-                if os.path.isdir(tz_root):
-                    existing = os.environ.get("TZPATH", "")
-                    paths = [p for p in (existing, tz_root) if p]
-                    os.environ["TZPATH"] = os.pathsep.join(paths)
-                    return ZoneInfo("America/New_York")
-    except Exception:
-        pass
-
-    # Last resort: fixed EST (no DST). Better than crashing the app.
-    return timezone(timedelta(hours=-5))
 
 
 def parse_race_timestamp(value) -> datetime | None:
@@ -75,17 +44,30 @@ def parse_race_timestamp(value) -> datetime | None:
     return None
 
 
-def format_last_seen_et(value) -> str:
-    """Format timestamp as MM/DD/YYYY h:mm AM/PM in US Eastern Time."""
+def format_last_seen(value) -> str:
+    """Format timestamp as MM/DD/YYYY h:mm AM/PM in the user's display timezone."""
     dt = parse_race_timestamp(value)
     if dt is None:
         return "N/A"
 
     try:
-        et = dt.astimezone(_eastern_tz())
+        local = dt.astimezone(display_zone_info())
     except Exception:
         return "N/A"
 
-    hour = et.hour % 12 or 12
-    am_pm = "AM" if et.hour < 12 else "PM"
-    return f"{et.month:02d}/{et.day:02d}/{et.year} {hour}:{et.minute:02d} {am_pm}"
+    hour = local.hour % 12 or 12
+    am_pm = "AM" if local.hour < 12 else "PM"
+    return f"{local.month:02d}/{local.day:02d}/{local.year} {hour}:{local.minute:02d} {am_pm}"
+
+
+def format_last_seen_et(value) -> str:
+    """Backward-compatible alias for :func:`format_last_seen`."""
+    return format_last_seen(value)
+
+
+__all__ = [
+    "display_timezone_abbrev",
+    "format_last_seen",
+    "format_last_seen_et",
+    "parse_race_timestamp",
+]
