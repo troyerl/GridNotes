@@ -650,6 +650,17 @@ QScrollArea#gridWalkScroll {
     border: none;
 }
 
+QFrame#gridWalkPairRow {
+    background: transparent;
+    border: none;
+}
+
+QFrame#gridWalkLane {
+    background-color: {{live_card_border}};
+    border: none;
+    margin: 4px 0;
+}
+
 QFrame#gridWalkRow {
     background-color: {{live_card_bg}};
     border: 1px solid {{live_card_border}};
@@ -668,7 +679,7 @@ QFrame#gridWalkRow[role="you"] QLabel#gridWalkPos {
 }
 
 QFrame#gridWalkRow[role="ahead"],
-QFrame#gridWalkRow[role="behind"] {
+QFrame#gridWalkRow[role="beside"] {
     border: 2px solid {{warning_accent}};
     background-color: {{warning_bg}};
 }

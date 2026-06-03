@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -18,9 +19,27 @@ from ..safety.safety_index import SafetyIndex
 from .a11y import driver_mark_label, set_accessible
 from .theme import configure_scroll_area
 
+# Even-side cars sit half a row back, like a real staggered grid.
+_EVEN_COLUMN_STAGGER_PX = 20
+
+
+def grid_highlight_positions(player_position: int) -> tuple[int | None, int | None]:
+    """
+    Grid neighbors to highlight for the player.
+
+    Returns (ahead_in_column, beside_in_row). Example: P5 -> (3, 6).
+    """
+    beside = (
+        player_position + 1
+        if player_position % 2 == 1
+        else player_position - 1
+    )
+    ahead = player_position - 2 if player_position > 2 else None
+    return ahead, beside
+
 
 class GridWalkRow(QFrame):
-    """One row on the starting grid."""
+    """One car slot on the starting grid (left = odd, right = even)."""
 
     clicked = pyqtSignal(int)
 
@@ -30,6 +49,7 @@ class GridWalkRow(QFrame):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._cust_id: int | None = None
+        self._active = False
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(14, 10, 14, 10)
@@ -51,20 +71,39 @@ class GridWalkRow(QFrame):
         layout.addWidget(self.mark_label)
 
     def _activate(self) -> None:
-        if self._cust_id is not None:
+        if self._active and self._cust_id is not None:
             self.clicked.emit(self._cust_id)
 
     def mousePressEvent(self, event) -> None:
-        if event.button() == Qt.MouseButton.LeftButton:
+        if self._active and event.button() == Qt.MouseButton.LeftButton:
             self._activate()
         super().mousePressEvent(event)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
-        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+        if (
+            self._active
+            and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space)
+        ):
             self._activate()
             event.accept()
             return
         super().keyPressEvent(event)
+
+    def clear_slot(self) -> None:
+        self._cust_id = None
+        self._active = False
+        self.pos_label.setText("")
+        self.name_label.setText("")
+        self.mark_label.setText("")
+        self.setProperty("role", "")
+        self.setProperty("pref", "")
+        self.setProperty("risky", "false")
+        self.setProperty("side", "")
+        self.setCursor(Qt.CursorShape.ArrowCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setVisible(False)
+        self.style().unpolish(self)
+        self.style().polish(self)
 
     def set_slot(
         self,
@@ -75,8 +114,13 @@ class GridWalkRow(QFrame):
         pref: int | None,
         risky: bool,
         role: str,
+        side: str,
     ) -> None:
         self._cust_id = cust_id
+        self._active = True
+        self.setVisible(True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.pos_label.setText(f"P{position}")
         self.name_label.setText(name)
 
@@ -86,10 +130,12 @@ class GridWalkRow(QFrame):
         self.setProperty("role", role)
         self.setProperty("pref", "like" if pref == 1 else ("dislike" if pref == -1 else ""))
         self.setProperty("risky", "true" if risky and pref != -1 else "false")
+        self.setProperty("side", side)
 
         set_accessible(
             self,
-            f"Grid position {position}, {name}" + (f", {mark}" if mark else ""),
+            f"Grid position {position}, {side} side, {name}"
+            + (f", {mark}" if mark else ""),
             "Press Enter to open scouting notes.",
         )
 
@@ -97,8 +143,69 @@ class GridWalkRow(QFrame):
         self.style().polish(self)
 
 
+class GridWalkPairRow(QFrame):
+    """One grid row: odd position on the left, even on the right (staggered)."""
+
+    driver_clicked = pyqtSignal(int)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("gridWalkPairRow")
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+
+        self.left_row = GridWalkRow()
+        self.left_row.clicked.connect(self.driver_clicked.emit)
+        layout.addWidget(self.left_row, stretch=1)
+
+        lane = QFrame()
+        lane.setObjectName("gridWalkLane")
+        lane.setFixedWidth(2)
+        lane.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+        layout.addWidget(lane)
+
+        self.right_host = QWidget()
+        right_layout = QVBoxLayout(self.right_host)
+        right_layout.setContentsMargins(0, _EVEN_COLUMN_STAGGER_PX, 0, 0)
+        right_layout.setSpacing(0)
+        self.right_row = GridWalkRow()
+        self.right_row.clicked.connect(self.driver_clicked.emit)
+        right_layout.addWidget(self.right_row)
+        right_layout.addStretch()
+        layout.addWidget(self.right_host, stretch=1)
+
+    def set_pair(
+        self,
+        *,
+        left: dict | None,
+        right: dict | None,
+    ) -> None:
+        if left is None:
+            self.left_row.clear_slot()
+        else:
+            self.left_row.set_slot(**left, side="left")
+
+        if right is None:
+            self.right_row.clear_slot()
+            self.right_host.setVisible(False)
+        else:
+            self.right_host.setVisible(True)
+            self.right_row.set_slot(**right, side="right")
+
+    @property
+    def rows(self) -> list[GridWalkRow]:
+        out: list[GridWalkRow] = []
+        if self.left_row._active:
+            out.append(self.left_row)
+        if self.right_row._active:
+            out.append(self.right_row)
+        return out
+
+
 class GridWalkView(QWidget):
-    """Vertical starting grid with emphasis on your row and adjacent cars."""
+    """Staggered starting grid with odd positions on the left."""
 
     driver_clicked = pyqtSignal(int)
 
@@ -117,8 +224,8 @@ class GridWalkView(QWidget):
         root.addWidget(self.summary_label)
 
         self.hint_label = QLabel(
-            "Cars directly ahead and behind you are highlighted. "
-            "Tap a row to open notes."
+            "The car ahead in your column and beside you on the grid are highlighted. "
+            "Tap a car to open notes."
         )
         self.hint_label.setObjectName("sectionHint")
         self.hint_label.setWordWrap(True)
@@ -135,16 +242,65 @@ class GridWalkView(QWidget):
         self.rows_host.setObjectName("gridWalkRows")
         self.rows_layout = QVBoxLayout(self.rows_host)
         self.rows_layout.setContentsMargins(16, 4, 16, 16)
-        self.rows_layout.setSpacing(4)
+        self.rows_layout.setSpacing(6)
 
         self.scroll.setWidget(self.rows_host)
         configure_scroll_area(self.scroll, page_step=96)
         root.addWidget(self.scroll, stretch=1)
 
+        self._pair_rows: list[GridWalkPairRow] = []
         self._rows: list[GridWalkRow] = []
         self._last_key: tuple | None = None
 
-        set_accessible(self.scroll, "Starting grid", "Starting order with risk marks for each driver.")
+        set_accessible(
+            self.scroll,
+            "Starting grid",
+            "Two-column starting grid with odd positions on the left.",
+        )
+
+    def _slot_payload(
+        self,
+        slot: dict,
+        *,
+        player_cust_id: int | None,
+        player_position: int | None,
+        entries_by_cust: dict[int, dict],
+        streamer_mode: bool,
+    ) -> dict:
+        position = int(slot["position"])
+        cust_id = int(slot["cust_id"])
+        meta = entries_by_cust.get(cust_id, {})
+        pref = meta.get("pref")
+        safety = meta.get("safety")
+        if streamer_mode:
+            safety_obj = safety if isinstance(safety, SafetyIndex) else None
+            name = str(
+                meta.get("name") or streamer_display_name(cust_id, safety_obj)
+            )
+        else:
+            name = str(slot.get("name") or f"Driver {cust_id}")
+        risky = False
+        if isinstance(safety, SafetyIndex):
+            risky = safety.risky or safety.tier == "high"
+
+        role = "default"
+        if player_cust_id is not None and cust_id == player_cust_id:
+            role = "you"
+        elif player_position is not None:
+            grid_ahead, grid_beside = grid_highlight_positions(player_position)
+            if grid_ahead is not None and position == grid_ahead:
+                role = "ahead"
+            elif position == grid_beside:
+                role = "beside"
+
+        return {
+            "position": position,
+            "cust_id": cust_id,
+            "name": name,
+            "pref": pref if pref in (1, -1) else None,
+            "risky": risky,
+            "role": role,
+        }
 
     def rebuild(
         self,
@@ -184,11 +340,15 @@ class GridWalkView(QWidget):
         else:
             self.summary_label.setText(f"Starting grid — {total} drivers")
 
-        ahead_risk = behind_risk = False
+        ahead_risk = beside_risk = False
         if player_position is not None:
+            grid_ahead, grid_beside = grid_highlight_positions(player_position)
+            neighbor_positions = {
+                p for p in (grid_ahead, grid_beside) if p is not None
+            }
             for slot in slots:
                 pos = int(slot["position"])
-                if abs(pos - player_position) != 1:
+                if pos not in neighbor_positions:
                     continue
                 meta = entries_by_cust.get(int(slot["cust_id"]), {})
                 pref = meta.get("pref")
@@ -198,28 +358,34 @@ class GridWalkView(QWidget):
                     and (safety.risky or safety.tier == "high")
                 )
                 if pref == -1 or risky:
-                    if pos < player_position:
+                    if pos == grid_ahead:
                         ahead_risk = True
-                    else:
-                        behind_risk = True
+                    elif pos == grid_beside:
+                        beside_risk = True
 
-        if ahead_risk and behind_risk:
+        if ahead_risk and beside_risk:
             self.hint_label.setText(
-                "Warning: flagged drivers are starting directly ahead and behind you."
+                "Warning: flagged drivers are ahead in your column and beside you on the grid."
             )
         elif ahead_risk:
-            self.hint_label.setText("Warning: a flagged driver starts directly ahead of you.")
-        elif behind_risk:
-            self.hint_label.setText("Warning: a flagged driver starts directly behind you.")
+            self.hint_label.setText(
+                "Warning: a flagged driver is in the row ahead on your side of the grid."
+            )
+        elif beside_risk:
+            self.hint_label.setText(
+                "Warning: a flagged driver starts beside you on the grid."
+            )
         else:
             self.hint_label.setText(
-                "Cars directly ahead and behind you are highlighted. Tap a row to open notes."
+                "The car ahead in your column and beside you on the grid are highlighted. "
+                "Tap a car to open notes."
             )
 
         while self.rows_layout.count():
             item = self.rows_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
+        self._pair_rows.clear()
         self._rows.clear()
 
         if not slots:
@@ -231,44 +397,47 @@ class GridWalkView(QWidget):
             self.rows_layout.addStretch()
             return
 
-        for slot in slots:
-            position = int(slot["position"])
-            cust_id = int(slot["cust_id"])
-            meta = entries_by_cust.get(cust_id, {})
-            pref = meta.get("pref")
-            safety = meta.get("safety")
-            if streamer_mode:
-                safety_obj = safety if isinstance(safety, SafetyIndex) else None
-                name = str(
-                    meta.get("name")
-                    or streamer_display_name(cust_id, safety_obj)
+        by_position = {
+            int(slot["position"]): slot
+            for slot in slots
+            if slot.get("position") is not None
+        }
+        max_pos = max(by_position)
+        pair_count = (max_pos + 1) // 2
+
+        for pair_idx in range(pair_count):
+            odd_pos = pair_idx * 2 + 1
+            even_pos = odd_pos + 1
+
+            left_payload = None
+            if odd_pos in by_position:
+                left_payload = self._slot_payload(
+                    by_position[odd_pos],
+                    player_cust_id=player_cust_id,
+                    player_position=player_position,
+                    entries_by_cust=entries_by_cust,
+                    streamer_mode=streamer_mode,
                 )
-            else:
-                name = str(slot.get("name") or f"Driver {cust_id}")
-            risky = False
-            if isinstance(safety, SafetyIndex):
-                risky = safety.risky or safety.tier == "high"
 
-            role = "default"
-            if player_cust_id is not None and cust_id == player_cust_id:
-                role = "you"
-            elif player_position is not None and position == player_position - 1:
-                role = "ahead"
-            elif player_position is not None and position == player_position + 1:
-                role = "behind"
+            right_payload = None
+            if even_pos in by_position:
+                right_payload = self._slot_payload(
+                    by_position[even_pos],
+                    player_cust_id=player_cust_id,
+                    player_position=player_position,
+                    entries_by_cust=entries_by_cust,
+                    streamer_mode=streamer_mode,
+                )
 
-            row = GridWalkRow()
-            row.set_slot(
-                position=position,
-                cust_id=cust_id,
-                name=name,
-                pref=pref if pref in (1, -1) else None,
-                risky=risky,
-                role=role,
-            )
-            row.clicked.connect(self.driver_clicked.emit)
-            self.rows_layout.addWidget(row)
-            self._rows.append(row)
+            if left_payload is None and right_payload is None:
+                continue
+
+            pair_row = GridWalkPairRow()
+            pair_row.set_pair(left=left_payload, right=right_payload)
+            pair_row.driver_clicked.connect(self.driver_clicked.emit)
+            self.rows_layout.addWidget(pair_row)
+            self._pair_rows.append(pair_row)
+            self._rows.extend(pair_row.rows)
 
         self.rows_layout.addStretch()
 

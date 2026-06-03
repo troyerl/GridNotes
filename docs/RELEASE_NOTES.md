@@ -8,6 +8,15 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.30 — 2026-06-02
+
+### Improved
+
+- **Grid Walk layout** — Starting grid is shown in two columns like the real grid: odd positions on the left, even on the right (staggered half a row back).
+- **Grid Walk highlights** — Highlights the car ahead in your column and beside you on the grid (e.g. at P5, P3 and P6). Flagged-driver warnings use the same neighbors.
+
+---
+
 ## v1.0.29 — 2026-06-02
 
 ### Improved
