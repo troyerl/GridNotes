@@ -2,7 +2,7 @@
 ; Run automatically via scripts\build_installer.ps1 when Inno Setup 6 is installed.
 
 #define MyAppName "GridNotes"
-#define MyAppVersion "1.0.32"
+#define MyAppVersion "1.0.33"
 #define MyAppPublisher "Logan Troyer"
 #define MyAppExeName "GridNotes.exe"
 
@@ -10,7 +10,17 @@
 AppId={{A7C4E2B1-9F3D-4A6C-8E5B-1D2F3A4B5C6D}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
+AppVerName={#MyAppName} {#MyAppVersion}
 AppPublisher={#MyAppPublisher}
+AppPublisherURL=https://github.com/troyerl/GridNotes
+AppSupportURL=https://github.com/troyerl/GridNotes/issues
+AppUpdatesURL=https://github.com/troyerl/GridNotes/releases
+AppCopyright=Copyright (C) {#MyAppPublisher}
+VersionInfoVersion={#MyAppVersion}
+VersionInfoCompany={#MyAppPublisher}
+VersionInfoDescription={#MyAppName} Setup
+VersionInfoProductName={#MyAppName}
+VersionInfoProductVersion={#MyAppVersion}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes

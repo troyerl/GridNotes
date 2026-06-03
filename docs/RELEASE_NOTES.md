@@ -8,6 +8,18 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.33 — 2026-06-02
+
+### Improved
+
+- **Windows publisher metadata** — Installer and `GridNotes.exe` embed **Logan Troyer** as company/publisher. Setup.exe installs register correctly in **Settings → Apps** (including Inno `unins000.exe` uninstall path).
+
+### Fixed
+
+- **Settings → Apps publisher** — GridNotes now registers the uninstall entry after Setup installs, so Publisher is not blank/unknown when the app runs once.
+
+---
+
 ## v1.0.32 — 2026-06-02
 
 ### Fixed

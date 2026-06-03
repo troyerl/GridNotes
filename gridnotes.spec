@@ -19,11 +19,14 @@ except Exception:
     pass
 
 _win_icon = None
+_win_version = None
 if sys.platform == "win32":
     if os.path.isfile("icon.ico"):
         _win_icon = "icon.ico"
     elif os.path.isfile("icon.png"):
         _win_icon = "icon.png"
+    if os.path.isfile("scripts/win_version_info.txt"):
+        _win_version = "scripts/win_version_info.txt"
 
 a = Analysis(
     ["main.py"],
@@ -153,6 +156,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=_win_icon,
+    version=_win_version,
 )
 
 coll = COLLECT(

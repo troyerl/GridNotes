@@ -27,6 +27,14 @@ scripts\build_installer.bat
 
 Install **[Inno Setup 6](https://jrsoftware.org/isinfo.php)** (free), then run `scripts\build_installer.bat` again.
 
+## Publisher name on install / uninstall
+
+The installer metadata uses **Logan Troyer** as publisher (`AppPublisher` in `scripts\gridnotes.iss`). Builds also embed **CompanyName** in `GridNotes.exe` and the setup executable version resource.
+
+**Settings → Apps** should show **Publisher: Logan Troyer** after install. If you installed with `GridNotes-Setup.exe`, launch GridNotes once so it refreshes the Apps list entry.
+
+**SmartScreen / UAC “Unknown publisher”** on the yellow/blue prompt is normal for apps that are **not code-signed**. Windows only shows a verified publisher name when the `.exe` is signed with an Authenticode certificate. Removing that warning requires purchasing a code-signing cert and configuring `SignTool` in the Inno Setup script (not included in public builds).
+
 ## Automatic builds on GitHub
 
 When you push a version tag (for example `v1.0.21`), the **Release** workflow on GitHub Actions:

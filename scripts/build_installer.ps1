@@ -37,6 +37,9 @@ if (Test-Path $DistDir) { Remove-Item -Recurse -Force $DistDir }
 Write-Host "==> Generating icon.ico for Windows"
 python (Join-Path $RootDir "scripts\generate_icon.py")
 
+Write-Host "==> Generating Windows version info for GridNotes.exe"
+python (Join-Path $RootDir "scripts\generate_win_version_info.py")
+
 Write-Host "==> Running PyInstaller"
 pyinstaller gridnotes.spec --noconfirm --clean
 

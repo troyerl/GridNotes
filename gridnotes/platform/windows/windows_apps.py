@@ -27,9 +27,13 @@ def _registry_hive(install_root: Path) -> int:
 
 
 def uninstall_launcher_path(install_root: Path) -> Path:
+    install_root = install_root.resolve()
+    inno_uninstaller = install_root / "unins000.exe"
+    if inno_uninstaller.is_file():
+        return inno_uninstaller
     vbs = install_root / "Uninstall GridNotes.vbs"
     if vbs.is_file():
-        return vbs.resolve()
+        return vbs
     return (install_root / "Uninstall GridNotes.bat").resolve()
 
 
@@ -56,6 +60,8 @@ def registry_install_root() -> Path | None:
 
 def uninstall_command_line(install_root: Path) -> str:
     launcher = uninstall_launcher_path(install_root)
+    if launcher.name.lower() == "unins000.exe":
+        return f'"{launcher}"'
     if launcher.suffix.lower() == ".vbs":
         system_root = os.environ.get("SystemRoot", r"C:\Windows")
         wscript = Path(system_root) / "System32" / "wscript.exe"
@@ -70,7 +76,7 @@ def register_windows_uninstall(install_root: Path, version: str | None = None) -
 
     import winreg
 
-    from gridnotes.app.app_version import installed_version, write_installed_version
+    from gridnotes.app.app_version import WINDOWS_PUBLISHER, installed_version, write_installed_version
 
     install_root = install_root.resolve()
     launcher = uninstall_launcher_path(install_root)
@@ -81,7 +87,10 @@ def register_windows_uninstall(install_root: Path, version: str | None = None) -
     version = (version or installed_version()).strip()
     write_installed_version(install_root, version)
     uninstall_string = uninstall_command_line(install_root)
-    quiet_uninstall = f"{uninstall_string} /quiet"
+    if launcher.name.lower() == "unins000.exe":
+        quiet_uninstall = f'{uninstall_string} /VERYSILENT'
+    else:
+        quiet_uninstall = f"{uninstall_string} /quiet"
 
     icon = install_root / "icon.ico"
     display_icon = str(icon.resolve()) if icon.is_file() else uninstall_string
@@ -101,7 +110,7 @@ def register_windows_uninstall(install_root: Path, version: str | None = None) -
             with winreg.CreateKey(hive, UNINSTALL_SUBKEY) as key:
                 winreg.SetValueEx(key, "DisplayName", 0, winreg.REG_SZ, "GridNotes")
                 winreg.SetValueEx(key, "DisplayVersion", 0, winreg.REG_SZ, version)
-                winreg.SetValueEx(key, "Publisher", 0, winreg.REG_SZ, "Logan Troyer")
+                winreg.SetValueEx(key, "Publisher", 0, winreg.REG_SZ, WINDOWS_PUBLISHER)
                 winreg.SetValueEx(
                     key, "InstallLocation", 0, winreg.REG_SZ, str(install_root)
                 )
