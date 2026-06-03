@@ -8,6 +8,14 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.32 — 2026-06-02
+
+### Fixed
+
+- **Startup crash on Windows builds** — Fixed a missing import that caused `name 'field' is not defined` when launching the packaged app (v1.0.31).
+
+---
+
 ## v1.0.31 — 2026-06-02
 
 ### Fixed
