@@ -47,6 +47,8 @@ Add or edit the section in `docs/RELEASE_NOTES.md` **before** pushing the tag.
 
 You can still build locally with `scripts\build_installer.bat` before tagging.
 
+**Pre-release test builds** (tags like `v1.0.35-rc1` with a hyphen) are published as GitHub **pre-releases** so installed apps do not treat them as the latest update. See **[RELEASES.md](RELEASES.md)** for the full tagging workflow.
+
 ## Attach to GitHub Release (manual)
 
 1. Open https://github.com/troyerl/GridNotes/releases  

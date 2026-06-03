@@ -1,5 +1,7 @@
-# Build GridNotes-Setup.exe (and zip fallback) when a version tag is pushed.
-# Release description text comes from docs/RELEASE_NOTES.md for that tag.
+# Build GridNotes-Setup.exe when a version tag is pushed.
+# Tags with a hyphen (e.g. v1.0.35-rc1) are published as GitHub pre-releases so
+# installed apps still see the previous full release as "latest" for updates.
+# See docs/RELEASES.md.
 name: Release
 
 on:
@@ -33,6 +35,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           body_path: release_body.md
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
             dist/GridNotes-Setup.exe
             dist/GridNotes-Windows.zip

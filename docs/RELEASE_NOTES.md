@@ -6,6 +6,17 @@ New versions are listed below with the newest first.
 
 When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow uses the matching `## v…` section from this file as the release description on GitHub.
 
+**Developers:** stable vs pre-release tags and update behavior are documented in **[RELEASES.md](RELEASES.md)**.
+
+---
+
+## v1.0.35 — 2026-06-02
+
+### Improved
+
+- **Pre-release builds** — Pushing a tag with a hyphen (for example `v1.0.35-rc1`) publishes a GitHub **pre-release** so installed apps are not offered that build as an update. Stable tags (for example `v1.0.35`) remain the latest for **Check for updates**.
+- **Release documentation** — Maintainer guide at `docs/RELEASES.md` (stable vs test tags, CI behavior, and promoting a build to production).
+
 ---
 
 ## v1.0.34 — 2026-06-02

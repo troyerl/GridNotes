@@ -82,7 +82,7 @@ gridnotes/
 | Path | Purpose |
 |------|---------|
 | `scripts/` | Build installer, icons, Windows taskbar PS1 |
-| `docs/` | Maintainer docs, release notes, code structure |
+| `docs/` | Maintainer docs, [RELEASES.md](RELEASES.md), release notes, code structure |
 
 **Import style**
 
