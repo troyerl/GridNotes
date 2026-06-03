@@ -33,6 +33,7 @@ class SubsessionFetchResult:
     results_updated: int = 0
     results_skipped: int = 0
     retention_deleted: int = 0
+    affected_cust_ids: set[int] = field(default_factory=set)
 
 
 class ApiConnectionTestWorker(QThread):
@@ -125,7 +126,7 @@ class SubsessionFetchWorker(QThread):
                 cat = data.get("license_category")
                 license_text_fallback = str(cat) if cat else None
 
-            races_imported, results_imported, results_updated, results_skipped = (
+            races_imported, results_imported, results_updated, results_skipped, affected = (
                 import_race_entries(
                     cursor,
                     races,
@@ -149,6 +150,7 @@ class SubsessionFetchWorker(QThread):
                     results_updated=results_updated,
                     results_skipped=results_skipped,
                     retention_deleted=retention_deleted,
+                    affected_cust_ids=affected,
                 )
             )
         except Exception as exc:

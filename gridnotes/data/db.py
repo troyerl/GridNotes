@@ -85,6 +85,7 @@ DB_NAME = get_db_path()
 def connect_db(db_name: str = DB_NAME) -> sqlite3.Connection:
     """Open SQLite with pragmas tuned for read-heavy scouting queries."""
     conn = sqlite3.connect(db_name)
+    conn.execute("PRAGMA busy_timeout = 30000")
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA synchronous = NORMAL")
     conn.execute("PRAGMA cache_size = -2048")  # 2 MiB page cache

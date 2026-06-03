@@ -8,6 +8,15 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.31 — 2026-06-02
+
+### Fixed
+
+- **Race JSON import freeze** — Importing a single race (or a few) no longer rebuilds the entire driver table on the UI thread. Only drivers from that session are updated, so the window stays responsive.
+- **Database locking** — SQLite connections use a busy timeout so imports are less likely to hang when Live Mode is active.
+
+---
+
 ## v1.0.30 — 2026-06-02
 
 ### Improved

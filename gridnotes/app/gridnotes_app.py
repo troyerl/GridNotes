@@ -125,6 +125,9 @@ MSG_SESSION_NOT_CONNECTED = (
     "Not connected to iRacing yet — start iRacing and join a session to enable."
 )
 
+# Full table rebuild when more drivers changed than this after import.
+_IMPORT_FULL_REFRESH_THRESHOLD = 150
+
 
 class GridNotesApp(QMainWindow):
     def __init__(self):
@@ -1703,10 +1706,10 @@ class GridNotesApp(QMainWindow):
     def _on_api_fetch_finished(self, result: SubsessionFetchResult) -> None:
         self._api_fetched_subsession_ids.add(result.subsession_id)
 
-        self._invalidate_table_fingerprint()
-        self._refresh_ui_table_now(force=True)
-        if self.selected_cust_id is not None:
-            self._populate_driver_details(self.selected_cust_id)
+        self._refresh_table_after_import(
+            affected_cust_ids=result.affected_cust_ids,
+            retention_deleted=result.retention_deleted,
+        )
 
         parts: list[str] = []
         if result.results_imported:
@@ -1902,6 +1905,10 @@ class GridNotesApp(QMainWindow):
                 )
                 if risky:
                     self._apply_risky_row_style(row_idx, risky_tip)
+                if row_idx and row_idx % 50 == 0:
+                    QApplication.processEvents(
+                        QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents
+                    )
         finally:
             self.table.blockSignals(False)
             self.table.setUpdatesEnabled(True)
@@ -1971,6 +1978,72 @@ class GridNotesApp(QMainWindow):
         self.apply_driver_filters()
         if selected_cust_id is not None:
             self._select_driver_row_by_cust_id(selected_cust_id)
+
+    def _sync_table_rows_for_cust_ids(self, cust_ids: list[int]) -> None:
+        """Update or insert table rows for drivers touched by an import."""
+        unique = sorted({int(cid) for cid in cust_ids if cid is not None})
+        if not unique:
+            return
+
+        cursor = self._db_conn.cursor()
+        sql, params = table_data_for_cust_ids_sql(unique)
+        cursor.execute(sql, params)
+        rows = cursor.fetchall()
+        if not rows:
+            return
+
+        selected_cust_id = self.selected_cust_id
+        trends = self._safety_trends_for_table_rows(rows)
+        self._clear_table_row_hover()
+        self.table.setUpdatesEnabled(False)
+        self.table.blockSignals(True)
+        try:
+            for row_data in rows:
+                display_row, cust_id, pref, risky, risky_tip, safety, real_name = (
+                    self._build_display_row(row_data)
+                )
+                row_idx = self._row_for_cust_id(cust_id)
+                if row_idx is None:
+                    insert_at = self._find_insert_row(display_row[COL_NAME])
+                    self.table.insertRow(insert_at)
+                    row_idx = insert_at
+                self._render_table_row(
+                    row_idx,
+                    display_row,
+                    cust_id,
+                    pref,
+                    risky=risky,
+                    safety=safety,
+                    trend=trends.get(cust_id),
+                    real_name=real_name,
+                )
+                if risky:
+                    self._apply_risky_row_style(row_idx, risky_tip)
+        finally:
+            self.table.blockSignals(False)
+            self.table.setUpdatesEnabled(True)
+            self.table.viewport().update()
+
+        self._invalidate_table_fingerprint()
+        self.apply_driver_filters()
+        if selected_cust_id is not None:
+            self._select_driver_row_by_cust_id(selected_cust_id)
+
+    def _refresh_table_after_import(
+        self,
+        *,
+        affected_cust_ids: set[int],
+        retention_deleted: int,
+    ) -> None:
+        if retention_deleted or len(affected_cust_ids) > _IMPORT_FULL_REFRESH_THRESHOLD:
+            self._refresh_ui_table_now(force=True)
+        elif affected_cust_ids:
+            self._sync_table_rows_for_cust_ids(list(affected_cust_ids))
+
+        if self._live_mode_active and self.active_cust_ids:
+            self._refresh_live_session_view()
+        if self.selected_cust_id is not None and int(self.selected_cust_id) in affected_cust_ids:
+            self._populate_driver_details(self.selected_cust_id)
 
     def _fetch_table_data(self) -> list[tuple]:
         cursor = self._db_conn.cursor()
@@ -2276,7 +2349,9 @@ class GridNotesApp(QMainWindow):
 
     def _on_import_finished(self, result: ImportJobResult) -> None:
         self._finish_import_ui()
+        QTimer.singleShot(0, lambda: self._complete_import_finished(result))
 
+    def _complete_import_finished(self, result: ImportJobResult) -> None:
         if result.retention_deleted and self.selected_cust_id is not None:
             row = self._row_for_cust_id(self.selected_cust_id)
             if row is None:
@@ -2284,10 +2359,13 @@ class GridNotesApp(QMainWindow):
                 self._clear_driver_details()
                 self._set_driver_panel_enabled(False)
                 self.table.clearSelection()
-            else:
+            elif int(self.selected_cust_id) not in result.affected_cust_ids:
                 self._populate_driver_details(self.selected_cust_id)
 
-        self._refresh_ui_table_now(force=True)
+        self._refresh_table_after_import(
+            affected_cust_ids=result.affected_cust_ids,
+            retention_deleted=result.retention_deleted,
+        )
         if hasattr(self, "settings_tab"):
             self.settings_tab.refresh_storage_info()
 

@@ -23,6 +23,7 @@ class ImportJobResult:
     total_results_updated: int = 0
     total_results_skipped: int = 0
     retention_deleted: int = 0
+    affected_cust_ids: set[int] = field(default_factory=set)
     errors: list[str] = field(default_factory=list)
 
 
@@ -60,7 +61,7 @@ class ImportWorker(QThread):
                         cat = data["data"].get("license_category")
                         license_text_fallback = str(cat) if cat else None
 
-                    races_imported, results_imported, results_updated, results_skipped = (
+                    races_imported, results_imported, results_updated, results_skipped, affected = (
                         import_race_entries(
                             cursor,
                             races,
@@ -74,6 +75,7 @@ class ImportWorker(QThread):
                     result.total_results_imported += results_imported
                     result.total_results_updated += results_updated
                     result.total_results_skipped += results_skipped
+                    result.affected_cust_ids.update(affected)
 
                     if results_imported == 0 and results_updated == 0 and results_skipped == 0:
                         msg = f"{file_path}: no race results found/imported"

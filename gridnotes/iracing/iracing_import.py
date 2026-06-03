@@ -290,12 +290,13 @@ def import_race_entries(
     series_name: str | None,
     race_timestamp: str | None,
     license_text_fallback: str | None,
-) -> tuple[int, int, int, int]:
-    """Returns (races_imported, results_imported, results_updated, results_skipped)."""
+) -> tuple[int, int, int, int, set[int]]:
+    """Returns (races_imported, results_imported, results_updated, results_skipped, affected_cust_ids)."""
     races_imported = 0
     results_imported = 0
     results_updated = 0
     results_skipped = 0
+    affected_cust_ids: set[int] = set()
 
     for entry in races:
         if not isinstance(entry, dict):
@@ -317,6 +318,7 @@ def import_race_entries(
             if cust_id is None:
                 continue
 
+            affected_cust_ids.add(int(cust_id))
             name = driver.get("name", driver.get("display_name"))
             _upsert_driver(cursor, cust_id, name)
 
@@ -372,7 +374,13 @@ def import_race_entries(
         if race_had_result:
             races_imported += 1
 
-    return (races_imported, results_imported, results_updated, results_skipped)
+    return (
+        races_imported,
+        results_imported,
+        results_updated,
+        results_skipped,
+        affected_cust_ids,
+    )
 
 
 def sync_live_session_drivers(cursor: sqlite3.Cursor, active_drivers: list[dict]) -> list[int]:
