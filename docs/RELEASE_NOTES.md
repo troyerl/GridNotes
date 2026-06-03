@@ -10,6 +10,14 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.40 — 2026-06-02
+
+### Improved
+
+- **Quick note tags** — Tag inputs in **Settings → Data** now render correctly on macOS: transparent fill (no row strip behind the fields), visible rounded borders, and styles that stay in sync when you change theme.
+
+---
+
 ## v1.0.39 — 2026-06-02
 
 ### Improved

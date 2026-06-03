@@ -65,7 +65,7 @@ from ..iracing.iracing_oauth_guide import (
 from .a11y import set_accessible
 from .scouting_guide_dialog import show_scouting_guide
 from .ui_widgets import Accordion, HtmlHintLabel, SettingsSectionNavigator
-from .theme import configure_scroll_area, status_message_color
+from .theme import configure_note_tag_input, configure_scroll_area, status_message_color
 from ..services.user_feedback import log_user_error
 from ..core.utils import format_file_size
 
@@ -524,6 +524,8 @@ class SettingsTab(QWidget):
 
         self._note_tag_rows: list[tuple[QLineEdit, QLineEdit]] = []
         self._note_tags_list_host = QWidget()
+        self._note_tags_list_host.setObjectName("noteTagList")
+        self._note_tags_list_host.setAutoFillBackground(False)
         self._note_tags_list_layout = QVBoxLayout(self._note_tags_list_host)
         self._note_tags_list_layout.setContentsMargins(0, 0, 0, 0)
         self._note_tags_list_layout.setSpacing(8)
@@ -571,26 +573,28 @@ class SettingsTab(QWidget):
             return
 
         row_widget = QWidget()
+        row_widget.setObjectName("noteTagRow")
+        row_widget.setAutoFillBackground(False)
         row = QHBoxLayout(row_widget)
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(8)
 
         label_edit = QLineEdit()
-        label_edit.setObjectName("noteTagInput")
         label_edit.setPlaceholderText("e.g. Clean")
         label_edit.setClearButtonEnabled(True)
         label_edit.setMaxLength(MAX_CHIP_LABEL_LENGTH)
         label_edit.setText(label)
         label_edit.textChanged.connect(self._on_settings_edited)
+        configure_note_tag_input(label_edit)
         row.addWidget(label_edit, stretch=2)
 
         desc_edit = QLineEdit()
-        desc_edit.setObjectName("noteTagInput")
         desc_edit.setPlaceholderText("Optional longer note")
         desc_edit.setClearButtonEnabled(True)
         desc_edit.setMaxLength(MAX_DESCRIPTION_LENGTH)
         desc_edit.setText(description)
         desc_edit.textChanged.connect(self._on_settings_edited)
+        configure_note_tag_input(desc_edit)
         row.addWidget(desc_edit, stretch=3)
 
         btn_remove = QPushButton("Remove")
@@ -782,6 +786,8 @@ class SettingsTab(QWidget):
         self._update_zero_race_status_label()
         if iracing_data_api_auto_import_enabled():
             self._update_api_package_status()
+        self._refresh_installed_version_label()
+        self._refresh_note_tag_input_styles()
 
     def refresh_storage_info(self) -> None:
         db_path = get_db_path()
@@ -840,9 +846,16 @@ class SettingsTab(QWidget):
     def _on_settings_edited(self, *_args: object) -> None:
         self._update_save_button_state()
 
+    def _refresh_note_tag_input_styles(self, theme_id: str | None = None) -> None:
+        theme_id = theme_id or self.current_theme_value()
+        for label_edit, desc_edit in self._note_tag_rows:
+            configure_note_tag_input(label_edit, theme_id)
+            configure_note_tag_input(desc_edit, theme_id)
+
     def _on_theme_combo_changed(self) -> None:
         theme_id = self.current_theme_value()
         self.theme_changed.emit(theme_id)
+        self._refresh_note_tag_input_styles(theme_id)
         self._on_settings_edited()
 
     def _on_audio_spotter_changed(self, *_args: object) -> None:
@@ -882,10 +895,6 @@ class SettingsTab(QWidget):
 
     def _refresh_installed_version_label(self) -> None:
         self.version_label.setText(f"Your version: {installed_version()}")
-
-    def showEvent(self, event) -> None:
-        super().showEvent(event)
-        self._refresh_installed_version_label()
 
     def _request_support_bundle(self) -> None:
         self.support_bundle_requested.emit()

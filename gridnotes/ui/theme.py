@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
-from PyQt6.QtWidgets import QAbstractScrollArea, QApplication, QScrollArea, QScrollBar, QWidget
+from PyQt6.QtWidgets import (
+    QAbstractScrollArea,
+    QApplication,
+    QLineEdit,
+    QScrollArea,
+    QScrollBar,
+    QWidget,
+)
 
 from .appearance import THEME_DARK_ID, THEME_LIGHT_ID, get_theme_id
 from .theme_tokens import THEME_DARK, THEME_LIGHT, theme_tokens
@@ -868,13 +875,23 @@ QWidget#settingsContent QLineEdit:focus {
     border-color: {{accent_border}};
 }
 
-QWidget#settingsContent QLineEdit#noteTagInput {
+QWidget#noteTagList,
+QWidget#noteTagRow {
     background: transparent;
     background-color: transparent;
 }
 
+QWidget#settingsContent QLineEdit#noteTagInput {
+    background: transparent;
+    background-color: transparent;
+    border: 1px solid {{border_strong}};
+    border-radius: 8px;
+    padding: 8px 12px;
+    min-height: 18px;
+}
+
 QWidget#settingsContent QLineEdit#noteTagInput:focus {
-    border-color: {{accent_border}};
+    border: 2px solid {{accent_border}};
 }
 
 QComboBox#settingsCombo {
@@ -1135,6 +1152,33 @@ def build_stylesheet(theme_id: str | None = None) -> str:
 
 
 APP_STYLESHEET = build_stylesheet(THEME_DARK_ID)
+
+
+def note_tag_input_stylesheet(theme_id: str | None = None) -> str:
+    """Per-widget stylesheet for quick note tag fields (macOS ignores app-level transparency)."""
+    t = theme_tokens(theme_id or get_theme_id())
+    return (
+        "QLineEdit {"
+        f" background: transparent;"
+        f" background-color: transparent;"
+        f" border: 1px solid {t['border_strong']};"
+        f" border-radius: 8px;"
+        f" padding: 8px 12px;"
+        f" color: {t['text_primary']};"
+        f" selection-background-color: {t['selection_bg']};"
+        " }"
+        " QLineEdit:focus {"
+        f" border: 2px solid {t['accent_border']};"
+        " }"
+    )
+
+
+def configure_note_tag_input(line_edit: QLineEdit, theme_id: str | None = None) -> None:
+    """Style a quick note tag line edit with a transparent, underline-only field."""
+    line_edit.setObjectName("noteTagInput")
+    line_edit.setAutoFillBackground(False)
+    line_edit.setFrame(False)
+    line_edit.setStyleSheet(note_tag_input_stylesheet(theme_id))
 
 
 def apply_app_theme(app: QApplication, theme_id: str | None = None) -> str:
