@@ -157,6 +157,29 @@ def needs_elevated_windows_update(install_root: Path) -> bool:
     return install_path_under_program_files(install_root) and not is_windows_admin()
 
 
+def update_requires_windows_permission(
+    apply_method: str | None,
+    install_root: Path | None = None,
+) -> bool:
+    """True when Windows may show a UAC prompt during an in-app update."""
+    if sys.platform != "win32":
+        return False
+    if apply_method not in ("portable", "frozen", "installer"):
+        return False
+    if install_root is None:
+        if apply_method == "portable":
+            from .portable_update import portable_install_root
+
+            install_root = portable_install_root()
+        else:
+            from .frozen_update import frozen_install_root
+
+            install_root = frozen_install_root()
+    if install_root is None:
+        return False
+    return needs_elevated_windows_update(install_root)
+
+
 def permission_denied_install_message(install_root: Path) -> str:
     from .user_messages import permission_denied_message
 

@@ -10,6 +10,14 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.41 — 2026-06-02
+
+### Improved
+
+- **In-app update on Windows** — When an update needs administrator permission (typical Program Files installs), GridNotes now explains that Windows may ask you to click **Yes**. The update progress dialog stays on screen with a waiting state before the app closes so you know what to expect.
+
+---
+
 ## v1.0.40 — 2026-06-02
 
 ### Improved

@@ -159,6 +159,13 @@ def friendly_update_progress(message: str) -> str:
     return message
 
 
+def update_windows_permission_notice() -> str:
+    return (
+        "Windows may ask you to allow GridNotes to make changes to your computer. "
+        "Click Yes so the update can finish."
+    )
+
+
 def update_check_user_message(
     *,
     update_available: bool,
@@ -169,6 +176,7 @@ def update_check_user_message(
     can_apply: bool,
     apply_method: str | None,
     is_frozen: bool,
+    requires_windows_permission: bool = False,
 ) -> str:
     if not release_ok and not update_available:
         lowered = release_message.lower()
@@ -184,11 +192,14 @@ def update_check_user_message(
         if current:
             headline = f"A new version is available: v{latest} (you have v{current})."
         if can_apply and apply_method in ("portable", "frozen", "installer"):
-            return (
+            message = (
                 f"{headline}\n\n"
                 "Click Update now. GridNotes will update in place, close for a moment, "
                 "and reopen automatically. Your notes and settings stay safe."
             )
+            if requires_windows_permission:
+                message += f"\n\n{update_windows_permission_notice()}"
+            return message
         if can_apply and apply_method == "git":
             return (
                 f"{headline}\n\n"
@@ -207,11 +218,14 @@ def update_check_user_message(
     return "You're up to date."
 
 
-def portable_update_scheduled_message() -> str:
-    return (
+def portable_update_scheduled_message(*, requires_windows_permission: bool = False) -> str:
+    message = (
         "GridNotes will close for a moment and reopen when the update is finished.\n\n"
         "Your notes and settings are safe."
     )
+    if requires_windows_permission:
+        message += f"\n\n{update_windows_permission_notice()}"
+    return message
 
 
 def portable_update_failed_message() -> str:

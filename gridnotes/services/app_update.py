@@ -46,6 +46,7 @@ class UpdateCheckResult:
     release_zip_url: str | None = None
     release_setup_url: str | None = None
     apply_method: str | None = None  # "git", "portable", "frozen", or "installer"
+    requires_windows_permission: bool = False
 
 
 def project_root() -> Path:
@@ -274,7 +275,10 @@ def check_for_updates() -> UpdateCheckResult:
             elif setup_url:
                 apply_method = "installer"
 
+    from ..installer.logic import update_requires_windows_permission
     from ..installer.user_messages import update_check_user_message
+
+    requires_windows_permission = update_requires_windows_permission(apply_method)
 
     message = update_check_user_message(
         update_available=update_available,
@@ -285,6 +289,7 @@ def check_for_updates() -> UpdateCheckResult:
         can_apply=can_apply and apply_method is not None,
         apply_method=apply_method,
         is_frozen=is_frozen_build(),
+        requires_windows_permission=requires_windows_permission,
     )
     return UpdateCheckResult(
         ok=release_ok or can_apply,
@@ -299,6 +304,7 @@ def check_for_updates() -> UpdateCheckResult:
         can_apply_in_place=can_apply and apply_method is not None,
         source_update_commits=source_behind,
         apply_method=apply_method,
+        requires_windows_permission=requires_windows_permission,
     )
 
 

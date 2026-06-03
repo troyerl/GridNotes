@@ -48,6 +48,7 @@ class UpdateConfirmDialog(QDialog):
         version: str,
         release_notes: str | None,
         portable: bool,
+        requires_windows_permission: bool = False,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Update available")
@@ -61,14 +62,17 @@ class UpdateConfirmDialog(QDialog):
         title.setWordWrap(True)
         layout.addWidget(title)
 
-        summary = QLabel(
-            "GridNotes will update in place, close briefly, and reopen. "
-            "Your notes and settings stay on this computer. "
-            "Nothing is saved to your Downloads folder."
-            if portable
-            else "GridNotes will install the latest version and restart. "
-            "Your notes and settings stay on this computer."
-        )
+        summary_lines = [
+            "GridNotes will update in place, close briefly, and reopen.",
+            "Your notes and settings stay on this computer.",
+        ]
+        if portable:
+            summary_lines.append("Nothing is saved to your Downloads folder.")
+        if requires_windows_permission:
+            from ..installer.user_messages import update_windows_permission_notice
+
+            summary_lines.append(update_windows_permission_notice())
+        summary = QLabel("\n\n".join(summary_lines))
         summary.setObjectName("sectionHint")
         summary.setWordWrap(True)
         layout.addWidget(summary)

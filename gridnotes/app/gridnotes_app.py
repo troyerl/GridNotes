@@ -156,6 +156,7 @@ class GridNotesApp(QMainWindow):
         self._update_check_worker: UpdateCheckWorker | None = None
         self._apply_update_worker: ApplyAppUpdateWorker | None = None
         self._update_progress_dialog = None
+        self._update_exit_timer: QTimer | None = None
         self._update_check_on_startup = False
         self._api_fetch_worker: SubsessionFetchWorker | None = None
         self._api_fetch_queue: list[int] = []
@@ -1425,6 +1426,7 @@ class GridNotesApp(QMainWindow):
                 version=version_label,
                 release_notes=result.release_notes,
                 portable=result.apply_method in ("portable", "frozen", "installer", "git"),
+                requires_windows_permission=result.requires_windows_permission,
             )
             return dialog.exec() == dialog.DialogCode.Accepted
 
@@ -1464,7 +1466,10 @@ class GridNotesApp(QMainWindow):
                 return
             logger.info("Applying application update (%s)", result.apply_method or "unknown")
             self.settings_tab.set_apply_update_busy(True)
-            self._open_update_progress(result.latest_version)
+            self._open_update_progress(
+                result.latest_version,
+                requires_windows_permission=result.requires_windows_permission,
+            )
             self._apply_update_worker = ApplyAppUpdateWorker(
                 result,
                 wait_pid=os.getpid(),
@@ -1577,23 +1582,43 @@ class GridNotesApp(QMainWindow):
         ok, message = open_logs_folder()
         self.settings_tab.show_support_result(ok, message)
 
-    def _open_update_progress(self, target_version: str | None) -> None:
+    def _open_update_progress(
+        self,
+        target_version: str | None,
+        *,
+        requires_windows_permission: bool = False,
+    ) -> None:
         from ..ui.update_progress_dialog import UpdateProgressDialog
 
         self._close_update_progress()
         dialog = UpdateProgressDialog(self)
-        dialog.begin(target_version=target_version)
+        dialog.begin(
+            target_version=target_version,
+            requires_windows_permission=requires_windows_permission,
+        )
         dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
         self._update_progress_dialog = dialog
+        self.setEnabled(False)
 
     def _close_update_progress(self) -> None:
+        if self._update_exit_timer is not None:
+            self._update_exit_timer.stop()
+            self._update_exit_timer = None
         if self._update_progress_dialog is not None:
             self._update_progress_dialog.close()
             self._update_progress_dialog = None
+        self.setEnabled(True)
 
     def _on_apply_update_progress(self, message: str, percent: int) -> None:
         if self._update_progress_dialog is not None:
             self._update_progress_dialog.set_progress(message, percent)
+
+    def _exit_for_background_update(self) -> None:
+        logger.info("Portable update scheduled; exiting for background install")
+        self._release_resources_before_exit()
+        os._exit(0)
 
     def _on_apply_update_finished(self, ok: bool, message: str, restart: bool) -> None:
         self.settings_tab.set_apply_update_busy(False)
@@ -1605,18 +1630,26 @@ class GridNotesApp(QMainWindow):
             return
 
         self.settings_tab.show_apply_update_result(True, message)
-        if self._update_progress_dialog is not None:
-            self._update_progress_dialog.mark_complete(
-                "Restarting GridNotes…" if restart else "Closing GridNotes to finish installing…"
-            )
         if restart:
+            if self._update_progress_dialog is not None:
+                self._update_progress_dialog.mark_complete("Restarting GridNotes…")
             logger.info("Update applied; restarting application")
             restart_application()
             return
 
-        logger.info("Portable update scheduled; exiting for background install")
-        self._release_resources_before_exit()
-        os._exit(0)
+        result = self.settings_tab.last_update_check()
+        requires_permission = (
+            result.requires_windows_permission if result is not None else False
+        )
+        if self._update_progress_dialog is not None:
+            self._update_progress_dialog.begin_closing_for_update(
+                requires_windows_permission=requires_permission
+            )
+        delay_ms = 3500 if requires_permission else 1800
+        self._update_exit_timer = QTimer(self)
+        self._update_exit_timer.setSingleShot(True)
+        self._update_exit_timer.timeout.connect(self._exit_for_background_update)
+        self._update_exit_timer.start(delay_ms)
 
     def _stop_background_workers(self) -> None:
         """Stop threads that may still hold the database or network open."""

@@ -12,6 +12,7 @@ import requests
 
 from ..services.app_update import REQUEST_TIMEOUT_SEC, _GITHUB_HEADERS, _normalize_tag
 from .logic import (
+    needs_elevated_windows_update,
     windows_update_pointer_batch_lines,
     windows_update_relaunch_batch_lines,
 )
@@ -106,7 +107,13 @@ def apply_installer_update(
     from .user_messages import portable_update_scheduled_message
 
     _append_update_log(f"Update log: {log_path}")
-    return True, portable_update_scheduled_message(), False
+    return (
+        True,
+        portable_update_scheduled_message(
+            requires_windows_permission=needs_elevated_windows_update(install_root)
+        ),
+        False,
+    )
 
 
 def _write_installer_apply_batch(

@@ -355,7 +355,13 @@ def apply_portable_update(
         from .user_messages import portable_update_scheduled_message
 
         _append_update_log(f"Update log: {log_path}")
-        return True, portable_update_scheduled_message(), False
+        return (
+            True,
+            portable_update_scheduled_message(
+                requires_windows_permission=needs_elevated_windows_update(install_root)
+            ),
+            False,
+        )
 
     report("Installing files…", 85)
     ok, message = _apply_on_unix(staging_dir, install_root, release_version=version)

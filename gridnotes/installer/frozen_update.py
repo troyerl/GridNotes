@@ -232,10 +232,9 @@ def apply_frozen_update(
     report("Closing GridNotes to finish installing…", 100)
     from .user_messages import portable_update_scheduled_message
 
-    message = portable_update_scheduled_message()
-    if needs_elevated_windows_update(install_root):
-        message += (
-            "\n\nWindows may ask once for permission to finish installing in the background."
-        )
+    requires_permission = needs_elevated_windows_update(install_root)
+    message = portable_update_scheduled_message(
+        requires_windows_permission=requires_permission
+    )
     _append_update_log(f"Update log: {log_path}")
     return True, message, False
