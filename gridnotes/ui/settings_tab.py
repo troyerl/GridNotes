@@ -44,9 +44,9 @@ from ..data.db import connect_db, get_data_dir_path, get_db_file_size, get_db_pa
 from ..installer.uninstall import resolve_install_root
 from ..data.driver_cleanup import count_zero_race_drivers
 from ..core.timezone_settings import (
-    detect_system_timezone,
     get_saved_timezone,
     set_display_timezone,
+    system_timezone_summary,
     timezone_combo_entries,
 )
 from ..app.feature_flags import iracing_data_api_auto_import_enabled
@@ -338,8 +338,7 @@ class SettingsTab(QWidget):
         timezone_layout.addWidget(
             self._section_hint(
                 "Last raced and similar timestamps use this zone. "
-                "System default follows your PC clock (currently "
-                f"{detect_system_timezone().replace('_', ' ')})."
+                f"System default follows your PC clock ({system_timezone_summary()})."
             )
         )
 

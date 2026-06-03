@@ -10,6 +10,15 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.38 — 2026-06-02
+
+### Improved
+
+- **System timezone detection** — **System default** now reads your PC’s zone via the OS (PyQt / Windows registry / localtime) instead of falling back to UTC. US users see the correct region and abbreviation (EST, CDT, CST, PST, etc.) in Settings and on **Last raced** labels.
+- **Saved timezone** — Choosing a zone and clicking **Save settings** keeps that preference across restarts; **System default** clears the saved choice and follows the PC again.
+
+---
+
 ## v1.0.37 — 2026-06-02
 
 ### Improved

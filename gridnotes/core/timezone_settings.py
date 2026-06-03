@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -15,12 +16,24 @@ logger = logging.getLogger(__name__)
 TIMEZONE_SETTING_KEY = "display_timezone"
 FALLBACK_TIMEZONE = "UTC"
 
+# Checked when only a UTC offset is known (no IANA id from the OS).
+_US_OFFSET_CANDIDATES = (
+    "America/New_York",
+    "America/Chicago",
+    "America/Denver",
+    "America/Los_Angeles",
+    "America/Phoenix",
+    "America/Anchorage",
+    "Pacific/Honolulu",
+)
+
 _WINDOWS_TZ_MAP: dict[str, str] = {
     "Pacific Standard Time": "America/Los_Angeles",
     "Mountain Standard Time": "America/Denver",
     "US Mountain Standard Time": "America/Phoenix",
     "Central Standard Time": "America/Chicago",
     "Eastern Standard Time": "America/New_York",
+    "US Eastern Standard Time": "America/Indiana/Indianapolis",
     "Atlantic Standard Time": "America/Halifax",
     "Alaskan Standard Time": "America/Anchorage",
     "Hawaiian Standard Time": "Pacific/Honolulu",
@@ -48,8 +61,6 @@ def configure_tzpath_for_frozen() -> None:
     if not getattr(sys, "frozen", False):
         return
     try:
-        import os
-
         base = getattr(sys, "_MEIPASS", "")
         for subpath in ("tzdata/zoneinfo", "zoneinfo"):
             tz_root = os.path.join(base, subpath)
@@ -73,6 +84,57 @@ def _is_valid_zone(name: str) -> bool:
         return False
 
 
+def _normalize_iana_id(raw) -> str | None:
+    if raw is None:
+        return None
+    if isinstance(raw, bytes):
+        text = raw.decode("utf-8", errors="ignore").strip()
+    else:
+        text = str(raw).strip()
+    if not text:
+        return None
+    if text.startswith(":"):
+        text = text[1:]
+    if _is_valid_zone(text):
+        return text
+    return None
+
+
+def _detect_qt_system_timezone() -> str | None:
+    """PyQt reads the OS zone (Windows, macOS, Linux) as an IANA id."""
+    try:
+        from PyQt6.QtCore import QTimeZone
+
+        zone_id = QTimeZone.systemTimeZone().id()
+        return _normalize_iana_id(zone_id)
+    except Exception:
+        logger.debug("Could not read timezone from Qt", exc_info=True)
+        return None
+
+
+def _detect_tz_environment() -> str | None:
+    raw = os.environ.get("TZ", "").strip()
+    if not raw or raw.upper() == "UTC":
+        return None
+    return _normalize_iana_id(raw)
+
+
+def _detect_unix_localtime() -> str | None:
+    if sys.platform == "win32":
+        return None
+    for path in ("/etc/localtime", "/private/etc/localtime"):
+        try:
+            target = os.path.realpath(path)
+        except OSError:
+            continue
+        marker = "zoneinfo/"
+        if marker in target:
+            zone = target.split(marker, 1)[1]
+            if _is_valid_zone(zone):
+                return zone
+    return None
+
+
 def _detect_windows_timezone() -> str | None:
     if sys.platform != "win32":
         return None
@@ -92,8 +154,7 @@ def _detect_windows_timezone() -> str | None:
     return None
 
 
-def detect_system_timezone() -> str:
-    """Best-effort IANA timezone for the PC running GridNotes."""
+def _detect_from_clock_key() -> str | None:
     configure_tzpath_for_frozen()
     try:
         local = datetime.now().astimezone().tzinfo
@@ -101,12 +162,42 @@ def detect_system_timezone() -> str:
         if isinstance(key, str) and _is_valid_zone(key):
             return key
     except Exception:
-        logger.debug("Could not read timezone from local clock", exc_info=True)
+        logger.debug("Could not read timezone key from local clock", exc_info=True)
+    return None
 
-    mapped = _detect_windows_timezone()
-    if mapped:
-        return mapped
 
+def _detect_from_utc_offset() -> str | None:
+    """Match the PC offset to a US zone (EST/CST/MST/PST, etc.) when IANA id is missing."""
+    configure_tzpath_for_frozen()
+    try:
+        local_offset = datetime.now().astimezone().utcoffset()
+    except Exception:
+        return None
+    if local_offset is None:
+        return None
+
+    for name in _US_OFFSET_CANDIDATES:
+        try:
+            if datetime.now(ZoneInfo(name)).utcoffset() == local_offset:
+                return name
+        except Exception:
+            continue
+    return None
+
+
+def detect_system_timezone() -> str:
+    """Best-effort IANA timezone for the PC running GridNotes."""
+    for detector in (
+        _detect_qt_system_timezone,
+        _detect_from_clock_key,
+        _detect_tz_environment,
+        _detect_unix_localtime,
+        _detect_windows_timezone,
+        _detect_from_utc_offset,
+    ):
+        zone = detector()
+        if zone:
+            return zone
     return FALLBACK_TIMEZONE
 
 
@@ -162,12 +253,35 @@ def clear_timezone_cache() -> None:
     _zone_info_cached.cache_clear()
 
 
+def timezone_abbrev_for(iana: str, *, when: datetime | None = None) -> str:
+    """Short label such as EST, CDT, PST (uses Qt when available)."""
+    when = when or datetime.now(_zone_info_cached(iana))
+    try:
+        from PyQt6.QtCore import QDateTime, QTimeZone
+
+        qt_zone = QTimeZone(iana.encode("utf-8"))
+        if qt_zone.isValid():
+            qt_dt = QDateTime.fromSecsSinceEpoch(int(when.timestamp()))
+            abbr = qt_zone.abbreviation(qt_dt).strip()
+            if abbr:
+                return abbr
+    except Exception:
+        pass
+    try:
+        abbr = when.astimezone(_zone_info_cached(iana)).tzname() or ""
+        if abbr.strip():
+            return abbr.strip()
+    except Exception:
+        pass
+    return iana.split("/")[-1].replace("_", " ")
+
+
 def timezone_label(iana: str) -> str:
-    """Human-readable label for combobox entries."""
+    """Human-readable label for combobox entries, e.g. ``America/Chicago (CDT)``."""
     try:
         zi = _zone_info_cached(iana)
         now = datetime.now(zi)
-        abbr = (now.tzname() or "").strip()
+        abbr = timezone_abbrev_for(iana, when=now)
         place = iana.replace("_", " ")
         if abbr and abbr not in place:
             return f"{place} ({abbr})"
@@ -176,17 +290,20 @@ def timezone_label(iana: str) -> str:
         return iana.replace("_", " ")
 
 
-def display_timezone_abbrev() -> str:
-    """Short suffix for UI copy (e.g. ET, CDT, BST)."""
-    try:
-        now = datetime.now(display_zone_info())
-        abbr = (now.tzname() or "").strip()
+def system_timezone_summary() -> str:
+    """One-line system zone for Settings copy, e.g. ``Eastern (EDT)``."""
+    zone = detect_system_timezone()
+    abbr = timezone_abbrev_for(zone)
+    if zone.startswith("America/"):
+        region = zone.rsplit("/", 1)[-1].replace("_", " ")
         if abbr:
-            return abbr
-    except Exception:
-        pass
-    name = get_display_timezone()
-    return name.split("/")[-1].replace("_", " ")
+            return f"{region} ({abbr})"
+    return timezone_label(zone)
+
+
+def display_timezone_abbrev() -> str:
+    """Short suffix for UI copy (e.g. EST, CDT, PST)."""
+    return timezone_abbrev_for(get_display_timezone())
 
 
 def available_display_timezones() -> list[str]:
@@ -205,9 +322,8 @@ def timezone_combo_entries() -> list[tuple[str, str]]:
     Combo box rows: (stored value, label).
     Empty value means follow the system timezone.
     """
-    system = detect_system_timezone()
     rows: list[tuple[str, str]] = [
-        ("", f"System default — {timezone_label(system)}"),
+        ("", f"System default — {system_timezone_summary()}"),
     ]
     for zone in available_display_timezones():
         rows.append((zone, timezone_label(zone)))
