@@ -230,3 +230,35 @@ def build_live_session_entries(
         )
     )
     return entries
+
+
+def format_live_session_at_glance(entries: list[dict]) -> str:
+    """One-line session summary for Live Mode / Grid Walk headers."""
+    if not entries:
+        return ""
+
+    total = len(entries)
+    flagged = disliked = liked = new = 0
+    for entry in entries:
+        if not entry.get("has_history"):
+            new += 1
+        pref = entry.get("pref")
+        if pref == 1:
+            liked += 1
+        elif pref == -1:
+            disliked += 1
+        safety = entry.get("safety")
+        if isinstance(safety, SafetyIndex) and safety.tier != "unknown":
+            if safety.risky or safety.tier == "high":
+                flagged += 1
+
+    parts = [f"{total} drivers"]
+    if flagged:
+        parts.append(f"{flagged} flagged")
+    if disliked:
+        parts.append(f"{disliked} disliked")
+    if liked:
+        parts.append(f"{liked} liked")
+    if new:
+        parts.append(f"{new} new to your book")
+    return " · ".join(parts)

@@ -3,6 +3,7 @@ import sys
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
+from .session_context import parse_session_context
 from .session_kind import SESSION_KIND_OTHER, current_session_kind, is_race_session
 from .grid_walk import parse_starting_grid, slots_to_payload
 from .spotter_telemetry import (
@@ -76,10 +77,11 @@ def _parse_session_drivers(ir) -> tuple[list[dict], int]:
     return active_drivers, subsession_id
 
 
-def _parse_session(ir) -> tuple[list[dict], int, str]:
+def _parse_session(ir) -> tuple[list[dict], int, str, dict]:
     active_drivers, subsession_id = _parse_session_drivers(ir)
     session_kind = current_session_kind(ir)
-    return active_drivers, subsession_id, session_kind
+    context = parse_session_context(ir)
+    return active_drivers, subsession_id, session_kind, context
 
 
 class IRacingWorker(QThread):
@@ -88,7 +90,7 @@ class IRacingWorker(QThread):
     without blocking the main GUI thread.
     """
 
-    drivers_updated = pyqtSignal(list, int, str)  # (driver_list, subsession_id, session_kind)
+    drivers_updated = pyqtSignal(list, int, str, dict)  # drivers, subsession_id, kind, context
     connection_changed = pyqtSignal(bool, int, str)  # (connected, subsession_id, session_kind)
     spotter_car_behind = pyqtSignal(int, float)  # (cust_id, gap_seconds)
     grid_updated = pyqtSignal(list, object)  # (slot dicts, player_cust_id | None)
@@ -204,7 +206,7 @@ class IRacingWorker(QThread):
             return
 
         is_connected = bool(getattr(self.ir, "is_connected", False))
-        active_drivers, subsession_id, session_kind = _parse_session(self.ir)
+        active_drivers, subsession_id, session_kind, session_context = _parse_session(self.ir)
         self._car_idx_to_cust = build_car_idx_to_cust_id(self.ir)
 
         if not is_connected and not active_drivers:
@@ -227,7 +229,9 @@ class IRacingWorker(QThread):
             len(active_drivers),
         )
         self._emit_connection(True, subsession_id, session_kind)
-        self.drivers_updated.emit(active_drivers, subsession_id, session_kind)
+        self.drivers_updated.emit(
+            active_drivers, subsession_id, session_kind, session_context
+        )
 
     def run(self):
         if not self.available or self.ir is None:

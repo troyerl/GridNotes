@@ -296,12 +296,14 @@ class SettingsTab(QWidget):
         spotter_layout.setSpacing(10)
         spotter_layout.addWidget(
             self._section_hint(
-                "Uses Windows text-to-speech to warn you when a disliked or high-risk "
-                "driver is within about 1.5 seconds behind you during a green-flag run. "
-                "You can also toggle this from the Live Mode screen header."
+                "Optional — off by default. Uses Windows text-to-speech to warn you when "
+                "a disliked or high-risk driver is within about 1.5 seconds behind you "
+                "during a green-flag run. You can also toggle this from the Live Mode header."
             )
         )
-        self.chk_audio_spotter = QCheckBox("Enable audio spotter (co-driver warnings)")
+        self.chk_audio_spotter = QCheckBox(
+            "Enable audio spotter (co-driver warnings, off by default)"
+        )
         self.chk_audio_spotter.setChecked(
             is_audio_spotter_setting_enabled(get_setting(AUDIO_SPOTTER_KEY))
         )

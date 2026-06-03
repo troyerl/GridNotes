@@ -14,8 +14,10 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from ..data.driver_models import format_live_session_at_glance
 from ..privacy.streamer_mode import streamer_display_name
-from ..safety.safety_index import SafetyIndex
+from ..safety.safety_index import SafetyIndex, tier_color_hex
+from ..safety.safety_trend import SafetyTrend, combined_safety_tooltip
 from .a11y import driver_mark_label, set_accessible
 from .theme import configure_scroll_area
 
@@ -65,6 +67,17 @@ class GridWalkRow(QFrame):
         self.name_label.setObjectName("gridWalkName")
         layout.addWidget(self.name_label, stretch=1)
 
+        self.new_label = QLabel("New")
+        self.new_label.setObjectName("gridWalkNewBadge")
+        self.new_label.setVisible(False)
+        layout.addWidget(self.new_label)
+
+        self.score_label = QLabel("")
+        self.score_label.setObjectName("gridWalkScore")
+        self.score_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.score_label.setFixedWidth(52)
+        layout.addWidget(self.score_label)
+
         self.mark_label = QLabel("")
         self.mark_label.setObjectName("gridWalkMark")
         self.mark_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -94,7 +107,11 @@ class GridWalkRow(QFrame):
         self._active = False
         self.pos_label.setText("")
         self.name_label.setText("")
+        self.new_label.setVisible(False)
+        self.score_label.setText("")
+        self.score_label.setStyleSheet("")
         self.mark_label.setText("")
+        self.setToolTip("")
         self.setProperty("role", "")
         self.setProperty("pref", "")
         self.setProperty("risky", "false")
@@ -115,6 +132,9 @@ class GridWalkRow(QFrame):
         risky: bool,
         role: str,
         side: str,
+        safety: SafetyIndex | None = None,
+        safety_trend: SafetyTrend | None = None,
+        has_history: bool = True,
     ) -> None:
         self._cust_id = cust_id
         self._active = True
@@ -123,9 +143,33 @@ class GridWalkRow(QFrame):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.pos_label.setText(f"P{position}")
         self.name_label.setText(name)
+        self.new_label.setVisible(not has_history)
+
+        if safety is not None and safety.tier != "unknown":
+            score_text = f"{safety.score:.0f}"
+            if safety_trend is not None and safety_trend.arrow:
+                score_text = f"{score_text}{safety_trend.arrow}"
+            color = tier_color_hex(safety.tier)
+            if safety_trend is not None and safety_trend.direction in (
+                "improving",
+                "worsening",
+            ):
+                color = safety_trend.color_hex
+            self.score_label.setText(score_text)
+            self.score_label.setStyleSheet(f"color: {color}; font-weight: 800;")
+            tooltip = combined_safety_tooltip(safety, safety_trend)
+        else:
+            self.score_label.setText("")
+            self.score_label.setStyleSheet("")
+            tooltip = (
+                "Not in your book yet — tap after the race to add notes."
+                if not has_history
+                else ""
+            )
 
         mark = driver_mark_label(pref, risky) or ""
         self.mark_label.setText(mark)
+        self.setToolTip(tooltip)
 
         self.setProperty("role", role)
         self.setProperty("pref", "like" if pref == 1 else ("dislike" if pref == -1 else ""))
@@ -220,8 +264,14 @@ class GridWalkView(QWidget):
         self.summary_label = QLabel("")
         self.summary_label.setObjectName("gridWalkSummary")
         self.summary_label.setWordWrap(True)
-        self.summary_label.setContentsMargins(20, 12, 20, 8)
+        self.summary_label.setContentsMargins(20, 12, 20, 4)
         root.addWidget(self.summary_label)
+
+        self.at_glance_label = QLabel("")
+        self.at_glance_label.setObjectName("gridWalkAtGlance")
+        self.at_glance_label.setWordWrap(True)
+        self.at_glance_label.setContentsMargins(20, 0, 20, 8)
+        root.addWidget(self.at_glance_label)
 
         self.hint_label = QLabel(
             "The car ahead in your column and beside you on the grid are highlighted. "
@@ -293,6 +343,10 @@ class GridWalkView(QWidget):
             elif position == grid_beside:
                 role = "beside"
 
+        trend = meta.get("safety_trend")
+        if trend is not None and not isinstance(trend, SafetyTrend):
+            trend = None
+
         return {
             "position": position,
             "cust_id": cust_id,
@@ -300,6 +354,9 @@ class GridWalkView(QWidget):
             "pref": pref if pref in (1, -1) else None,
             "risky": risky,
             "role": role,
+            "safety": safety if isinstance(safety, SafetyIndex) else None,
+            "safety_trend": trend,
+            "has_history": bool(meta.get("has_history")),
         }
 
     def rebuild(
@@ -310,17 +367,34 @@ class GridWalkView(QWidget):
         *,
         streamer_mode: bool = False,
     ) -> None:
+        def _slot_cache_entry(slot: dict) -> tuple:
+            cid = int(slot["cust_id"])
+            meta = entries_by_cust.get(cid, {})
+            safety = meta.get("safety")
+            score = (
+                round(safety.score, 1)
+                if isinstance(safety, SafetyIndex) and safety.tier != "unknown"
+                else -1
+            )
+            trend = meta.get("safety_trend")
+            trend_dir = (
+                trend.direction
+                if isinstance(trend, SafetyTrend)
+                else "unknown"
+            )
+            return (
+                slot.get("position"),
+                cid,
+                player_cust_id,
+                meta.get("pref"),
+                meta.get("has_history"),
+                score,
+                trend_dir,
+            )
+
         key = (
             streamer_mode,
-            tuple(
-                (
-                    s.get("position"),
-                    s.get("cust_id"),
-                    player_cust_id,
-                    entries_by_cust.get(int(s["cust_id"]), {}).get("pref"),
-                )
-                for s in slots
-            ),
+            tuple(_slot_cache_entry(s) for s in slots),
         )
         if key == self._last_key:
             return
@@ -339,6 +413,10 @@ class GridWalkView(QWidget):
             )
         else:
             self.summary_label.setText(f"Starting grid — {total} drivers")
+
+        at_glance = format_live_session_at_glance(list(entries_by_cust.values()))
+        self.at_glance_label.setText(at_glance)
+        self.at_glance_label.setVisible(bool(at_glance))
 
         ahead_risk = beside_risk = False
         if player_position is not None:
@@ -395,6 +473,8 @@ class GridWalkView(QWidget):
             empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.rows_layout.addWidget(empty)
             self.rows_layout.addStretch()
+            self.at_glance_label.setText("")
+            self.at_glance_label.setVisible(False)
             return
 
         by_position = {

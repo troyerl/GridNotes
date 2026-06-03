@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from ..iracing.session_context import format_session_context_banner
 from ..safety.safety_index import SafetyIndex, empty_safety, tier_color_hex, tier_label
 from ..safety.safety_trend import SafetyTrend
 from ..iracing.session_kind import session_kind_label
@@ -44,9 +45,16 @@ class LiveDriverCard(QFrame):
 
         left = QVBoxLayout()
         left.setSpacing(4)
+        name_row = QHBoxLayout()
+        name_row.setSpacing(8)
         self.name_label = QLabel("—")
         self.name_label.setObjectName("liveDriverName")
-        left.addWidget(self.name_label)
+        name_row.addWidget(self.name_label, stretch=1)
+        self.new_label = QLabel("New")
+        self.new_label.setObjectName("liveNewBadge")
+        self.new_label.setVisible(False)
+        name_row.addWidget(self.new_label)
+        left.addLayout(name_row)
 
         self.profile_label = QLabel("")
         self.profile_label.setObjectName("liveVerdict")
@@ -124,10 +132,12 @@ class LiveDriverCard(QFrame):
         has_note: bool,
         pref: int | None,
         safety_trend: SafetyTrend | None = None,
+        has_history: bool = True,
     ) -> None:
         self._cust_id = cust_id
         self._driver_name = name or "—"
         self.name_label.setText(self._driver_name)
+        self.new_label.setVisible(not has_history)
 
         if safety.tier == "unknown":
             self.profile_label.setText("")
@@ -230,8 +240,9 @@ class LiveSessionView(QWidget):
         self.chk_audio_spotter = QCheckBox("Audio spotter")
         self.chk_audio_spotter.setObjectName("liveAudioSpotter")
         self.chk_audio_spotter.setToolTip(
-            "When enabled, speaks a warning if a disliked or high-risk driver "
-            "is within 1.5 seconds behind you (Windows only, green-flag running)."
+            "Optional — off by default. When enabled, speaks a warning if a "
+            "disliked or high-risk driver is within 1.5 seconds behind you "
+            "(Windows only, green-flag running)."
         )
         self.chk_audio_spotter.stateChanged.connect(self._on_audio_spotter_changed)
         header_layout.addWidget(self.chk_audio_spotter)
@@ -259,6 +270,18 @@ class LiveSessionView(QWidget):
         self.count_label.setObjectName("liveSessionMeta")
         header_layout.addWidget(self.count_label)
         root.addWidget(header)
+
+        self.context_banner = QLabel("")
+        self.context_banner.setObjectName("liveSessionContext")
+        self.context_banner.setWordWrap(True)
+        self.context_banner.setContentsMargins(20, 0, 20, 4)
+        root.addWidget(self.context_banner)
+
+        self.at_glance_label = QLabel("")
+        self.at_glance_label.setObjectName("liveSessionAtGlance")
+        self.at_glance_label.setWordWrap(True)
+        self.at_glance_label.setContentsMargins(20, 0, 20, 8)
+        root.addWidget(self.at_glance_label)
 
         self.offline_label = QLabel(
             "Not connected to iRacing — join a session to see live driver cards."
@@ -378,6 +401,8 @@ class LiveSessionView(QWidget):
         driver_count: int,
         session_kind: str = "race",
         persist_drivers: bool = True,
+        context: dict[str, str] | None = None,
+        at_glance: str = "",
     ) -> None:
         if connected:
             self.offline_label.setVisible(False)
@@ -391,11 +416,22 @@ class LiveSessionView(QWidget):
                 self.count_label.setText(f"{driver_count} drivers")
             else:
                 self.count_label.setText(f"{driver_count} drivers · scouting only (not saved yet)")
+
+            banner = format_session_context_banner(session_kind, context)
+            self.context_banner.setText(banner)
+            self.context_banner.setVisible(bool(banner))
+
+            self.at_glance_label.setText(at_glance or "")
+            self.at_glance_label.setVisible(bool(at_glance))
         else:
             self.offline_label.setVisible(True)
             self.content_stack.setVisible(False)
             self.session_label.setText("")
             self.count_label.setText("")
+            self.context_banner.setText("")
+            self.context_banner.setVisible(False)
+            self.at_glance_label.setText("")
+            self.at_glance_label.setVisible(False)
 
     def rebuild_if_changed(self, entries: list[dict]) -> None:
         if self._grid_walk_active:
@@ -406,6 +442,7 @@ class LiveSessionView(QWidget):
                 e.get("name"),
                 e.get("total_races"),
                 e.get("pref"),
+                e.get("has_history"),
                 round(getattr(e.get("safety"), "score", -1), 1)
                 if e.get("safety") is not None
                 else -1,
@@ -454,6 +491,7 @@ class LiveSessionView(QWidget):
                 has_note=bool(entry.get("has_note")),
                 pref=entry.get("pref"),
                 safety_trend=trend,
+                has_history=bool(entry.get("has_history")),
             )
             card.clicked.connect(self.driver_clicked.emit)
             self.cards_layout.addWidget(card)

@@ -8,6 +8,18 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.34 — 2026-06-02
+
+### Improved
+
+- **Live Mode context** — Session banner shows race type, lap count (or timed length), track name, and category (road/oval) from the iRacing SDK when available.
+- **Session at a glance** — Live Mode and Grid Walk show a one-line summary (driver count, flagged, liked/disliked, new to your book).
+- **Grid Walk scouting** — Each grid row shows compact Safety Index score with form arrow; hover tooltips match the driver table; drivers with no history show a **New** badge.
+- **New drivers** — Live driver cards badge drivers not yet in your book.
+- **Audio spotter** — Clarified as optional and off by default in Live Mode.
+
+---
+
 ## v1.0.33 — 2026-06-02
 
 ### Improved

@@ -44,7 +44,12 @@ from ..data.data_retention import DEFAULT_RETENTION, SETTING_KEY, purge_expired_
 from ..data.note_tags import chip_label, load_note_tags
 from ..data.db import close_sqlite_connection, connect_db, get_setting, init_db, set_setting
 from ..data.driver_cleanup import count_zero_race_drivers, purge_zero_race_drivers
-from ..data.driver_models import DriverDetailRow, DriverTableRow, build_live_session_entries
+from ..data.driver_models import (
+    DriverDetailRow,
+    DriverTableRow,
+    build_live_session_entries,
+    format_live_session_at_glance,
+)
 from ..ui.a11y import driver_mark_label, set_accessible
 from ..privacy.streamer_mode import (
     STREAMER_MODE_KEY,
@@ -143,6 +148,7 @@ class GridNotesApp(QMainWindow):
 
         self.current_subsession_id = 0
         self.current_session_kind = ""
+        self.current_session_context: dict[str, str] = {}
         self.selected_cust_id = None
         self.worker = None
         self._import_worker: ImportWorker | None = None
@@ -620,12 +626,17 @@ class GridNotesApp(QMainWindow):
             return
         driver_count = len(self.active_cust_ids)
         scouting = is_live_scouting_session(self.current_session_kind)
+        at_glance = ""
+        if scouting and self.active_cust_ids:
+            at_glance = format_live_session_at_glance(self._build_live_session_entries())
         self.live_session_view.set_session_info(
             connected=self._sdk_connected,
             subsession_id=self.current_subsession_id,
             driver_count=driver_count,
             session_kind=self.current_session_kind,
             persist_drivers=is_race_session(self.current_session_kind),
+            context=self.current_session_context,
+            at_glance=at_glance,
         )
         if self._sdk_connected and scouting and self.active_cust_ids:
             if self.live_session_view.is_grid_walk_mode():
@@ -1768,6 +1779,7 @@ class GridNotesApp(QMainWindow):
 
         self.current_subsession_id = 0
         self.current_session_kind = ""
+        self.current_session_context = {}
         self.active_cust_ids = set()
         self.active_driver_names = {}
         self.active_driver_car_numbers = {}
@@ -1777,12 +1789,20 @@ class GridNotesApp(QMainWindow):
             self.chk_current_race_only.setChecked(False)
         self._refresh_live_session_view()
 
-    def handle_sdk_update(self, active_drivers, subsession_id, session_kind):
+    def handle_sdk_update(
+        self,
+        active_drivers,
+        subsession_id,
+        session_kind,
+        session_context=None,
+    ):
         prev_subsession = self.current_subsession_id
         prev_kind = self.current_session_kind
 
         self.current_subsession_id = subsession_id
         self.current_session_kind = session_kind
+        if isinstance(session_context, dict):
+            self.current_session_context = session_context
 
         if (
             is_race_session(prev_kind)

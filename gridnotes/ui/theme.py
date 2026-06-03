@@ -463,6 +463,28 @@ QLabel#liveSessionTitle {
     color: {{text_heading}};
 }
 
+QLabel#liveSessionContext {
+    font-size: 15px;
+    font-weight: 600;
+    color: {{text_heading}};
+}
+
+QLabel#liveSessionAtGlance {
+    font-size: 14px;
+    font-weight: 600;
+    color: {{text_muted}};
+}
+
+QLabel#liveNewBadge {
+    font-size: 11px;
+    font-weight: 800;
+    color: {{accent}};
+    background-color: {{selection_bg}};
+    border: 1px solid {{accent_border}};
+    border-radius: 4px;
+    padding: 2px 6px;
+}
+
 QLabel#liveSessionMeta {
     font-size: 14px;
     color: {{text_secondary}};
@@ -642,6 +664,28 @@ QWidget#gridWalkRoot {
 QLabel#gridWalkSummary {
     font-size: 16px;
     font-weight: 700;
+    color: {{text_heading}};
+}
+
+QLabel#gridWalkAtGlance {
+    font-size: 14px;
+    font-weight: 600;
+    color: {{text_muted}};
+}
+
+QLabel#gridWalkNewBadge {
+    font-size: 10px;
+    font-weight: 800;
+    color: {{accent}};
+    background-color: {{selection_bg}};
+    border: 1px solid {{accent_border}};
+    border-radius: 4px;
+    padding: 1px 5px;
+}
+
+QLabel#gridWalkScore {
+    font-size: 15px;
+    font-weight: 800;
     color: {{text_heading}};
 }
 
