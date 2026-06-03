@@ -8,19 +8,16 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-APP_VERSION_PY = ROOT / "gridnotes" / "app" / "app_version.py"
-OUT_PATH = ROOT / "scripts" / "win_version_info.txt"
+
+_SCRIPTS = Path(__file__).resolve().parent
+if str(_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS))
+from read_app_version import read_app_version  # noqa: E402
+
+OUT_PATH = _SCRIPTS / "win_version_info.txt"
 
 PUBLISHER = "Logan Troyer"
 PRODUCT = "GridNotes"
-
-
-def read_app_version() -> str:
-    text = APP_VERSION_PY.read_text(encoding="utf-8")
-    match = re.search(r'__version__\s*=\s*["\']([^"\']+)["\']', text)
-    if not match:
-        raise SystemExit(f"Could not read __version__ from {APP_VERSION_PY}")
-    return match.group(1).strip()
 
 
 def version_tuple(version: str) -> tuple[int, int, int, int]:

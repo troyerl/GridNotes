@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-__version__ = "1.0.35"
+__version__ = "1.0.36"
 
 WINDOWS_PUBLISHER = "Logan Troyer"
 
@@ -38,27 +38,46 @@ def reconcile_installed_version(install_root: Path) -> str:
     """
     Pick the newest version recorded in the install folder and sync the marker file.
 
-    After an update, .gridnotes-version can lag behind app_version.py if post-update
-    refresh failed; using the max keeps Settings and update checks accurate.
+    Always includes the running app's ``__version__`` so a PyInstaller build is not
+    overridden by a stale ``install-path.txt`` pointing at an old source tree, or by
+    an outdated ``.gridnotes-version`` marker after reinstalling from Setup.exe.
     """
     install_root = install_root.resolve()
     marker = _read_marker_version(install_root)
     py_ver = _read_py_version(install_root)
-    candidates = [v for v in (marker, py_ver) if v]
-    if not candidates:
-        return __version__
+    candidates = [v for v in (marker, py_ver, __version__) if v]
     best = max(candidates, key=parse_version)
     if marker != best:
         write_installed_version(install_root, best)
     return best
 
 
-def installed_version() -> str:
-    """Version of the installed copy under D:\\GridNotes (or similar)."""
+def effective_install_root() -> Path | None:
+    """Install folder for the build that is actually running (frozen exe wins)."""
+    try:
+        import sys
+
+        if getattr(sys, "frozen", False):
+            from ..installer.frozen_update import frozen_install_root
+
+            root = frozen_install_root()
+            if root is not None:
+                return root
+    except Exception:
+        pass
+
     try:
         from ..installer.uninstall import resolve_install_root
 
-        root = resolve_install_root()
+        return resolve_install_root()
+    except OSError:
+        return None
+
+
+def installed_version() -> str:
+    """Version of the installed copy under D:\\GridNotes (or similar)."""
+    try:
+        root = effective_install_root()
         if root is not None:
             return reconcile_installed_version(root)
     except OSError:

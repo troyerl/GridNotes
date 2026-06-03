@@ -38,9 +38,15 @@ class UninstallResult:
         return "\n\n".join(self.messages)
 
 
+def _looks_like_frozen_install_root(path: Path) -> bool:
+    return path.is_dir() and (path / "GridNotes.exe").is_file()
+
+
 def _looks_like_install_root(path: Path) -> bool:
     if not path.is_dir():
         return False
+    if _looks_like_frozen_install_root(path):
+        return True
     if not (path / "main.py").is_file():
         return False
     return any(
@@ -52,7 +58,7 @@ def _looks_like_install_root(path: Path) -> bool:
 def _detect_install_root_from_runtime() -> Path | None:
     if getattr(sys, "frozen", False):
         candidate = Path(sys.executable).resolve().parent
-        if _looks_like_install_root(candidate):
+        if _looks_like_frozen_install_root(candidate):
             return candidate
 
     if sys.argv:
@@ -108,6 +114,19 @@ def _known_install_candidates() -> list[Path]:
 
 def resolve_install_root() -> Path | None:
     """Find the installed GridNotes folder (pointer file, running app, or common paths)."""
+    if getattr(sys, "frozen", False):
+        candidate = Path(sys.executable).resolve().parent
+        if _looks_like_frozen_install_root(candidate):
+            return candidate
+        try:
+            from ..platform.windows.windows_apps import registry_install_root
+
+            reg = registry_install_root()
+            if reg is not None and _looks_like_frozen_install_root(reg):
+                return reg
+        except Exception:
+            pass
+
     pointer = install_location_pointer_file()
     if pointer.is_file():
         text = pointer.read_text(encoding="utf-8").strip()

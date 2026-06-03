@@ -1,8 +1,10 @@
 ; Inno Setup script for GridNotes (Windows installer)
 ; Run automatically via scripts\build_installer.ps1 when Inno Setup 6 is installed.
 
+#ifndef MyAppVersion
+#define MyAppVersion "0.0.0"
+#endif
 #define MyAppName "GridNotes"
-#define MyAppVersion "1.0.33"
 #define MyAppPublisher "Logan Troyer"
 #define MyAppExeName "GridNotes.exe"
 
@@ -50,3 +52,13 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+  begin
+    SaveStringToFile(ExpandConstant('{app}\.gridnotes-version'),
+      '{#MyAppVersion}' + #13#10, False);
+  end;
+end;

@@ -10,6 +10,15 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.36 — 2026-06-02
+
+### Fixed
+
+- **Installed version after Setup.exe** — Settings no longer shows an old version (for example 1.0.33) after installing a newer release. The app now prefers the running `GridNotes.exe` folder over a stale `install-path.txt` from an earlier source install, and always reconciles against the built-in app version.
+- **Windows installer version** — `GridNotes-Setup.exe` and **Settings → Apps** version metadata are taken from `app_version.py` at build time (no hardcoded Inno version). Setup writes `.gridnotes-version` in the install folder on first install.
+
+---
+
 ## v1.0.35 — 2026-06-02
 
 ### Improved

@@ -29,7 +29,7 @@ Install **[Inno Setup 6](https://jrsoftware.org/isinfo.php)** (free), then run `
 
 ## Publisher name on install / uninstall
 
-The installer metadata uses **Logan Troyer** as publisher (`AppPublisher` in `scripts\gridnotes.iss`). Builds also embed **CompanyName** in `GridNotes.exe` and the setup executable version resource.
+The installer metadata uses **Logan Troyer** as publisher (`AppPublisher` in `scripts\gridnotes.iss`). **App version** is read from `gridnotes/app/app_version.py` at build time (`scripts\read_app_version.py` → Inno `/DMyAppVersion=…`). Builds also embed **CompanyName** in `GridNotes.exe` and the setup executable version resource.
 
 **Settings → Apps** should show **Publisher: Logan Troyer** after install. If you installed with `GridNotes-Setup.exe`, launch GridNotes once so it refreshes the Apps list entry.
 

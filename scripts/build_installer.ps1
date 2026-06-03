@@ -59,8 +59,12 @@ foreach ($InnoCompiler in $InnoCandidates) {
         continue
     }
 
-    Write-Host "==> Creating Windows installer with Inno Setup"
-    & $InnoCompiler $IssPath
+    $AppVersion = python (Join-Path $RootDir "scripts\read_app_version.py")
+    if (-not $AppVersion) {
+        throw "Error: could not read app version from gridnotes/app/app_version.py"
+    }
+    Write-Host "==> Creating Windows installer with Inno Setup (v$AppVersion)"
+    & $InnoCompiler "/DMyAppVersion=$AppVersion" $IssPath
     if (Test-Path $SetupPath) {
         $BuiltInstaller = $true
     }

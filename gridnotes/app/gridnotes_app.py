@@ -205,21 +205,24 @@ class GridNotesApp(QMainWindow):
     def _sync_windows_install_metadata(self) -> None:
         """Keep Settings → Apps and the version label in sync with the installed release."""
         try:
-            from ..app.app_version import reconcile_installed_version
-            from ..installer.uninstall import resolve_install_root
+            from ..app.app_version import effective_install_root, reconcile_installed_version
+            from ..installer.logic import save_install_location
+            from ..services.app_update import is_frozen_build
 
-            install_root = resolve_install_root()
+            install_root = effective_install_root()
             if install_root is not None:
                 reconcile_installed_version(install_root)
+                if is_frozen_build():
+                    save_install_location(install_root)
         except Exception:
             pass
         if sys.platform != "win32":
             return
         try:
-            from ..installer.uninstall import resolve_install_root
+            from ..app.app_version import effective_install_root
             from ..platform.windows.windows_apps import register_windows_uninstall
 
-            install_root = resolve_install_root()
+            install_root = effective_install_root()
             if install_root is not None:
                 register_windows_uninstall(install_root)
         except Exception:
