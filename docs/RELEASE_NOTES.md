@@ -8,6 +8,15 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.29 — 2026-06-02
+
+### Improved
+
+- **Unknown Safety Index** — When a driver has no scoreable history, risk UI stays blank: no tier suffix in streamer mode, empty Safety Index cells, and no placeholder text in Live Mode cards or the detail panel.
+- **Streamer mode labels** — Risk tier is appended only when a score exists (e.g. `Driver #42 (Moderate risk)` vs `Driver #42` alone).
+
+---
+
 ## v1.0.28 — 2026-06-02
 
 ### Improved

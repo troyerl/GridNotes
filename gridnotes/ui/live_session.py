@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from ..safety.safety_index import SafetyIndex, empty_safety, tier_color_hex, tier_label, unknown_history_message
+from ..safety.safety_index import SafetyIndex, empty_safety, tier_color_hex, tier_label
 from ..safety.safety_trend import SafetyTrend
 from ..iracing.session_kind import session_kind_label
 from .a11y import set_accessible
@@ -126,15 +126,15 @@ class LiveDriverCard(QFrame):
         safety_trend: SafetyTrend | None = None,
     ) -> None:
         self._cust_id = cust_id
-        self._driver_name = name or "Unknown"
+        self._driver_name = name or "—"
         self.name_label.setText(self._driver_name)
 
         if safety.tier == "unknown":
-            self.profile_label.setText(unknown_history_message(safety.total_races))
-            self.score_label.setText("—")
+            self.profile_label.setText("")
+            self.score_label.setText("")
             self.score_label.setStyleSheet("")
             self.tier_label.setText("")
-            self.setProperty("risk", "unknown")
+            self.setProperty("risk", "")
         else:
             self.profile_label.setText(safety.profile)
             color = tier_color_hex(safety.tier)
@@ -181,10 +181,15 @@ class LiveDriverCard(QFrame):
             self.setProperty("pref", "")
             self.pref_label.setText("")
 
-        tier_text = tier_label(safety.tier) if safety.tier != "unknown" else "Unknown"
+        tier_text = tier_label(safety.tier) if safety.tier != "unknown" else ""
+        a11y_name = (
+            f"{self._driver_name}, Safety {tier_text}"
+            if tier_text
+            else self._driver_name
+        )
         set_accessible(
             self,
-            f"{self._driver_name}, Safety {tier_text}",
+            a11y_name,
             "Press Enter or Space to open scouting notes for this driver.",
         )
 
@@ -442,7 +447,7 @@ class LiveSessionView(QWidget):
                 trend = None
             card.set_driver(
                 cust_id=entry["cust_id"],
-                name=entry.get("name") or "Unknown",
+                name=entry.get("name") or "—",
                 safety=safety,
                 avg_inc=entry.get("avg_inc"),
                 last_sr=entry.get("last_sr"),

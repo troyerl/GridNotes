@@ -673,7 +673,7 @@ class GridNotesApp(QMainWindow):
             )
             self.driver_meta_label.setText(streamer_detail_meta(last_seen_fmt=last_seen_fmt))
         else:
-            self.driver_name_label.setText(detail.name or "Unknown driver")
+            self.driver_name_label.setText(detail.name or "—")
             self.driver_meta_label.setText(
                 f"ID {cust_id}  ·  Last raced {last_seen_fmt} ET"
             )

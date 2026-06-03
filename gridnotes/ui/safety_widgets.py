@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
 
 from .a11y import set_accessible
 from .appearance import get_theme_id
-from ..safety.safety_index import MIN_RACES_FOR_SCORE, SafetyIndex, tier_color_hex
+from ..safety.safety_index import SafetyIndex, tier_color_hex
 from ..safety.safety_trend import SafetyTrend
 from .theme import safety_progress_bar_style
 
@@ -147,18 +147,19 @@ class SafetyIndexPanel(QGroupBox):
         color = _bar_color(safety.tier)
 
         if safety.tier == "unknown":
-            self.score_label.setText("—")
+            self.score_label.setText("")
+            self.score_label.setStyleSheet("")
             self.tier_label.setText("")
             self.trend_label.setText("")
             self.trend_label.setToolTip("")
             self.overall_bar.setValue(0)
-            self.overall_bar.setFormat(f"Need {MIN_RACES_FOR_SCORE}+ races")
-            self.profile_label.setText(safety.profile)
+            self.overall_bar.setFormat("")
+            self.profile_label.setText("")
             for bar in self._component_bars.values():
                 bar.setValue(0)
-            self._component_values["incidents"].setText("—")
-            self._component_values["dnf"].setText("—")
-            self._component_values["pos"].setText("—")
+            self._component_values["incidents"].setText("")
+            self._component_values["dnf"].setText("")
+            self._component_values["pos"].setText("")
             self.reasons_label.setText("")
             return
 

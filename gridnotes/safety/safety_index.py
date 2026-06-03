@@ -155,7 +155,7 @@ def empty_safety() -> SafetyIndex:
 
 def safety_tooltip(safety: SafetyIndex) -> str:
     if safety.tier == "unknown":
-        return f"Safety Index: {safety.profile}"
+        return ""
     lines = [
         f"Safety Index {safety.score:.0f}/100 — {safety.profile}",
         *safety.reasons,

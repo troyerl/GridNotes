@@ -18,9 +18,7 @@ def driver_alias_number(cust_id: int) -> int:
     return int(cust_id) % _ALIAS_MODULO
 
 
-def driver_risk_suffix(safety: SafetyIndex | None) -> str:
-    if safety is None or safety.tier == "unknown":
-        return "Unknown"
+def driver_risk_suffix(safety: SafetyIndex) -> str:
     return tier_label(safety.tier)
 
 
@@ -35,7 +33,8 @@ def streamer_display_name(
     Public-facing alias for streamer mode.
 
     When *car_number* is set (Live Mode session), uses the car's racing number,
-    e.g. ``Driver #42 (Moderate risk)``. Otherwise falls back to a stable cust-id tag.
+    e.g. ``Driver #42 (Moderate risk)``. Risk tier is omitted when unknown.
+    Otherwise falls back to a stable cust-id tag.
     """
     if car_number and str(car_number).strip():
         num = str(car_number).strip().lstrip("#")
@@ -44,8 +43,11 @@ def streamer_display_name(
         tag = driver_alias_number(cust_id)
         label = f"Driver #{tag:02d}"
 
+    if safety is None or safety.tier == "unknown":
+        return label
+
     risk = driver_risk_suffix(safety)
-    if compact and safety is not None and safety.tier != "unknown":
+    if compact:
         short = {"Low risk": "Low", "Moderate risk": "Mod", "High risk": "High"}.get(
             risk, risk
         )
@@ -63,7 +65,7 @@ def display_driver_name(
 ) -> str:
     if streamer_mode:
         return streamer_display_name(cust_id, safety, compact=compact_table)
-    return (real_name or "").strip() or "Unknown"
+    return (real_name or "").strip() or "—"
 
 
 def streamer_detail_meta(*, last_seen_fmt: str) -> str:
