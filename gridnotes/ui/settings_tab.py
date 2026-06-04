@@ -337,13 +337,20 @@ class SettingsTab(QWidget):
         layout.addStretch()
         return page
 
-    def set_broadcast_receiver_active(self, active: bool, *, source_name: str = "") -> None:
+    def set_broadcast_receiver_active(
+        self, active: bool, *, source_name: str = "", connecting: bool = False
+    ) -> None:
         if active:
             label = source_name or "Broadcaster"
-            self.broadcast_status_label.setText(
-                f"Receiving from {label}. Notes and likes sync to the broadcaster — "
-                "nothing is saved on this device."
-            )
+            if connecting:
+                self.broadcast_status_label.setText(
+                    f"Connecting to {label}…"
+                )
+            else:
+                self.broadcast_status_label.setText(
+                    f"Connected to {label}. Notes and likes sync to the broadcaster — "
+                    "nothing is saved on this device."
+                )
         else:
             self.broadcast_status_label.setText("")
 

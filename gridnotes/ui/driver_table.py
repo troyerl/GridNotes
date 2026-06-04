@@ -2,9 +2,18 @@
 
 from __future__ import annotations
 
+import json
+
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QBrush, QColor
-from PyQt6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem, QTableWidget, QTableWidgetItem
+from PyQt6.QtWidgets import (
+    QHeaderView,
+    QStyle,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
+    QTableWidget,
+    QTableWidgetItem,
+)
 
 from .appearance import get_theme_id
 from ..safety.safety_index import (
@@ -101,19 +110,24 @@ DRIVER_TABLE_HEADERS = [
     "ID",
 ]
 
-RESIZE_TO_CONTENTS_COLUMNS = (
-    COL_MARK,
-    COL_RACES,
-    COL_SAFETY,
-    COL_AVG_INC,
-    COL_AVG_FINISH,
-    COL_AVG_POS,
-    COL_DNFS,
-    COL_LAST_SR,
-    COL_LAST_IR,
-    COL_NOTE,
-    COL_DNF_BREAKDOWN,
-)
+DEFAULT_DRIVER_TABLE_COLUMN_WIDTHS: dict[int, int] = {
+    COL_NAME: 200,
+    COL_MARK: 72,
+    COL_RACES: 64,
+    COL_SAFETY: 112,
+    COL_AVG_INC: 100,
+    COL_AVG_FINISH: 88,
+    COL_AVG_POS: 92,
+    COL_DNFS: 56,
+    COL_LAST_SR: 72,
+    COL_LAST_IR: 88,
+    COL_SERIES: 180,
+    COL_DNF_BREAKDOWN: 120,
+    COL_NOTE: 56,
+    COL_CUST_ID: 72,
+}
+
+TABLE_COLUMN_WIDTHS_KEY = "driver_table_column_widths"
 
 ROW_BG_LIKED = QColor(42, 72, 52)
 ROW_BG_LIKED_HOVER = QColor(54, 96, 66)
@@ -158,6 +172,55 @@ def configure_driver_table_theme(theme_id: str | None = None) -> None:
     SELECTED_ROW_FG = table_row_color(tid, "selected_fg")
 
 TABLE_HOVER_ROW_PROPERTY = "hover_row"
+
+
+def load_driver_table_column_widths() -> dict[int, int]:
+    from ..data.db import get_setting
+
+    raw = get_setting(TABLE_COLUMN_WIDTHS_KEY)
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    widths: dict[int, int] = {}
+    for key, value in data.items():
+        try:
+            col = int(key)
+            width = int(value)
+        except (TypeError, ValueError):
+            continue
+        if col in DEFAULT_DRIVER_TABLE_COLUMN_WIDTHS and width >= 48:
+            widths[col] = width
+    return widths
+
+
+def save_driver_table_column_widths(table: QTableWidget) -> None:
+    from ..data.db import set_setting
+
+    widths = {
+        str(col): table.columnWidth(col)
+        for col in range(COLUMN_COUNT)
+        if not table.isColumnHidden(col)
+    }
+    set_setting(TABLE_COLUMN_WIDTHS_KEY, json.dumps(widths))
+
+
+def apply_driver_table_column_widths(
+    table: QTableWidget, saved: dict[int, int] | None = None
+) -> None:
+    stored = load_driver_table_column_widths() if saved is None else saved
+    header = table.horizontalHeader()
+    for col, default_w in DEFAULT_DRIVER_TABLE_COLUMN_WIDTHS.items():
+        header.setSectionResizeMode(col, QHeaderView.ResizeMode.Interactive)
+        table.setColumnWidth(col, stored.get(col, default_w))
+
+
+def configure_driver_table_columns(table: QTableWidget) -> None:
+    """User-resizable columns; widths restored from settings when available."""
+    table.horizontalHeader().setStretchLastSection(False)
+    apply_driver_table_column_widths(table)
 
 
 def _brush_color(value) -> QColor | None:

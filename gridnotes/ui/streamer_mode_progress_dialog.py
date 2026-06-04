@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QDialog, QLabel, QProgressBar, QVBoxLayout
+from PyQt6.QtGui import QShowEvent
+from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QVBoxLayout
+
+from .ui_widgets import BusySpinner
 
 
 class StreamerModeProgressDialog(QDialog):
-    """Indeterminate progress while names are hidden or restored on screen."""
+    """Spinner while names are hidden or restored on screen."""
 
     def __init__(self, parent=None, *, enabling: bool) -> None:
         super().__init__(parent)
@@ -44,13 +47,21 @@ class StreamerModeProgressDialog(QDialog):
         detail_label.setWordWrap(True)
         layout.addWidget(detail_label)
 
-        self._progress = QProgressBar()
-        self._progress.setObjectName("streamerModeProgressBar")
-        self._progress.setRange(0, 0)
-        self._progress.setTextVisible(False)
-        self._progress.setFixedHeight(22)
-        layout.addWidget(self._progress)
+        spinner_row = QHBoxLayout()
+        spinner_row.addStretch()
+        self._spinner = BusySpinner(self, diameter=32)
+        spinner_row.addWidget(self._spinner)
+        spinner_row.addStretch()
+        layout.addLayout(spinner_row)
 
         status_label = QLabel("Please wait…")
         status_label.setObjectName("streamerModeProgressStatus")
         layout.addWidget(status_label)
+
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        self._spinner.start()
+
+    def closeEvent(self, event) -> None:
+        self._spinner.stop()
+        super().closeEvent(event)

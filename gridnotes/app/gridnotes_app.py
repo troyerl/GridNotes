@@ -70,10 +70,11 @@ from ..ui.driver_table import (
     DRIVER_TABLE_HEADERS,
     PREF_DATA_ROLE,
     REAL_NAME_DATA_ROLE,
-    RESIZE_TO_CONTENTS_COLUMNS,
     RISK_DATA_ROLE,
+    configure_driver_table_columns,
     configure_driver_table_theme,
     configure_driver_table_widget,
+    save_driver_table_column_widths,
     make_mark_item,
     make_note_item,
     make_safety_item,
@@ -207,7 +208,6 @@ class GridNotesApp(QMainWindow):
         self.active_driver_names: dict[int, str] = {}
         self.active_driver_car_numbers: dict[int, str] = {}
         self._hover_row: int | None = None
-        self._did_initial_column_resize = False
         self._live_mode_active = get_setting("live_mode", "0") == "1"
         self._streamer_mode = is_streamer_mode_enabled(get_setting(STREAMER_MODE_KEY))
         self._streamer_refresh_busy = False
@@ -231,6 +231,11 @@ class GridNotesApp(QMainWindow):
         self._using_broadcast_db = False
         self._local_db_conn = None
         self._broadcast_source_name = ""
+        self._broadcast_connect_host = ""
+        self._broadcast_receiver_ws_connected = False
+        self._broadcast_connect_timer = QTimer(self)
+        self._broadcast_connect_timer.setSingleShot(True)
+        self._broadcast_connect_timer.timeout.connect(self._on_broadcast_connect_timeout)
         self._shutting_down = False
 
         init_db()
@@ -373,18 +378,41 @@ class GridNotesApp(QMainWindow):
         header = self.table.horizontalHeader()
         header.setFont(header_font)
         header.setCursor(Qt.CursorShape.PointingHandCursor)
-        header.setToolTip("Click a column header to sort")
-        header.setMinimumSectionSize(64)
+        header.setToolTip("Click a column header to sort · drag the edge to resize")
+        header.setMinimumSectionSize(48)
         header.setDefaultSectionSize(100)
         header.setStretchLastSection(False)
+        header.sectionResized.connect(self._on_driver_table_column_resized)
 
+        self.table.verticalHeader().setVisible(False)
         self.table.verticalHeader().setDefaultSectionSize(38)
+
         self.table.setWordWrap(False)
         self.table.setTextElideMode(Qt.TextElideMode.ElideRight)
         self.table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
 
         row_h = self.table.verticalHeader().defaultSectionSize()
+        self._configure_driver_table_scroll_steps(row_h)
+
+        configure_driver_table_columns(self.table)
+        self.table.setColumnHidden(COL_CUST_ID, True)
+
+        for col in range(self.table.columnCount()):
+            header_item = self.table.horizontalHeaderItem(col)
+            if header_item is not None:
+                label = header_item.text()
+                header_item.setToolTip(
+                    f"Click to sort by {label} · drag the column edge to resize"
+                )
+
+        self.table.setMouseTracking(True)
+        self.table.viewport().setMouseTracking(True)
+        self.table.entered.connect(self._on_table_row_entered)
+        self.table.installEventFilter(self)
+        self.table.viewport().installEventFilter(self)
+
+    def _configure_driver_table_scroll_steps(self, row_h: int) -> None:
         configure_widget_scrollbars(
             self.table,
             single_step=row_h,
@@ -394,26 +422,10 @@ class GridNotesApp(QMainWindow):
             always_show=True,
         )
 
-        for col in RESIZE_TO_CONTENTS_COLUMNS:
-            header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(COL_NAME, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(COL_SERIES, QHeaderView.ResizeMode.Stretch)
-
-        self.table.setColumnHidden(COL_CUST_ID, True)
-        self.table.setColumnWidth(COL_NAME, 200)
-        self.table.setColumnWidth(COL_SERIES, 180)
-
-        for col in range(self.table.columnCount()):
-            header_item = self.table.horizontalHeaderItem(col)
-            if header_item is not None:
-                label = header_item.text()
-                header_item.setToolTip(f"Click to sort by {label}")
-
-        self.table.setMouseTracking(True)
-        self.table.viewport().setMouseTracking(True)
-        self.table.entered.connect(self._on_table_row_entered)
-        self.table.installEventFilter(self)
-        self.table.viewport().installEventFilter(self)
+    def _on_driver_table_column_resized(
+        self, _index: int, _old_size: int, _new_size: int
+    ) -> None:
+        save_driver_table_column_widths(self.table)
 
     def eventFilter(self, obj, event) -> bool:
         if obj is self.table.viewport() and event.type() == QEvent.Type.Leave:
@@ -785,7 +797,7 @@ class GridNotesApp(QMainWindow):
         self.setCentralWidget(root)
 
         self.broadcast_receiver_banner = QLabel("")
-        self.broadcast_receiver_banner.setObjectName("statusBadge")
+        self.broadcast_receiver_banner.setObjectName("broadcastReceiverBanner")
         self.broadcast_receiver_banner.setWordWrap(True)
         self.broadcast_receiver_banner.setVisible(False)
         root_layout.addWidget(self.broadcast_receiver_banner)
@@ -980,7 +992,6 @@ class GridNotesApp(QMainWindow):
         self.table.setSortingEnabled(False)
         self.table.horizontalHeader().sectionClicked.connect(self._on_table_header_clicked)
         configure_driver_table_widget(self.table)
-        self.table.verticalHeader().setVisible(False)
         self.table.setToolTip("Click a row to open scouting notes")
         self.table.itemSelectionChanged.connect(self.on_driver_selected)
         self.table.itemSelectionChanged.connect(lambda: self.table.viewport().update())
@@ -2177,11 +2188,6 @@ class GridNotesApp(QMainWindow):
             self.table.setUpdatesEnabled(True)
             self.table.viewport().update()
 
-        if not self._did_initial_column_resize:
-            self.table.resizeColumnsToContents()
-            self._did_initial_column_resize = True
-        self.table.setColumnWidth(COL_NAME, max(self.table.columnWidth(COL_NAME), 180))
-        self.table.setColumnWidth(COL_SERIES, max(self.table.columnWidth(COL_SERIES), 160))
         self._update_table_pagination_bar()
         if reselect and selected_cust_id is not None:
             self._select_driver_row_by_cust_id(selected_cust_id)
@@ -2530,7 +2536,7 @@ class GridNotesApp(QMainWindow):
             refresh_driver_table_row(self.table, row_idx)
 
     def import_json_data(self):
-        if self._using_broadcast_db:
+        if self._is_receiver_mode_active():
             QMessageBox.information(
                 self,
                 "Receiver mode",
@@ -2722,10 +2728,36 @@ class GridNotesApp(QMainWindow):
             pass
         self.worker = None
 
-    def _set_broadcast_mode_ui(self, *, receiving: bool, source_name: str = "") -> None:
+    def _is_receiver_mode_active(self) -> bool:
+        return self._broadcast_client is not None or self._using_broadcast_db
+
+    def _update_receiver_import_controls(self, *, receiving: bool) -> None:
+        if not hasattr(self, "btn_import"):
+            return
+        self.btn_import.setEnabled(not receiving)
+        if receiving:
+            set_button_tooltip(
+                self.btn_import,
+                "Import is disabled while connected as a receiver to a broadcaster.",
+            )
+        else:
+            set_button_tooltip(
+                self.btn_import,
+                "Import iRacing event_result JSON or custom race logs",
+            )
+
+    def _set_broadcast_mode_ui(
+        self,
+        *,
+        receiving: bool,
+        source_name: str = "",
+        connection_state: str = "idle",
+        ws_connected: bool = False,
+    ) -> None:
         self.btn_start_broadcast.setEnabled(not receiving)
         self.btn_connect_broadcast.setEnabled(not receiving)
-        self.btn_disconnect_broadcast.setVisible(receiving)
+        show_disconnect = receiving and connection_state in ("connecting", "connected")
+        self.btn_disconnect_broadcast.setVisible(show_disconnect)
         set_button_tooltip(
             self.btn_start_broadcast,
             TIP_BROADCAST_DISABLED if receiving else TIP_BROADCAST,
@@ -2734,15 +2766,41 @@ class GridNotesApp(QMainWindow):
             self.btn_connect_broadcast,
             TIP_RECEIVER_DISABLED if receiving else TIP_RECEIVER,
         )
-        if receiving:
-            label = source_name or "Broadcaster"
+        self._update_receiver_import_controls(receiving=receiving)
+        if not receiving:
+            self.broadcast_receiver_banner.setVisible(False)
+            self._polish_property(self.broadcast_receiver_banner, "status", "")
+            return
+
+        label = source_name or self._broadcast_connect_host or "Broadcaster"
+        if connection_state == "connected":
             self.broadcast_receiver_banner.setText(
-                f"Receiving from {label} — notes and likes sync to the broadcaster "
-                "(not saved on this device)."
+                f"Connected to {label} — receiving scouting data. "
+                "Notes and likes sync to the broadcaster (not saved on this device)."
             )
-            self.broadcast_receiver_banner.setVisible(True)
+            self._polish_property(self.broadcast_receiver_banner, "status", "connected")
+            self._set_status(STATUS_CONNECTED, f"Receiver · {label}")
+        elif connection_state == "connecting":
+            target = self._broadcast_connect_host or label
+            if ws_connected:
+                self.broadcast_receiver_banner.setText(
+                    f"Connected to {target} — loading scouting data…"
+                )
+            else:
+                self.broadcast_receiver_banner.setText(
+                    f"Connecting to {target}…"
+                )
+            self._polish_property(self.broadcast_receiver_banner, "status", "connecting")
+            status = (
+                f"Receiver · loading from {target}…"
+                if ws_connected
+                else f"Connecting to {target}…"
+            )
+            self._set_status(STATUS_WAITING, status)
         else:
             self.broadcast_receiver_banner.setVisible(False)
+            self._polish_property(self.broadcast_receiver_banner, "status", "")
+        self.broadcast_receiver_banner.setVisible(True)
 
     def _wire_broadcast_session_feed(self) -> None:
         feed = self._broadcast_session_feed
@@ -2782,7 +2840,8 @@ class GridNotesApp(QMainWindow):
             port=controller.server_port(),
             parent=self,
         )
-        controller._server.receiver_count_changed.connect(dialog.set_receiver_count)
+        controller._server.receivers_changed.connect(dialog.set_connected_receivers)
+        dialog.set_connected_receivers([])
         dialog.stop_requested.connect(self._on_broadcast_stop_requested)
         dialog.audio_spotter_changed.connect(self._on_broadcast_audio_spotter_changed)
         if sys.platform != "win32":
@@ -2841,6 +2900,8 @@ class GridNotesApp(QMainWindow):
         QTimer.singleShot(0, self._restore_after_broadcast_stop)
 
     def _disconnect_broadcast_receiver(self) -> None:
+        self._stop_broadcast_connect_timer()
+        self._broadcast_receiver_ws_connected = False
         if self._broadcast_client is not None:
             self._broadcast_client.disconnect_from_broadcaster()
             self._broadcast_client.deleteLater()
@@ -2857,6 +2918,7 @@ class GridNotesApp(QMainWindow):
             self._using_broadcast_db = False
             self._local_db_conn = None
         self._broadcast_source_name = ""
+        self._broadcast_connect_host = ""
         if self._shutting_down:
             return
         self._set_broadcast_mode_ui(receiving=False)
@@ -2904,6 +2966,7 @@ class GridNotesApp(QMainWindow):
 
         self._broadcast_client = BroadcastClient(host=host, port=port, parent=self)
         self._broadcast_session_feed = BroadcastSessionFeed(self)
+        self._broadcast_connect_host = host
         self._wire_broadcast_session_feed()
         self._broadcast_client.snapshot_received.connect(self._on_broadcast_snapshot)
         self._broadcast_client.live_state_received.connect(self._on_broadcast_live_state)
@@ -2911,35 +2974,110 @@ class GridNotesApp(QMainWindow):
         self._broadcast_client.connected_changed.connect(self._on_broadcast_client_connected)
         self._broadcast_client.error_message.connect(self._on_broadcast_client_error)
         self._stop_sdk_worker()
+        self._set_broadcast_mode_ui(
+            receiving=True,
+            connection_state="connecting",
+            source_name=host,
+        )
+        self.settings_tab.set_broadcast_receiver_active(
+            True, source_name=host, connecting=True
+        )
+        self._broadcast_receiver_ws_connected = False
+        self._broadcast_connect_timer.start(20_000)
         self._broadcast_client.connect_to_broadcaster()
-        self._set_status(STATUS_WAITING, f"Connecting to broadcaster at {host}…")
+
+    def _stop_broadcast_connect_timer(self) -> None:
+        if hasattr(self, "_broadcast_connect_timer"):
+            self._broadcast_connect_timer.stop()
+
+    def _on_broadcast_connect_timeout(self) -> None:
+        if self._using_broadcast_db or self._broadcast_client is None:
+            return
+        if self._broadcast_client.is_connected():
+            target = self._broadcast_connect_host or "broadcaster"
+            self._set_broadcast_mode_ui(
+                receiving=True,
+                connection_state="connecting",
+                source_name=target,
+                ws_connected=True,
+            )
+            log_user_error(
+                f"Connected to {target} but scouting data has not arrived yet. "
+                "Ensure the broadcaster is still running.",
+                context="broadcast receiver",
+            )
+            return
+        self._set_broadcast_mode_ui(receiving=False)
+        self._set_status(
+            STATUS_OFFLINE,
+            "Could not reach broadcaster — check the IP and that Broadcast is running.",
+            user_error=True,
+        )
+        self.settings_tab.set_broadcast_receiver_active(False)
 
     def _on_broadcast_client_connected(self, connected: bool) -> None:
         if connected:
-            self._set_status(STATUS_CONNECTED, "Connected to broadcaster")
+            self._broadcast_receiver_ws_connected = True
+            if self._using_broadcast_db:
+                name = self._broadcast_source_name or self._broadcast_connect_host
+                self._stop_broadcast_connect_timer()
+                self._set_broadcast_mode_ui(
+                    receiving=True,
+                    source_name=name,
+                    connection_state="connected",
+                )
+                self.settings_tab.set_broadcast_receiver_active(
+                    True, source_name=name
+                )
+            else:
+                self._set_broadcast_mode_ui(
+                    receiving=True,
+                    connection_state="connecting",
+                    source_name=self._broadcast_connect_host,
+                    ws_connected=True,
+                )
             return
+        self._broadcast_receiver_ws_connected = False
+        self._stop_broadcast_connect_timer()
         if self._using_broadcast_db:
+            self._set_broadcast_mode_ui(receiving=True, connection_state="connecting")
             self._set_status(STATUS_OFFLINE, "Disconnected from broadcaster")
         else:
+            self._set_broadcast_mode_ui(receiving=False)
             self._set_status(STATUS_WAITING, "Could not connect to broadcaster")
 
     def _on_broadcast_client_error(self, message: str) -> None:
         if message:
             log_user_error(message, context="broadcast receiver")
+            if not self._using_broadcast_db:
+                self._stop_broadcast_connect_timer()
+                self._set_status(STATUS_OFFLINE, message, user_error=True)
 
     def _on_broadcast_snapshot(self, payload: dict) -> None:
         from ..broadcast.snapshot import apply_snapshot_to_memory
 
-        if not self._using_broadcast_db:
-            self._local_db_conn = self._db_conn
-        else:
-            close_sqlite_connection(self._db_conn)
-        self._db_conn = apply_snapshot_to_memory(payload)
+        self._stop_broadcast_connect_timer()
+        try:
+            if not self._using_broadcast_db:
+                self._local_db_conn = self._db_conn
+            else:
+                close_sqlite_connection(self._db_conn)
+            self._db_conn = apply_snapshot_to_memory(payload)
+        except Exception:
+            logger.exception("Failed to apply broadcast snapshot")
+            self._set_broadcast_mode_ui(receiving=False)
+            self._set_status(
+                STATUS_OFFLINE,
+                "Received data from broadcaster but could not load it.",
+                user_error=True,
+            )
+            return
         self._using_broadcast_db = True
         self._broadcast_source_name = str(payload.get("broadcaster_name") or "Broadcaster")
         self._set_broadcast_mode_ui(
             receiving=True,
             source_name=self._broadcast_source_name,
+            connection_state="connected",
         )
         self.settings_tab.set_broadcast_receiver_active(
             True,

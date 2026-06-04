@@ -60,6 +60,12 @@ class BroadcastStatusDialog(QDialog):
         self._status_label.setWordWrap(True)
         layout.addWidget(self._status_label)
 
+        self._receivers_label = QLabel("")
+        self._receivers_label.setObjectName("sectionHint")
+        self._receivers_label.setWordWrap(True)
+        self._receivers_label.setVisible(False)
+        layout.addWidget(self._receivers_label)
+
         spinner_row = QHBoxLayout()
         spinner_row.addStretch()
         self._spinner = BusySpinner(self, diameter=32)
@@ -109,14 +115,28 @@ class BroadcastStatusDialog(QDialog):
         if sys.platform != "win32":
             self.set_audio_spotter_available(False)
 
-    def set_receiver_count(self, count: int) -> None:
+    def set_connected_receivers(self, names: list[str]) -> None:
         if self._stopping:
             return
-        if count <= 0:
+        if not names:
             self._status_label.setText("Waiting for a receiver…")
+            self._receivers_label.setVisible(False)
+            self._receivers_label.setText("")
             return
+        count = len(names)
         noun = "receiver" if count == 1 else "receivers"
-        self._status_label.setText(f"Connected to {count} {noun}.")
+        self._status_label.setText(f"{count} {noun} connected")
+        self._receivers_label.setText(
+            "\n".join(f"• {name}" for name in names)
+        )
+        self._receivers_label.setVisible(True)
+
+    def set_receiver_count(self, count: int) -> None:
+        """Backward-compatible hook when only a count is available."""
+        if count <= 0:
+            self.set_connected_receivers([])
+        else:
+            self.set_connected_receivers([f"Receiver {index + 1}" for index in range(count)])
 
     def set_audio_spotter_enabled(self, enabled: bool) -> None:
         self.chk_audio_spotter.blockSignals(True)
@@ -145,6 +165,7 @@ class BroadcastStatusDialog(QDialog):
         self._port_label.setVisible(False)
         self.chk_audio_spotter.setVisible(False)
         self._hint_label.setVisible(False)
+        self._receivers_label.setVisible(False)
         self._spinner.start()
         if closing_app:
             self.setWindowTitle("Closing GridNotes")

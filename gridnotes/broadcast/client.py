@@ -7,9 +7,23 @@ import logging
 from PyQt6.QtCore import QObject, QUrl, pyqtSignal
 from PyQt6.QtWebSockets import QWebSocket, QWebSocketProtocol
 
-from .protocol import decode_message, driver_patch_message, encode_message
+from .protocol import decode_message, driver_patch_message, encode_message, hello_message
 
 logger = logging.getLogger(__name__)
+
+
+def _default_websocket_version():
+    """PyQt6 6.5+ uses VersionLatest; older bindings expose Version.Version13."""
+    version_enum = getattr(QWebSocketProtocol, "Version", None)
+    latest = getattr(QWebSocketProtocol, "VersionLatest", None)
+    if latest is not None:
+        return latest
+    if version_enum is not None:
+        for name in ("VersionLatest", "Version13", "Version8"):
+            candidate = getattr(version_enum, name, None)
+            if candidate is not None:
+                return candidate
+    return None
 
 
 class BroadcastClient(QObject):
@@ -23,7 +37,7 @@ class BroadcastClient(QObject):
         super().__init__(parent)
         self._host = host.strip()
         self._port = port
-        self._socket = QWebSocket("", QWebSocketProtocol.VersionLatest, self)
+        self._socket = QWebSocket("", _default_websocket_version(), self)
         self._socket.connected.connect(self._on_connected)
         self._socket.disconnected.connect(self._on_disconnected)
         self._socket.errorOccurred.connect(self._on_error)
@@ -60,6 +74,9 @@ class BroadcastClient(QObject):
         return True
 
     def _on_connected(self) -> None:
+        import socket
+
+        self._socket.sendTextMessage(encode_message(hello_message(socket.gethostname())))
         self.connected_changed.emit(True)
 
     def _on_disconnected(self) -> None:

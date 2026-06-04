@@ -79,6 +79,16 @@ def driver_patch_message(
     return payload
 
 
+def hello_message(receiver_name: str) -> dict[str, Any]:
+    """Identify this device when connecting as a broadcast receiver."""
+    name = (receiver_name or "").strip() or "Receiver"
+    return {
+        "type": "hello",
+        "version": PROTOCOL_VERSION,
+        "receiver_name": name,
+    }
+
+
 def decode_message(raw: str | bytes) -> dict[str, Any] | None:
     try:
         if isinstance(raw, bytes):

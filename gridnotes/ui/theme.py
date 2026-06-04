@@ -82,6 +82,23 @@ QLabel#statusBadge[status="offline"] {
     color: {{text_secondary}};
 }
 
+QLabel#broadcastReceiverBanner {
+    font-size: 12px;
+    font-weight: 600;
+    padding: 8px 12px;
+    border-radius: 8px;
+}
+
+QLabel#broadcastReceiverBanner[status="connected"] {
+    background-color: {{success_bg}};
+    color: {{success_text}};
+}
+
+QLabel#broadcastReceiverBanner[status="connecting"] {
+    background-color: {{warning_bg}};
+    color: {{warning_text}};
+}
+
 QGroupBox {
     font-size: 12px;
     font-weight: 600;
@@ -1039,18 +1056,6 @@ QLabel#streamerModeProgressTitle {
     font-size: 15px;
     font-weight: 600;
     color: {{text_heading}};
-}
-
-QProgressBar#streamerModeProgressBar {
-    border: 1px solid {{border}};
-    border-radius: 6px;
-    background-color: {{bg_elevated}};
-    min-height: 22px;
-}
-
-QProgressBar#streamerModeProgressBar::chunk {
-    background-color: {{accent}};
-    border-radius: 5px;
 }
 
 QLabel#streamerModeProgressStatus {

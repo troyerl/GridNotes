@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 class BroadcastServer(QObject):
     receiver_count_changed = pyqtSignal(int)
+    receivers_changed = pyqtSignal(object)
     receiver_patch_received = pyqtSignal(object)
 
     def __init__(
@@ -27,7 +28,7 @@ class BroadcastServer(QObject):
         super().__init__(parent)
         self._name = broadcaster_name
         self._port = port
-        self._clients: set[QWebSocket] = set()
+        self._clients: dict[QWebSocket, str] = {}
         self._latest_snapshot: SnapshotPayload | None = None
         self._latest_live = LiveStatePayload()
         self._server = QWebSocketServer(
@@ -51,7 +52,7 @@ class BroadcastServer(QObject):
         self._clients.clear()
         if self._server.isListening():
             self._server.close()
-        self.receiver_count_changed.emit(0)
+        self._emit_receivers_changed()
 
     def port(self) -> int:
         return int(self._server.serverPort() or self._port)
@@ -73,6 +74,17 @@ class BroadcastServer(QObject):
         """Push a driver edit to all connected receivers."""
         self._broadcast(patch)
 
+    def connected_receiver_names(self) -> list[str]:
+        labels: list[str] = []
+        for name in self._clients.values():
+            labels.append(name if name else "Connecting…")
+        return sorted(labels, key=lambda label: (label == "Connecting…", label.lower()))
+
+    def _emit_receivers_changed(self) -> None:
+        names = self.connected_receiver_names()
+        self.receiver_count_changed.emit(len(self._clients))
+        self.receivers_changed.emit(names)
+
     def _on_new_connection(self) -> None:
         socket = self._server.nextPendingConnection()
         if socket is None:
@@ -81,22 +93,32 @@ class BroadcastServer(QObject):
             lambda msg, sock=socket: self._on_client_message(msg, sock)
         )
         socket.disconnected.connect(lambda sock=socket: self._remove_client(sock))
-        self._clients.add(socket)
-        self.receiver_count_changed.emit(len(self._clients))
+        self._clients[socket] = ""
+        self._emit_receivers_changed()
         if self._latest_snapshot is not None:
             socket.sendTextMessage(encode_message(self._latest_snapshot.to_dict()))
         socket.sendTextMessage(encode_message(self._latest_live.to_dict()))
 
     def _remove_client(self, socket: QWebSocket) -> None:
-        self._clients.discard(socket)
+        if socket not in self._clients:
+            return
+        del self._clients[socket]
         socket.deleteLater()
-        self.receiver_count_changed.emit(len(self._clients))
+        self._emit_receivers_changed()
 
-    def _on_client_message(self, raw: str, _socket: QWebSocket) -> None:
+    def _on_client_message(self, raw: str, socket: QWebSocket) -> None:
         payload = decode_message(raw)
         if payload is None:
             return
-        if payload.get("type") == "driver_patch":
+        msg_type = payload.get("type")
+        if msg_type == "hello":
+            name = str(payload.get("receiver_name") or "").strip() or "Receiver"
+            if socket in self._clients:
+                self._clients[socket] = name
+                logger.info("Receiver identified: %s", name)
+                self._emit_receivers_changed()
+            return
+        if msg_type == "driver_patch":
             self.receiver_patch_received.emit(payload)
 
     def _broadcast(self, payload: dict) -> None:

@@ -10,6 +10,23 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.43 — 2026-06-02
+
+### Improved
+
+- **Resizable driver table columns** — Drag column header edges to set widths; your layout is saved across restarts. Pagination no longer forces narrow auto-sized columns.
+- **Receiver connection feedback** — Connecting and connected states show a colored banner, status bar text, and **Disconnect** while a session is active. A 20-second timeout reports failure if the broadcaster cannot be reached.
+- **Broadcaster receiver list** — The broadcast status window lists connected receiver device names (from a hello handshake) instead of only a count.
+- **Streamer mode** — Toggling streamer mode shows a spinner instead of a progress bar while the table refreshes.
+- **Import while receiving** — **Import race JSON…** is disabled for the whole receiver session (including while connecting), not only after data loads.
+
+### Fixed
+
+- **Receiver on macOS** — WebSocket connect uses a compatible protocol version when older PyQt6 builds lack `VersionLatest`.
+- **Receiver connect** — Connecting as a receiver again starts the client and loads scouting data after the WebSocket opens.
+
+---
+
 ## v1.0.42 — 2026-06-03
 
 ### New
