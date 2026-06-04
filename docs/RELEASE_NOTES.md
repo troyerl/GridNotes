@@ -10,6 +10,27 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.42 — 2026-06-03
+
+### New
+
+- **LAN broadcast** — Share your scouting book and live iRacing session with another device on the same network. Use **Broadcast** in the header to send; use **Receiver** on a second PC or tablet to view the broadcaster’s data. Notes and likes on a receiver sync back to the broadcaster (not saved locally on the receiver).
+- **Driver table pagination** — The driver list shows **50 rows per page** by default (choose 25, 50, 100, or 200). Previous/Next controls and a summary line appear below the table. Search, filters, and column sorting apply to the full list.
+
+### Improved
+
+- **Broadcast controls in header** — **Broadcast**, **Receiver**, and **Disconnect** live next to **Live Mode** for quick access. Settings → Live Mode explains the feature and shows receiver status.
+- **Header tooltips** — Hover hints on broadcast, receiver, streamer, and live mode buttons explain what each control does.
+- **Stopping broadcast** — A spinner and status message appear while the broadcaster shuts down so you know GridNotes is working.
+- **Broadcaster audio spotter** — Optional co-driver warnings in the broadcast status window (off by default; does not change your saved app setting).
+
+### Fixed
+
+- **Quit while broadcasting** — Closing GridNotes no longer hangs; shutdown skips restarting the SDK worker or rebuilding the full driver table.
+- **After broadcast** — Returning from broadcaster mode reliably restores the driver table and layout.
+
+---
+
 ## v1.0.41 — 2026-06-02
 
 ### Improved

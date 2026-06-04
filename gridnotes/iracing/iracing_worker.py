@@ -317,5 +317,7 @@ class IRacingWorker(QThread):
                 self.ir.shutdown()
             except Exception:
                 pass
-        self.wait()
-        logger.info("SDK worker thread stopped")
+        if not self.wait(5000):
+            logger.warning("SDK worker thread did not stop within 5s")
+        else:
+            logger.info("SDK worker thread stopped")

@@ -29,6 +29,14 @@ QLabel {
     background: transparent;
 }
 
+QToolTip {
+    background-color: {{bg_elevated}};
+    color: {{text_primary}};
+    border: 1px solid {{border_strong}};
+    border-radius: 6px;
+    padding: 6px 10px;
+}
+
 QLabel#appTitle {
     font-size: 20px;
     font-weight: 700;

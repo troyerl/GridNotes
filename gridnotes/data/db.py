@@ -94,6 +94,23 @@ def connect_db(db_name: str = DB_NAME) -> sqlite3.Connection:
     return conn
 
 
+def connect_memory_db() -> sqlite3.Connection:
+    """In-memory SQLite for broadcast receiver mode (not persisted to disk)."""
+    conn = sqlite3.connect(":memory:")
+    conn.execute("PRAGMA busy_timeout = 30000")
+    conn.execute("PRAGMA synchronous = OFF")
+    conn.execute("PRAGMA cache_size = -2048")
+    conn.execute("PRAGMA temp_store = MEMORY")
+    return conn
+
+
+def create_memory_database() -> sqlite3.Connection:
+    """Empty in-memory database with the same schema as the local scouting book."""
+    conn = connect_memory_db()
+    _initialize_schema(conn)
+    return conn
+
+
 def close_sqlite_connection(conn: sqlite3.Connection | None) -> None:
     """Release a SQLite connection so the database file can be deleted on Windows."""
     if conn is None:
@@ -326,6 +343,17 @@ def _ensure_perf_indexes(cursor: sqlite3.Cursor) -> None:
 
 def init_db(db_name: str = DB_NAME) -> None:
     conn = connect_db(db_name)
+    try:
+        _initialize_schema(conn)
+    finally:
+        conn.close()
+
+    from .note_tags import ensure_default_note_tags
+
+    ensure_default_note_tags(db_name)
+
+
+def _initialize_schema(conn: sqlite3.Connection) -> None:
     cursor = conn.cursor()
 
     # Track core driver identity and permanent notes
@@ -366,11 +394,6 @@ def init_db(db_name: str = DB_NAME) -> None:
 
     _migrate_schema(cursor)
     conn.commit()
-    conn.close()
-
-    from .note_tags import ensure_default_note_tags
-
-    ensure_default_note_tags(db_name)
 
 
 def _app_settings_table_exists(cursor: sqlite3.Cursor) -> bool:

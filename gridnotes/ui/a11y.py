@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QWidget
+
+
+def set_button_tooltip(widget: QWidget, text: str) -> None:
+    """Show an explanatory hover tooltip (including when the widget is disabled)."""
+    widget.setToolTip(text)
+    widget.setAttribute(Qt.WidgetAttribute.WA_AlwaysShowToolTips, True)
 
 
 def set_accessible(

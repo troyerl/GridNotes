@@ -50,7 +50,7 @@ from ..data.driver_models import (
     build_live_session_entries,
     format_live_session_at_glance,
 )
-from ..ui.a11y import driver_mark_label, set_accessible
+from ..ui.a11y import driver_mark_label, set_accessible, set_button_tooltip
 from ..privacy.streamer_mode import (
     STREAMER_MODE_KEY,
     display_driver_name,
@@ -80,6 +80,7 @@ from ..ui.driver_table import (
     make_table_item,
     refresh_driver_table_row,
     set_driver_table_hover_row,
+    table_row_sort_key,
 )
 from ..iracing.import_worker import ImportJobResult, ImportWorker
 from ..iracing.iracing_api_fetch_worker import (
@@ -111,6 +112,7 @@ from ..safety.safety_trend import (
 from ..ui.safety_widgets import SafetyIndexPanel
 from ..ui.settings_tab import SettingsTab
 from ..core.timestamps import display_timezone_abbrev, format_last_seen
+from ..ui.table_pagination import DEFAULT_PAGE_SIZE, TablePaginationBar
 from ..ui.theme import (
     STATUS_CONNECTED,
     STATUS_OFFLINE,
@@ -129,6 +131,34 @@ logger = logging.getLogger(__name__)
 
 MSG_SESSION_NOT_CONNECTED = (
     "Not connected to iRacing yet — start iRacing and join a session to enable."
+)
+
+TIP_BROADCAST = (
+    "Broadcaster — share your scouting book and live iRacing session with another "
+    "device on your local network. This PC keeps running iRacing; the main window "
+    "hides while broadcasting."
+)
+TIP_BROADCAST_DISABLED = (
+    "Broadcaster — unavailable while connected as a receiver. Disconnect first."
+)
+TIP_RECEIVER = (
+    "Receiver — connect to a broadcaster on your network to view its scouting book "
+    "and live session. Notes and likes you change sync back to the broadcaster "
+    "(not saved on this device)."
+)
+TIP_RECEIVER_DISABLED = (
+    "Receiver — unavailable while already connected to a broadcaster. Disconnect first."
+)
+TIP_DISCONNECT = (
+    "Disconnect — stop viewing the broadcaster and return to your local scouting book."
+)
+TIP_STREAMER_MODE = (
+    "Streamer mode — replace driver names with aliases on screen (e.g. Driver #14). "
+    "Your database and notes are not changed."
+)
+TIP_LIVE_MODE = (
+    "Live Mode — switch to a high-contrast live session view with large fonts for "
+    "in-race scouting."
 )
 
 # Full table rebuild when more drivers changed than this after import.
@@ -167,6 +197,12 @@ class GridNotesApp(QMainWindow):
         self._table_refresh_timer.setInterval(750)
         self._table_refresh_timer.timeout.connect(self._refresh_ui_table_now)
         self._last_table_fingerprint: tuple | None = None
+        self._table_rows_cache: list[tuple] = []
+        self._filtered_table_rows: list[tuple] = []
+        self._table_page = 0
+        self._table_page_size = DEFAULT_PAGE_SIZE
+        self._table_sort_column = COL_NAME
+        self._table_sort_order = Qt.SortOrder.AscendingOrder
         self.active_cust_ids: set[int] = set()
         self.active_driver_names: dict[int, str] = {}
         self.active_driver_car_numbers: dict[int, str] = {}
@@ -187,6 +223,15 @@ class GridNotesApp(QMainWindow):
             get_setting(AUDIO_SPOTTER_KEY)
         )
         self._audio_spotter = AudioSpotterService()
+        self._broadcast_controller = None
+        self._broadcast_status_dialog = None
+        self._broadcast_audio_spotter_enabled = False
+        self._broadcast_client = None
+        self._broadcast_session_feed = None
+        self._using_broadcast_db = False
+        self._local_db_conn = None
+        self._broadcast_source_name = ""
+        self._shutting_down = False
 
         init_db()
         try:
@@ -547,20 +592,30 @@ class GridNotesApp(QMainWindow):
         if not enabled:
             self._audio_spotter.reset_tracking()
 
+    def _on_broadcast_audio_spotter_changed(self, enabled: bool) -> None:
+        if self._broadcast_audio_spotter_enabled == enabled:
+            return
+        self._broadcast_audio_spotter_enabled = enabled
+        self._sync_audio_spotter_worker()
+        if not enabled:
+            self._audio_spotter.reset_tracking()
+
+    def _audio_spotter_should_run(self) -> bool:
+        if sys.platform != "win32":
+            return False
+        if self._broadcast_controller is not None and self._broadcast_audio_spotter_enabled:
+            return True
+        return self._live_mode_active and self._audio_spotter_enabled
+
     def _sync_audio_spotter_worker(self) -> None:
         if self.worker is None:
             return
-        active = (
-            self._live_mode_active
-            and self._audio_spotter_enabled
-            and sys.platform == "win32"
-        )
-        self.worker.set_spotter_enabled(active)
+        self.worker.set_spotter_enabled(self._audio_spotter_should_run())
 
     def _on_spotter_car_behind(self, cust_id: int, gap: float) -> None:
         from ..services.audio_spotter import load_spotter_driver
 
-        if not self._live_mode_active or not self._audio_spotter_enabled:
+        if not self._audio_spotter_should_run():
             return
         info = load_spotter_driver(self._db_conn, int(cust_id))
         if info is None:
@@ -729,6 +784,12 @@ class GridNotesApp(QMainWindow):
         root_layout.setSpacing(12)
         self.setCentralWidget(root)
 
+        self.broadcast_receiver_banner = QLabel("")
+        self.broadcast_receiver_banner.setObjectName("statusBadge")
+        self.broadcast_receiver_banner.setWordWrap(True)
+        self.broadcast_receiver_banner.setVisible(False)
+        root_layout.addWidget(self.broadcast_receiver_banner)
+
         header = QHBoxLayout()
         title_block = QVBoxLayout()
         title_block.setSpacing(2)
@@ -740,14 +801,33 @@ class GridNotesApp(QMainWindow):
         title_block.addWidget(self.app_subtitle)
         header.addLayout(title_block)
         header.addStretch()
+        self.btn_start_broadcast = QPushButton("Broadcast")
+        set_button_tooltip(self.btn_start_broadcast, TIP_BROADCAST)
+        self.btn_start_broadcast.clicked.connect(self._start_broadcasting)
+        header.addWidget(
+            self.btn_start_broadcast,
+            alignment=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+        )
+        self.btn_connect_broadcast = QPushButton("Receiver")
+        set_button_tooltip(self.btn_connect_broadcast, TIP_RECEIVER)
+        self.btn_connect_broadcast.clicked.connect(self._connect_as_broadcast_receiver)
+        header.addWidget(
+            self.btn_connect_broadcast,
+            alignment=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+        )
+        self.btn_disconnect_broadcast = QPushButton("Disconnect")
+        set_button_tooltip(self.btn_disconnect_broadcast, TIP_DISCONNECT)
+        self.btn_disconnect_broadcast.clicked.connect(self._disconnect_broadcast_receiver)
+        self.btn_disconnect_broadcast.setVisible(False)
+        header.addWidget(
+            self.btn_disconnect_broadcast,
+            alignment=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+        )
         self.btn_streamer_mode = QPushButton("Streamer mode")
         self.btn_streamer_mode.setObjectName("streamerModeBtn")
         self.btn_streamer_mode.setCheckable(True)
         self.btn_streamer_mode.setChecked(self._streamer_mode)
-        self.btn_streamer_mode.setToolTip(
-            "Replace driver names with aliases on screen (e.g. Driver #14). "
-            "Your database and notes are not changed."
-        )
+        set_button_tooltip(self.btn_streamer_mode, TIP_STREAMER_MODE)
         self.btn_streamer_mode.clicked.connect(self._toggle_streamer_mode)
         self._polish_property(self.btn_streamer_mode, "active", self._streamer_mode)
         if self._streamer_mode:
@@ -762,9 +842,7 @@ class GridNotesApp(QMainWindow):
         self.btn_live_mode = QPushButton("Live Mode")
         self.btn_live_mode.setObjectName("liveModeBtn")
         self.btn_live_mode.setCheckable(True)
-        self.btn_live_mode.setToolTip(
-            "Switch to high-contrast live session view (large fonts for in-race scouting)"
-        )
+        set_button_tooltip(self.btn_live_mode, TIP_LIVE_MODE)
         self.btn_live_mode.clicked.connect(self._toggle_live_mode)
         header.addWidget(self.btn_live_mode, alignment=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         header.addWidget(self.status_label, alignment=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -808,6 +886,7 @@ class GridNotesApp(QMainWindow):
         database_layout.setSpacing(0)
 
         main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.main_splitter = main_splitter
         database_layout.addWidget(main_splitter)
 
         # --- Left: drivers ---
@@ -898,14 +977,25 @@ class GridNotesApp(QMainWindow):
         self.table.setColumnCount(COLUMN_COUNT)
         self.table.setHorizontalHeaderLabels(DRIVER_TABLE_HEADERS)
         self.table.horizontalHeader().setSortIndicatorShown(True)
-        self.table.setSortingEnabled(True)
+        self.table.setSortingEnabled(False)
+        self.table.horizontalHeader().sectionClicked.connect(self._on_table_header_clicked)
         configure_driver_table_widget(self.table)
         self.table.verticalHeader().setVisible(False)
         self.table.setToolTip("Click a row to open scouting notes")
         self.table.itemSelectionChanged.connect(self.on_driver_selected)
         self.table.itemSelectionChanged.connect(lambda: self.table.viewport().update())
         self._configure_driver_table()
+        self.table.horizontalHeader().setSortIndicator(
+            self._table_sort_column, self._table_sort_order
+        )
         left_layout.addWidget(self.table, stretch=1)
+
+        self.table_pagination = TablePaginationBar()
+        self.table_pagination.set_page_size(self._table_page_size)
+        self.table_pagination.previous_clicked.connect(self._go_to_previous_table_page)
+        self.table_pagination.next_clicked.connect(self._go_to_next_table_page)
+        self.table_pagination.page_size_changed.connect(self._set_table_page_size)
+        left_layout.addWidget(self.table_pagination)
 
         main_splitter.addWidget(left_panel)
 
@@ -1055,6 +1145,10 @@ class GridNotesApp(QMainWindow):
 
         self.btn_save_notes = QPushButton("Save notes")
         self.btn_save_notes.setObjectName("primaryBtn")
+        set_button_tooltip(
+            self.btn_save_notes,
+            "Save scouting notes for the selected driver (Ctrl+S / Cmd+S).",
+        )
         self.btn_save_notes.clicked.connect(self.save_driver_notes)
         right_layout.addWidget(self.btn_save_notes)
 
@@ -1090,7 +1184,6 @@ class GridNotesApp(QMainWindow):
         self._update_live_session_filter(active=False, hint=MSG_SESSION_NOT_CONNECTED)
         self._set_driver_panel_enabled(False)
         self._refresh_ui_table_now(force=True)
-        self.apply_driver_filters()
         self._configure_accessibility()
         self._configure_keyboard_shortcuts()
         self.apply_theme()
@@ -1141,6 +1234,21 @@ class GridNotesApp(QMainWindow):
             self.btn_streamer_mode,
             "Streamer mode",
             "Replace driver names with aliases on screen. Database unchanged.",
+        )
+        set_accessible(
+            self.btn_start_broadcast,
+            "Broadcast",
+            "Share scouting book and live iRacing session with another device on your network.",
+        )
+        set_accessible(
+            self.btn_connect_broadcast,
+            "Receiver",
+            "Connect to a broadcaster and view its scouting book and live session.",
+        )
+        set_accessible(
+            self.btn_disconnect_broadcast,
+            "Disconnect receiver",
+            "Stop receiving and return to your local scouting book.",
         )
         set_accessible(self.status_label, "iRacing connection status")
         set_accessible(
@@ -1247,6 +1355,11 @@ class GridNotesApp(QMainWindow):
         self.settings_tab.show_zero_race_cleanup_result(deleted)
 
     def apply_driver_filters(self, *_):
+        self._recompute_filtered_table_rows(reset_page=True)
+        self._render_table_page()
+
+    def _driver_row_matches_filters(self, row_data: tuple) -> bool:
+        driver = DriverTableRow.from_sql_row(row_data)
         q = (self.search_input.text() or "").strip().lower()
         ignore_name = (self.ignore_name_input.text() or "").strip().lower()
         current_only = (
@@ -1254,33 +1367,124 @@ class GridNotesApp(QMainWindow):
             and self.chk_current_race_only.isEnabled()
             and self.chk_current_race_only.isChecked()
         )
+        display_name = (
+            self._streamer_session_display_name(driver.cust_id, driver.safety, compact=True)
+            if self._streamer_mode
+            else display_driver_name(
+                driver.cust_id,
+                driver.name,
+                driver.safety,
+                streamer_mode=False,
+                compact_table=True,
+            )
+        )
+        name_lc = (driver.name or "").lower()
+        display_lc = display_name.lower()
+        if q and q not in name_lc and q not in display_lc:
+            return False
+        if ignore_name and name_lc == ignore_name:
+            return False
+        if current_only and driver.cust_id not in self.active_cust_ids:
+            return False
+        return True
 
-        for row in range(self.table.rowCount()):
-            name_item = self.table.item(row, COL_NAME)
-            display_name = (name_item.text() if name_item else "").strip()
-            display_lc = display_name.lower()
-            real_name = ""
-            if name_item is not None:
-                stored = name_item.data(REAL_NAME_DATA_ROLE)
-                if stored is not None:
-                    real_name = str(stored).strip()
-            name_lc = (real_name or display_name).lower()
+    def _sort_filtered_table_rows(self) -> None:
+        reverse = self._table_sort_order == Qt.SortOrder.DescendingOrder
+        column = self._table_sort_column
+        self._filtered_table_rows.sort(
+            key=lambda row: table_row_sort_key(row, column),
+            reverse=reverse,
+        )
 
-            hidden = False
-            if q and q not in name_lc and q not in display_lc:
-                hidden = True
-            if ignore_name and name_lc == ignore_name:
-                hidden = True
-            if current_only:
-                cust_id = None
-                if name_item is not None:
-                    try:
-                        cust_id = int(name_item.data(Qt.ItemDataRole.UserRole))
-                    except (TypeError, ValueError):
-                        cust_id = None
-                if cust_id is None or cust_id not in self.active_cust_ids:
-                    hidden = True
-            self.table.setRowHidden(row, hidden)
+    def _table_page_count(self) -> int:
+        total = len(self._filtered_table_rows)
+        if total <= 0:
+            return 1
+        return (total + self._table_page_size - 1) // self._table_page_size
+
+    def _recompute_filtered_table_rows(self, *, reset_page: bool = False) -> None:
+        if reset_page:
+            self._table_page = 0
+        self._filtered_table_rows = [
+            row for row in self._table_rows_cache if self._driver_row_matches_filters(row)
+        ]
+        self._sort_filtered_table_rows()
+        page_count = self._table_page_count()
+        if self._table_page >= page_count:
+            self._table_page = max(0, page_count - 1)
+
+    def _update_table_pagination_bar(self) -> None:
+        total = len(self._filtered_table_rows)
+        if total <= 0:
+            self.table_pagination.update_state(
+                page=0,
+                page_count=1,
+                total=0,
+                start=0,
+                end=0,
+            )
+            return
+        start_idx = self._table_page * self._table_page_size
+        end_idx = min(start_idx + self._table_page_size, total)
+        self.table_pagination.update_state(
+            page=self._table_page,
+            page_count=self._table_page_count(),
+            total=total,
+            start=start_idx + 1,
+            end=end_idx,
+        )
+
+    def _go_to_previous_table_page(self) -> None:
+        if self._table_page <= 0:
+            return
+        self._table_page -= 1
+        self._render_table_page()
+
+    def _go_to_next_table_page(self) -> None:
+        if self._table_page >= self._table_page_count() - 1:
+            return
+        self._table_page += 1
+        self._render_table_page()
+
+    def _set_table_page_size(self, page_size: int) -> None:
+        if page_size <= 0 or page_size == self._table_page_size:
+            return
+        self._table_page_size = page_size
+        self._table_page = 0
+        self._render_table_page()
+
+    def _on_table_header_clicked(self, logical_index: int) -> None:
+        if logical_index == COL_CUST_ID:
+            return
+        if self._table_sort_column == logical_index:
+            self._table_sort_order = (
+                Qt.SortOrder.DescendingOrder
+                if self._table_sort_order == Qt.SortOrder.AscendingOrder
+                else Qt.SortOrder.AscendingOrder
+            )
+        else:
+            self._table_sort_column = logical_index
+            self._table_sort_order = Qt.SortOrder.AscendingOrder
+        self.table.horizontalHeader().setSortIndicator(
+            self._table_sort_column, self._table_sort_order
+        )
+        self._sort_filtered_table_rows()
+        self._render_table_page()
+
+    def _merge_rows_into_table_cache(self, rows: list[tuple]) -> None:
+        if not rows:
+            return
+        index_by_id = {
+            DriverTableRow.from_sql_row(row).cust_id: idx
+            for idx, row in enumerate(self._table_rows_cache)
+        }
+        for row in rows:
+            cust_id = DriverTableRow.from_sql_row(row).cust_id
+            if cust_id in index_by_id:
+                self._table_rows_cache[index_by_id[cust_id]] = row
+            else:
+                index_by_id[cust_id] = len(self._table_rows_cache)
+                self._table_rows_cache.append(row)
 
     def reset_database(self):
         res = QMessageBox.question(
@@ -1316,6 +1520,8 @@ class GridNotesApp(QMainWindow):
         QMessageBox.information(self, "Database Reset", "Database cleared successfully.")
 
     def start_sdk_worker(self):
+        if self._shutting_down:
+            return
         logger.info("Starting iRacing SDK worker…")
 
         worker = IRacingWorker()
@@ -1663,8 +1869,7 @@ class GridNotesApp(QMainWindow):
             self._update_check_worker.wait(10000)
         if self._apply_update_worker is not None and self._apply_update_worker.isRunning():
             self._apply_update_worker.wait(120000)
-        if self.worker is not None:
-            self.worker.stop()
+        self._stop_sdk_worker()
         if hasattr(self, "_audio_spotter"):
             self._audio_spotter.stop()
 
@@ -1935,22 +2140,23 @@ class GridNotesApp(QMainWindow):
         if not force and fingerprint == self._last_table_fingerprint:
             return
         self._last_table_fingerprint = fingerprint
-
-        row_count = len(rows)
+        self._table_rows_cache = rows
+        self._recompute_filtered_table_rows()
         selected_cust_id = self.selected_cust_id
+        self._render_table_page(reselect=selected_cust_id is not None)
 
-        was_sorting = self.table.isSortingEnabled()
-        if was_sorting:
-            self.table.setSortingEnabled(False)
-
-        trends = self._safety_trends_for_table_rows(rows)
+    def _render_table_page(self, *, reselect: bool = True) -> None:
+        selected_cust_id = self.selected_cust_id
+        start = self._table_page * self._table_page_size
+        page_rows = self._filtered_table_rows[start : start + self._table_page_size]
 
         self._clear_table_row_hover()
         self.table.setUpdatesEnabled(False)
         self.table.blockSignals(True)
         try:
-            self.table.setRowCount(row_count)
-            for row_idx, row_data in enumerate(rows):
+            trends = self._safety_trends_for_table_rows(page_rows)
+            self.table.setRowCount(len(page_rows))
+            for row_idx, row_data in enumerate(page_rows):
                 display_row, cust_id, pref, risky, risky_tip, safety, real_name = (
                     self._build_display_row(row_data)
                 )
@@ -1966,35 +2172,19 @@ class GridNotesApp(QMainWindow):
                 )
                 if risky:
                     self._apply_risky_row_style(row_idx, risky_tip)
-                if row_idx and row_idx % 50 == 0:
-                    QApplication.processEvents(
-                        QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents
-                    )
         finally:
             self.table.blockSignals(False)
             self.table.setUpdatesEnabled(True)
             self.table.viewport().update()
 
-        if was_sorting:
-            self.table.setSortingEnabled(True)
-        self.table.horizontalHeader().setSortIndicator(COL_NAME, Qt.SortOrder.AscendingOrder)
         if not self._did_initial_column_resize:
             self.table.resizeColumnsToContents()
             self._did_initial_column_resize = True
         self.table.setColumnWidth(COL_NAME, max(self.table.columnWidth(COL_NAME), 180))
         self.table.setColumnWidth(COL_SERIES, max(self.table.columnWidth(COL_SERIES), 160))
-        self.apply_driver_filters()
-        if selected_cust_id is not None:
+        self._update_table_pagination_bar()
+        if reselect and selected_cust_id is not None:
             self._select_driver_row_by_cust_id(selected_cust_id)
-
-    def _find_insert_row(self, name: str) -> int:
-        name_lc = (name or "").lower()
-        for row in range(self.table.rowCount()):
-            item = self.table.item(row, COL_NAME)
-            row_name = (item.text() if item else "").lower()
-            if row_name > name_lc:
-                return row
-        return self.table.rowCount()
 
     def _insert_table_rows_for_cust_ids(self, cust_ids: list[int]) -> None:
         if not cust_ids:
@@ -2007,38 +2197,11 @@ class GridNotesApp(QMainWindow):
         if not new_rows:
             return
 
-        selected_cust_id = self.selected_cust_id
-        self.table.setUpdatesEnabled(False)
-        self.table.blockSignals(True)
-        trends = self._safety_trends_for_table_rows(new_rows)
-        try:
-            for row_data in sorted(new_rows, key=lambda row: (row[0] or "").lower(), reverse=True):
-                display_row, cust_id, pref, risky, risky_tip, safety, real_name = (
-                    self._build_display_row(row_data)
-                )
-                insert_at = self._find_insert_row(display_row[COL_NAME])
-                self.table.insertRow(insert_at)
-                self._render_table_row(
-                    insert_at,
-                    display_row,
-                    cust_id,
-                    pref,
-                    risky=risky,
-                    safety=safety,
-                    trend=trends.get(cust_id),
-                    real_name=real_name,
-                )
-                if risky:
-                    self._apply_risky_row_style(insert_at, risky_tip)
-        finally:
-            self.table.blockSignals(False)
-            self.table.setUpdatesEnabled(True)
-            self.table.viewport().update()
-
+        self._merge_rows_into_table_cache(new_rows)
         self._invalidate_table_fingerprint()
-        self.apply_driver_filters()
-        if selected_cust_id is not None:
-            self._select_driver_row_by_cust_id(selected_cust_id)
+        self._recompute_filtered_table_rows()
+        selected_cust_id = self.selected_cust_id
+        self._render_table_page(reselect=selected_cust_id is not None)
 
     def _sync_table_rows_for_cust_ids(self, cust_ids: list[int]) -> None:
         """Update or insert table rows for drivers touched by an import."""
@@ -2053,46 +2216,11 @@ class GridNotesApp(QMainWindow):
         if not rows:
             return
 
-        selected_cust_id = self.selected_cust_id
-        trends = self._safety_trends_for_table_rows(rows)
-        self._clear_table_row_hover()
-        self.table.setUpdatesEnabled(False)
-        self.table.blockSignals(True)
-        try:
-            for row_data in rows:
-                display_row, cust_id, pref, risky, risky_tip, safety, real_name = (
-                    self._build_display_row(row_data)
-                )
-                row_idx = self._row_for_cust_id(cust_id)
-                if row_idx is None:
-                    insert_at = self._find_insert_row(display_row[COL_NAME])
-                    self.table.insertRow(insert_at)
-                    row_idx = insert_at
-                self._render_table_row(
-                    row_idx,
-                    display_row,
-                    cust_id,
-                    pref,
-                    risky=risky,
-                    safety=safety,
-                    trend=trends.get(cust_id),
-                    real_name=real_name,
-                )
-                if risky:
-                    self._apply_risky_row_style(row_idx, risky_tip)
-                if row_idx and row_idx % 25 == 0:
-                    QApplication.processEvents(
-                        QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents
-                    )
-        finally:
-            self.table.blockSignals(False)
-            self.table.setUpdatesEnabled(True)
-            self.table.viewport().update()
-
+        self._merge_rows_into_table_cache(rows)
         self._invalidate_table_fingerprint()
-        self.apply_driver_filters()
-        if selected_cust_id is not None:
-            self._select_driver_row_by_cust_id(selected_cust_id)
+        self._recompute_filtered_table_rows()
+        selected_cust_id = self.selected_cust_id
+        self._render_table_page(reselect=selected_cust_id is not None)
 
     def _refresh_table_after_import(
         self,
@@ -2260,20 +2388,25 @@ class GridNotesApp(QMainWindow):
 
     def _row_for_cust_id(self, cust_id: int) -> int | None:
         for row in range(self.table.rowCount()):
-            item = self.table.item(row, COL_CUST_ID)
-            if not item:
+            item = self.table.item(row, COL_NAME)
+            if item is None:
                 continue
             try:
-                if int(item.text()) == cust_id:
+                if int(item.data(Qt.ItemDataRole.UserRole)) == int(cust_id):
                     return row
-            except Exception:
+            except (TypeError, ValueError):
                 continue
         return None
 
-    def _select_driver_row_by_cust_id(self, cust_id: int):
-        row = self._row_for_cust_id(cust_id)
-        if row is not None:
-            self.table.selectRow(row)
+    def _select_driver_row_by_cust_id(self, cust_id: int) -> None:
+        for idx, row_data in enumerate(self._filtered_table_rows):
+            if DriverTableRow.from_sql_row(row_data).cust_id == int(cust_id):
+                target_page = idx // self._table_page_size
+                if target_page != self._table_page:
+                    self._table_page = target_page
+                    self._render_table_page(reselect=False)
+                self.table.selectRow(idx % self._table_page_size)
+                return
 
     def _set_note_indicator(self, cust_id: int, has_note: bool) -> None:
         row_idx = self._row_for_cust_id(cust_id)
@@ -2349,6 +2482,26 @@ class GridNotesApp(QMainWindow):
         )
         self._db_conn.commit()
         self._set_note_indicator(self.selected_cust_id, bool(notes_text.strip()))
+        if self._broadcast_controller is not None:
+            self._broadcast_controller._push_database_snapshot(broadcast=True)
+        if self._using_broadcast_db:
+            synced = self._sync_driver_patch_to_broadcaster(
+                self.selected_cust_id,
+                notes=notes_text,
+            )
+            if synced:
+                QMessageBox.information(
+                    self,
+                    "Saved",
+                    "Note saved and synced to the broadcaster.",
+                )
+            else:
+                QMessageBox.warning(
+                    self,
+                    "Saved on this device only",
+                    "Note saved here but could not reach the broadcaster to sync.",
+                )
+            return
         QMessageBox.information(self, "Saved", "Driver notebook updated successfully.")
 
     def set_race_preference(self, pref: int | None):
@@ -2364,6 +2517,10 @@ class GridNotesApp(QMainWindow):
         )
         self._db_conn.commit()
         self._update_preference_buttons(pref)
+        if self._broadcast_controller is not None:
+            self._broadcast_controller._push_database_snapshot(broadcast=True)
+        if self._using_broadcast_db:
+            self._sync_driver_patch_to_broadcaster(cust_id, race_preference=pref)
 
         row_idx = self._row_for_cust_id(cust_id)
         if row_idx is not None:
@@ -2373,6 +2530,13 @@ class GridNotesApp(QMainWindow):
             refresh_driver_table_row(self.table, row_idx)
 
     def import_json_data(self):
+        if self._using_broadcast_db:
+            QMessageBox.information(
+                self,
+                "Receiver mode",
+                "Import is disabled while receiving from a broadcaster.",
+            )
+            return
         if self._import_worker is not None and self._import_worker.isRunning():
             QMessageBox.information(
                 self,
@@ -2547,8 +2711,301 @@ class GridNotesApp(QMainWindow):
             + detail,
         )
 
+    def _stop_sdk_worker(self) -> None:
+        worker = getattr(self, "worker", None)
+        if worker is None:
+            return
+        try:
+            worker.stop()
+            worker.wait(5000)
+        except Exception:
+            pass
+        self.worker = None
+
+    def _set_broadcast_mode_ui(self, *, receiving: bool, source_name: str = "") -> None:
+        self.btn_start_broadcast.setEnabled(not receiving)
+        self.btn_connect_broadcast.setEnabled(not receiving)
+        self.btn_disconnect_broadcast.setVisible(receiving)
+        set_button_tooltip(
+            self.btn_start_broadcast,
+            TIP_BROADCAST_DISABLED if receiving else TIP_BROADCAST,
+        )
+        set_button_tooltip(
+            self.btn_connect_broadcast,
+            TIP_RECEIVER_DISABLED if receiving else TIP_RECEIVER,
+        )
+        if receiving:
+            label = source_name or "Broadcaster"
+            self.broadcast_receiver_banner.setText(
+                f"Receiving from {label} — notes and likes sync to the broadcaster "
+                "(not saved on this device)."
+            )
+            self.broadcast_receiver_banner.setVisible(True)
+        else:
+            self.broadcast_receiver_banner.setVisible(False)
+
+    def _wire_broadcast_session_feed(self) -> None:
+        feed = self._broadcast_session_feed
+        if feed is None:
+            return
+        feed.connection_changed.connect(self.handle_sdk_connection)
+        feed.drivers_updated.connect(self.handle_sdk_update)
+        feed.grid_updated.connect(self._on_grid_updated)
+        feed.spotter_car_behind.connect(self._on_spotter_car_behind)
+
+    def _start_broadcasting(self) -> None:
+        if self._broadcast_controller is not None:
+            return
+        if self._using_broadcast_db:
+            QMessageBox.information(
+                self,
+                "Receiver mode",
+                "Disconnect from the broadcaster before starting a broadcast from this device.",
+            )
+            return
+        import socket
+
+        from ..broadcast.controller import BroadcastController
+        from ..ui.broadcast_status_dialog import BroadcastStatusDialog
+
+        controller = BroadcastController(self, broadcaster_name=socket.gethostname(), parent=self)
+        if not controller.start():
+            QMessageBox.warning(
+                self,
+                "Broadcast failed",
+                "GridNotes could not start the broadcast server on port 8765.",
+            )
+            return
+
+        dialog = BroadcastStatusDialog(
+            broadcaster_name=controller._name,
+            port=controller.server_port(),
+            parent=self,
+        )
+        controller._server.receiver_count_changed.connect(dialog.set_receiver_count)
+        dialog.stop_requested.connect(self._on_broadcast_stop_requested)
+        dialog.audio_spotter_changed.connect(self._on_broadcast_audio_spotter_changed)
+        if sys.platform != "win32":
+            dialog.set_audio_spotter_enabled(False)
+            dialog.set_audio_spotter_available(False)
+        self._broadcast_controller = controller
+        self._broadcast_status_dialog = dialog
+        self._broadcast_audio_spotter_enabled = False
+        self._sync_audio_spotter_worker()
+        self.hide()
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+
+    def _on_broadcast_stop_requested(self) -> None:
+        QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
+        self._stop_broadcasting()
+
+    def _restore_after_broadcast_stop(self) -> None:
+        if self._shutting_down:
+            return
+        self.main_tabs.setCurrentIndex(0)
+        show_live = self._live_mode_active and self._sdk_connected
+        self.view_stack.setCurrentIndex(1 if show_live else 0)
+        sizes = self.main_splitter.sizes()
+        if len(sizes) >= 2 and sizes[0] < 100:
+            self.main_splitter.setSizes([1000, 340])
+        self._invalidate_table_fingerprint()
+        self._refresh_ui_table_now(force=True)
+        if show_live:
+            self._refresh_live_session_view()
+        self.table.viewport().update()
+        self.view_stack.currentWidget().update()
+
+    def _stop_broadcasting(self) -> None:
+        dialog = self._broadcast_status_dialog
+        if dialog is not None and not dialog.is_stopping():
+            dialog.begin_stopping(closing_app=self._shutting_down)
+            QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
+        if self._broadcast_controller is not None:
+            self._broadcast_controller.stop()
+            self._broadcast_controller = None
+        self._broadcast_audio_spotter_enabled = False
+        if not self._shutting_down:
+            self._sync_audio_spotter_worker()
+        if hasattr(self, "_audio_spotter"):
+            self._audio_spotter.reset_tracking()
+        if self._broadcast_status_dialog is not None:
+            self._broadcast_status_dialog.close()
+            self._broadcast_status_dialog = None
+        if self._shutting_down:
+            return
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+        QTimer.singleShot(0, self._restore_after_broadcast_stop)
+
+    def _disconnect_broadcast_receiver(self) -> None:
+        if self._broadcast_client is not None:
+            self._broadcast_client.disconnect_from_broadcaster()
+            self._broadcast_client.deleteLater()
+            self._broadcast_client = None
+        if self._broadcast_session_feed is not None:
+            self._broadcast_session_feed.deleteLater()
+            self._broadcast_session_feed = None
+        if self._using_broadcast_db:
+            close_sqlite_connection(self._db_conn)
+            if self._local_db_conn is not None:
+                self._db_conn = self._local_db_conn
+            elif not self._shutting_down:
+                self._db_conn = connect_db()
+            self._using_broadcast_db = False
+            self._local_db_conn = None
+        self._broadcast_source_name = ""
+        if self._shutting_down:
+            return
+        self._set_broadcast_mode_ui(receiving=False)
+        self.settings_tab.set_broadcast_receiver_active(False)
+        self._invalidate_table_fingerprint()
+        self._refresh_ui_table_now(force=True)
+        self.start_sdk_worker()
+        self._set_status(STATUS_WAITING, "Waiting for iRacing…")
+
+    def _connect_as_broadcast_receiver(self) -> None:
+        if self._broadcast_controller is not None:
+            QMessageBox.information(
+                self,
+                "Broadcasting",
+                "Stop broadcasting on this device before connecting as a receiver.",
+            )
+            return
+        from ..ui.broadcast_connect_dialog import BroadcastConnectDialog
+
+        dialog = BroadcastConnectDialog(self)
+        target: dict[str, object] = {}
+
+        def _remember_target(host: str, port: int) -> None:
+            target["host"] = host
+            target["port"] = port
+
+        dialog.connect_requested.connect(_remember_target)
+        if dialog.exec() != dialog.DialogCode.Accepted:
+            return
+        host = str(target.get("host") or dialog.host_input.text().strip())
+        if not host:
+            return
+        try:
+            port = int(target.get("port") or dialog.port_input.text().strip() or "8765")
+        except (TypeError, ValueError):
+            port = 8765
+        self._begin_broadcast_receiver(host, port)
+
+    def _begin_broadcast_receiver(self, host: str, port: int) -> None:
+        from ..broadcast.client import BroadcastClient
+        from ..broadcast.session_feed import BroadcastSessionFeed
+
+        if self._broadcast_client is not None:
+            self._disconnect_broadcast_receiver()
+
+        self._broadcast_client = BroadcastClient(host=host, port=port, parent=self)
+        self._broadcast_session_feed = BroadcastSessionFeed(self)
+        self._wire_broadcast_session_feed()
+        self._broadcast_client.snapshot_received.connect(self._on_broadcast_snapshot)
+        self._broadcast_client.live_state_received.connect(self._on_broadcast_live_state)
+        self._broadcast_client.driver_patch_received.connect(self._on_broadcast_driver_patch)
+        self._broadcast_client.connected_changed.connect(self._on_broadcast_client_connected)
+        self._broadcast_client.error_message.connect(self._on_broadcast_client_error)
+        self._stop_sdk_worker()
+        self._broadcast_client.connect_to_broadcaster()
+        self._set_status(STATUS_WAITING, f"Connecting to broadcaster at {host}…")
+
+    def _on_broadcast_client_connected(self, connected: bool) -> None:
+        if connected:
+            self._set_status(STATUS_CONNECTED, "Connected to broadcaster")
+            return
+        if self._using_broadcast_db:
+            self._set_status(STATUS_OFFLINE, "Disconnected from broadcaster")
+        else:
+            self._set_status(STATUS_WAITING, "Could not connect to broadcaster")
+
+    def _on_broadcast_client_error(self, message: str) -> None:
+        if message:
+            log_user_error(message, context="broadcast receiver")
+
+    def _on_broadcast_snapshot(self, payload: dict) -> None:
+        from ..broadcast.snapshot import apply_snapshot_to_memory
+
+        if not self._using_broadcast_db:
+            self._local_db_conn = self._db_conn
+        else:
+            close_sqlite_connection(self._db_conn)
+        self._db_conn = apply_snapshot_to_memory(payload)
+        self._using_broadcast_db = True
+        self._broadcast_source_name = str(payload.get("broadcaster_name") or "Broadcaster")
+        self._set_broadcast_mode_ui(
+            receiving=True,
+            source_name=self._broadcast_source_name,
+        )
+        self.settings_tab.set_broadcast_receiver_active(
+            True,
+            source_name=self._broadcast_source_name,
+        )
+        self._invalidate_table_fingerprint()
+        self._refresh_ui_table_now(force=True)
+        self._refresh_live_session_view()
+
+    def _on_broadcast_live_state(self, payload: dict) -> None:
+        if self._broadcast_session_feed is not None:
+            self._broadcast_session_feed.apply_live_state(payload)
+
+    def _sync_driver_patch_to_broadcaster(
+        self,
+        cust_id: int,
+        *,
+        notes: str | None = None,
+        race_preference: int | None | object = ...,
+    ) -> bool:
+        client = self._broadcast_client
+        if client is None:
+            return False
+        return client.send_driver_patch(
+            cust_id,
+            notes=notes,
+            race_preference=race_preference,
+        )
+
+    def _apply_driver_patch_ui(self, cust_id: int, patch: dict) -> None:
+        if "notes" in patch:
+            notes_text = str(patch.get("notes") or "")
+            self._set_note_indicator(cust_id, bool(notes_text.strip()))
+            if self.selected_cust_id == cust_id and not self.notes_edit.hasFocus():
+                self.notes_edit.setPlainText(notes_text)
+        if "race_preference" in patch:
+            pref = patch.get("race_preference")
+            row_idx = self._row_for_cust_id(cust_id)
+            if row_idx is not None:
+                name_item = self.table.item(row_idx, COL_NAME)
+                if name_item is not None:
+                    name_item.setData(PREF_DATA_ROLE, pref)
+                refresh_driver_table_row(self.table, row_idx)
+            if self.selected_cust_id == cust_id:
+                self._update_preference_buttons(pref)
+
+    def _on_broadcast_driver_patch(self, patch: dict) -> None:
+        if not self._using_broadcast_db:
+            return
+        from ..broadcast.patches import apply_driver_patch
+
+        if not apply_driver_patch(self._db_conn, patch):
+            return
+        self._db_conn.commit()
+        try:
+            cust_id = int(patch["cust_id"])
+        except (KeyError, TypeError, ValueError):
+            return
+        self._apply_driver_patch_ui(cust_id, patch)
+
     def closeEvent(self, event):
         logger.info("Application closing")
+        self._shutting_down = True
+        self._table_refresh_timer.stop()
+        self._stop_broadcasting()
+        self._disconnect_broadcast_receiver()
         self._release_resources_before_exit()
         event.accept()
 

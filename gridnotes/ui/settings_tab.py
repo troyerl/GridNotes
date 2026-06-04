@@ -316,8 +316,36 @@ class SettingsTab(QWidget):
         self.chk_audio_spotter.stateChanged.connect(self._on_audio_spotter_changed)
         spotter_layout.addWidget(self.chk_audio_spotter)
         layout.addWidget(spotter_group)
+
+        broadcast_group = QGroupBox("Broadcast to another device")
+        broadcast_layout = QVBoxLayout(broadcast_group)
+        broadcast_layout.setSpacing(10)
+        broadcast_layout.addWidget(
+            self._section_hint(
+                "Use <b>Broadcast</b> and <b>Receiver</b> in the header bar (next to Live Mode). "
+                "The broadcaster keeps running iRacing and shows only a status window. "
+                "The receiver displays the broadcaster's book. Notes and likes on the receiver "
+                "sync back to the broadcaster but are not saved locally on the receiver."
+            )
+        )
+        self.broadcast_status_label = QLabel("")
+        self.broadcast_status_label.setObjectName("sectionHint")
+        self.broadcast_status_label.setWordWrap(True)
+        broadcast_layout.addWidget(self.broadcast_status_label)
+        layout.addWidget(broadcast_group)
+
         layout.addStretch()
         return page
+
+    def set_broadcast_receiver_active(self, active: bool, *, source_name: str = "") -> None:
+        if active:
+            label = source_name or "Broadcaster"
+            self.broadcast_status_label.setText(
+                f"Receiving from {label}. Notes and likes sync to the broadcaster — "
+                "nothing is saved on this device."
+            )
+        else:
+            self.broadcast_status_label.setText("")
 
     def _build_appearance_page(self) -> QWidget:
         page = QWidget()

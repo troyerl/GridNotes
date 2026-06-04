@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, QSize, pyqtSignal
-from PyQt6.QtGui import QTextDocument
+from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal
+from PyQt6.QtGui import QPainter, QPen, QTextDocument
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QFrame,
@@ -18,6 +18,46 @@ from PyQt6.QtWidgets import (
 )
 
 from .theme import configure_scroll_area
+
+
+class BusySpinner(QWidget):
+    """Indeterminate arc spinner for modal waiting states."""
+
+    def __init__(self, parent: QWidget | None = None, *, diameter: int = 28) -> None:
+        super().__init__(parent)
+        self.setObjectName("busySpinner")
+        self._diameter = diameter
+        self._angle = 0
+        self.setFixedSize(diameter, diameter)
+        self._timer = QTimer(self)
+        self._timer.setInterval(80)
+        self._timer.timeout.connect(self._tick)
+
+    def start(self) -> None:
+        self._angle = 0
+        self._timer.start()
+        self.setVisible(True)
+        self.update()
+
+    def stop(self) -> None:
+        self._timer.stop()
+        self.setVisible(False)
+
+    def _tick(self) -> None:
+        self._angle = (self._angle + 30) % 360
+        self.update()
+
+    def paintEvent(self, _event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        pad = max(2, self._diameter // 10)
+        rect = self.rect().adjusted(pad, pad, -pad, -pad)
+        pen = QPen(self.palette().color(self.palette().ColorRole.Highlight))
+        pen.setWidth(max(2, self._diameter // 9))
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen)
+        painter.drawArc(rect, -self._angle * 16, -270 * 16)
+        painter.end()
 
 
 class WrappingLabel(QLabel):

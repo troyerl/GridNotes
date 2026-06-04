@@ -12,9 +12,10 @@ from ..safety.safety_index import (
     tier_qcolor,
 )
 from ..safety.safety_trend import SafetyTrend, combined_safety_tooltip
+from ..core.utils import sqlite_row_to_int
+from ..data.driver_models import DriverTableRow
 from .a11y import driver_mark_label
 from .theme import table_row_color
-from ..core.utils import sqlite_row_to_int
 
 PREF_DATA_ROLE = Qt.ItemDataRole.UserRole + 1
 RISK_DATA_ROLE = Qt.ItemDataRole.UserRole + 2
@@ -24,6 +25,46 @@ SAFETY_TREND_DIRECTION_ROLE = Qt.ItemDataRole.UserRole + 5
 REAL_NAME_DATA_ROLE = Qt.ItemDataRole.UserRole + 6
 UNKNOWN_SAFETY_SORT = -1
 EMPTY_CELL = "—"
+_MISSING_NUMERIC = float("-inf")
+
+
+def table_row_sort_key(row: tuple, column: int) -> tuple:
+    """Sort key for a driver SQL row and table column (matches table sort semantics)."""
+    driver = DriverTableRow.from_sql_row(row)
+    safety = driver.safety
+    if column == COL_NAME:
+        return (0, (driver.name or "").lower())
+    if column == COL_MARK:
+        label = driver_mark_label(driver.race_preference, safety.risky) or ""
+        return (0, label.lower())
+    if column == COL_RACES:
+        return (0, driver.total_races)
+    if column == COL_SAFETY:
+        if safety.tier == "unknown":
+            return (1, 0)
+        return (0, safety.score)
+    if column == COL_AVG_INC:
+        return (0, driver.avg_inc if driver.avg_inc is not None else _MISSING_NUMERIC)
+    if column == COL_AVG_FINISH:
+        return (0, driver.avg_fin if driver.avg_fin is not None else _MISSING_NUMERIC)
+    if column == COL_AVG_POS:
+        return (0, driver.avg_pos_delta if driver.avg_pos_delta is not None else _MISSING_NUMERIC)
+    if column == COL_DNFS:
+        return (0, driver.dnf_total)
+    if column == COL_LAST_SR:
+        return (0, driver.last_sr if driver.last_sr is not None else _MISSING_NUMERIC)
+    if column == COL_LAST_IR:
+        return (0, driver.last_ir if driver.last_ir is not None else _MISSING_NUMERIC)
+    if column == COL_SERIES:
+        return (0, (driver.last_series or "").lower())
+    if column == COL_DNF_BREAKDOWN:
+        return (0, (driver.dnf_breakdown or "").lower())
+    if column == COL_NOTE:
+        return (0, 0 if driver.has_notes else 1)
+    if column == COL_CUST_ID:
+        return (0, driver.cust_id)
+    return (0, "")
+
 
 COL_NAME = 0
 COL_MARK = 1
