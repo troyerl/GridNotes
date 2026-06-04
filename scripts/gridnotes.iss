@@ -36,6 +36,7 @@ RestartApplications=yes
 ArchitecturesInstallIn64BitMode=x64compatible
 SetupIconFile=..\icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
+LicenseFile=..\LICENSE
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"

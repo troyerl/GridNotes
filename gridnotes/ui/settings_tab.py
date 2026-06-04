@@ -65,6 +65,13 @@ from ..iracing.iracing_oauth_guide import (
 from .a11y import set_accessible
 from .scouting_guide_dialog import show_scouting_guide
 from .ui_widgets import Accordion, HtmlHintLabel, SettingsSectionNavigator
+from ..legal.user_notice import (
+    data_privacy_html,
+    disclaimer_html,
+    iracing_notice_html,
+    license_summary_html,
+    using_gridnotes_html,
+)
 from .theme import configure_note_tag_input, configure_scroll_area, status_message_color
 from ..services.user_feedback import log_user_error
 from ..core.utils import format_file_size
@@ -127,6 +134,7 @@ class SettingsTab(QWidget):
         self._section_nav.add_section("Data", self._build_data_page())
         self._section_nav.add_section("Live Mode", self._build_live_mode_page())
         self._section_nav.add_section("Maintenance", self._build_maintenance_page())
+        self._section_nav.add_section("Legal", self._build_legal_page())
 
         body = QFrame()
         body.setObjectName("settingsBody")
@@ -353,6 +361,47 @@ class SettingsTab(QWidget):
                 )
         else:
             self.broadcast_status_label.setText("")
+
+    def _build_legal_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(12)
+
+        layout.addWidget(
+            self._section_hint(
+                "License terms, intended use, and notices about iRacing and your data. "
+                "This page is informational — it is not legal advice."
+            )
+        )
+
+        license_group = QGroupBox("License")
+        license_layout = QVBoxLayout(license_group)
+        license_layout.addWidget(HtmlHintLabel(license_summary_html()))
+        layout.addWidget(license_group)
+
+        use_group = QGroupBox("Using GridNotes")
+        use_layout = QVBoxLayout(use_group)
+        use_layout.addWidget(HtmlHintLabel(using_gridnotes_html()))
+        layout.addWidget(use_group)
+
+        iracing_group = QGroupBox("iRacing")
+        iracing_layout = QVBoxLayout(iracing_group)
+        iracing_layout.addWidget(HtmlHintLabel(iracing_notice_html()))
+        layout.addWidget(iracing_group)
+
+        privacy_group = QGroupBox("Data and privacy")
+        privacy_layout = QVBoxLayout(privacy_group)
+        privacy_layout.addWidget(HtmlHintLabel(data_privacy_html()))
+        layout.addWidget(privacy_group)
+
+        disclaimer_group = QGroupBox("Disclaimer")
+        disclaimer_layout = QVBoxLayout(disclaimer_group)
+        disclaimer_layout.addWidget(HtmlHintLabel(disclaimer_html()))
+        layout.addWidget(disclaimer_group)
+
+        layout.addStretch()
+        return page
 
     def _build_appearance_page(self) -> QWidget:
         page = QWidget()

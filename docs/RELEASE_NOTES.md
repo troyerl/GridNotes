@@ -10,6 +10,19 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.44 — 2026-06-02
+
+### New
+
+- **Free for personal use license** — A `LICENSE` file defines personal, non-commercial use and allows sharing official release builds with the license included.
+- **Settings → Legal** — License summary, how to use GridNotes, iRacing affiliation notice, data and privacy notes, and a general disclaimer (informational, not legal advice).
+
+### Improved
+
+- **Windows installer** — Setup shows the license agreement before install. The license file is bundled with packaged builds.
+
+---
+
 ## v1.0.43 — 2026-06-02
 
 ### Improved

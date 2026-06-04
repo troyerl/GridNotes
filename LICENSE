@@ -1,0 +1,55 @@
+GridNotes — Free for Personal Use License
+
+Copyright (c) 2026 Logan Troyer
+
+Permission is granted to any person to download, install, and use GridNotes
+free of charge for personal, non-commercial purposes, subject to the conditions
+below.
+
+PERMITTED USE
+
+  • Personal sim-racing scouting, notes, and race history on your own devices
+  • Importing race data you are authorized to access (for example, your own
+    iRacing exports or API access tied to your membership)
+  • Sharing unmodified official release files (for example, GitHub Releases)
+    provided this license text is included
+
+NOT PERMITTED WITHOUT PRIOR WRITTEN PERMISSION FROM THE COPYRIGHT HOLDER
+
+  • Commercial use, resale, rental, or sublicensing of the software
+  • Offering GridNotes (or a derivative) as part of a paid product or service
+  • Removing or altering copyright and license notices in distributed copies
+  • Using the software to operate a public driver database or data brokerage
+
+THIRD-PARTY SERVICES AND DATA
+
+GridNotes is not affiliated with, endorsed by, or sponsored by iRacing.com
+Motorsport Simulations, LLC. iRacing is a separate service with its own
+Terms of Use, End User License Agreement, Sporting Code, and privacy policies.
+You are responsible for complying with iRacing's rules when using live SDK
+features, importing race results, or connecting to iRacing's Data API.
+
+GridNotes stores information about other drivers (such as names and race stats)
+that appears in sessions you import or join. You are responsible for using that
+information lawfully and respectfully, and for not harassing, doxing, or
+misusing others' information.
+
+DISCLAIMER OF WARRANTY
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. THE COPYRIGHT HOLDER
+DOES NOT WARRANT THAT THE SOFTWARE WILL BE ERROR-FREE, UNINTERRUPTED, OR FREE
+OF HARMFUL COMPONENTS.
+
+LIMITATION OF LIABILITY
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL THE
+COPYRIGHT HOLDER BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL,
+OR PUNITIVE DAMAGES, OR ANY LOSS OF DATA, PROFITS, OR GOODWILL, ARISING FROM
+YOUR USE OF THE SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+
+NOT LEGAL ADVICE
+
+This license is not legal advice. If you have questions about your obligations
+under iRacing's terms or applicable law, consult a qualified attorney.

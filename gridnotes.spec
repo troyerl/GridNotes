@@ -6,6 +6,8 @@ import sys
 block_cipher = None
 
 _datas = [("icon.png", ".")]
+if os.path.isfile("LICENSE"):
+    _datas.append(("LICENSE", "."))
 if os.path.isfile("icon.ico"):
     _datas.append(("icon.ico", "."))
 if os.path.isfile("icon.icns"):
