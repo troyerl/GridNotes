@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-pytest.importorskip("PyQt6.QtWidgets")
+pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
 
 from PyQt6.QtWidgets import QTableWidget
 

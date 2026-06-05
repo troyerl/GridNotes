@@ -1,5 +1,9 @@
 """Tests for gridnotes.ui.theme helpers."""
 
+import pytest
+
+pytest.importorskip("PyQt6.QtGui", exc_type=ImportError)
+
 from gridnotes.ui.theme import (
     build_stylesheet,
     status_message_color,

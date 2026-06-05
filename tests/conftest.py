@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import os
 import sqlite3
+import sys
+
+if sys.platform == "linux" and "QT_QPA_PLATFORM" not in os.environ:
+    os.environ["QT_QPA_PLATFORM"] = "offscreen"
 from typing import Iterator
 
 import pytest
@@ -32,7 +37,7 @@ def file_db(tmp_path, monkeypatch) -> Iterator[tuple[str, sqlite3.Connection]]:
 @pytest.fixture(scope="session")
 def qapp():
     """Qt application instance required before constructing widgets."""
-    pytest.importorskip("PyQt6.QtWidgets")
+    pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
     from PyQt6.QtWidgets import QApplication
 
     app = QApplication.instance()

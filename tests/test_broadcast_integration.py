@@ -6,7 +6,7 @@ import socket
 
 import pytest
 
-pytest.importorskip("PyQt6.QtWebSockets")
+pytest.importorskip("PyQt6.QtWebSockets", exc_type=ImportError)
 
 from PyQt6.QtCore import QEventLoop, QTimer
 

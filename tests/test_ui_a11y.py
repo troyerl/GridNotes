@@ -1,5 +1,9 @@
 """Tests for gridnotes.ui.a11y and related UI string helpers."""
 
+import pytest
+
+pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+
 from gridnotes.ui.a11y import driver_mark_label
 
 
