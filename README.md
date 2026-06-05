@@ -6,6 +6,8 @@ Desktop app for **iRacing driver scouting**: keep personal notes, review race hi
 
 All data stays on your machine in a local SQLite database — no account or cloud sync.
 
+**User guide (wiki):** [docs/wiki/README.md](docs/wiki/README.md) — detailed feature guides for every tab and view.
+
 **Release notes:** [docs/RELEASE_NOTES.md](docs/RELEASE_NOTES.md)
 
 ### New here? No technical experience needed
