@@ -7,8 +7,10 @@ from PyQt6.QtGui import QShowEvent
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QFrame,
+    QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -43,6 +45,15 @@ class ImportHistoryTab(QWidget):
         hint.setObjectName("sectionHint")
         hint.setWordWrap(True)
         layout.addWidget(hint)
+
+        search_row = QHBoxLayout()
+        search_row.setSpacing(8)
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Search by session ID…")
+        self.search_input.setClearButtonEnabled(True)
+        self.search_input.textChanged.connect(self.refresh)
+        search_row.addWidget(self.search_input, stretch=1)
+        layout.addLayout(search_row)
 
         table_frame = QFrame()
         table_frame.setObjectName("panel")
@@ -86,13 +97,21 @@ class ImportHistoryTab(QWidget):
         self.refresh()
 
     def refresh(self) -> None:
+        session_id_query = self.search_input.text().strip()
         conn = connect_db(get_db_path())
         try:
             total_sessions = count_imported_sessions(conn)
-            entries = fetch_import_history(conn)
+            entries = fetch_import_history(
+                conn,
+                session_id_query=session_id_query or None,
+            )
         finally:
             conn.close()
 
+        self._populate_table(entries)
+        self._update_status(total_sessions, len(entries), session_id_query)
+
+    def _populate_table(self, entries) -> None:
         self.history_table.setRowCount(len(entries))
         for row_idx, entry in enumerate(entries):
             id_item = QTableWidgetItem(str(entry.subsession_id))
@@ -119,11 +138,34 @@ class ImportHistoryTab(QWidget):
             self.history_table.setItem(row_idx, 1, name_item)
             self.history_table.setItem(row_idx, 2, imported_item)
 
+    def _update_status(
+        self,
+        total_sessions: int,
+        shown: int,
+        session_id_query: str,
+    ) -> None:
         if total_sessions == 0:
             self.status_label.setText(
                 "No imported sessions yet. Use Import race JSON on the Drivers tab."
             )
-        elif total_sessions > len(entries):
+            return
+
+        if session_id_query:
+            if shown == 0:
+                self.status_label.setText(
+                    f"No imported sessions match session ID “{session_id_query}”."
+                )
+            elif shown == 1:
+                self.status_label.setText(
+                    f"1 imported session matches session ID “{session_id_query}”."
+                )
+            else:
+                self.status_label.setText(
+                    f"{shown} imported sessions match session ID “{session_id_query}”."
+                )
+            return
+
+        if total_sessions > shown:
             self.status_label.setText(
                 f"{total_sessions} imported session(s). "
                 f"Showing the most recent {IMPORT_HISTORY_LIMIT}."

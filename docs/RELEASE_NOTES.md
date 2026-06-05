@@ -10,6 +10,14 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.48 — 2026-06-05
+
+### Improved
+
+- **Import history search** — Filter imported sessions by subsession ID on the Import history tab. Partial matches work, and search scans your full import history—not just the most recent sessions shown in the list.
+
+---
+
 ## v1.0.47 — 2026-06-05
 
 ### New

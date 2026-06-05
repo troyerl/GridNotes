@@ -55,3 +55,25 @@ def test_fetch_import_history_unknown_session_name(memory_conn):
     history = fetch_import_history(memory_conn)
     assert len(history) == 1
     assert history[0].session_name == "Unknown session"
+
+
+def test_fetch_import_history_filters_by_session_id(memory_conn):
+    memory_conn.executemany(
+        """
+        INSERT INTO race_results (cust_id, subsession_id, finish_position, incidents)
+        VALUES (?, ?, 1, 0)
+        """,
+        [(1, 12345678), (2, 87654321), (3, 12349999)],
+    )
+    memory_conn.commit()
+
+    history = fetch_import_history(memory_conn, session_id_query="1234")
+    assert len(history) == 2
+    assert {entry.subsession_id for entry in history} == {12345678, 12349999}
+
+    exact = fetch_import_history(memory_conn, session_id_query="87654321")
+    assert len(exact) == 1
+    assert exact[0].subsession_id == 87654321
+
+    missing = fetch_import_history(memory_conn, session_id_query="00000000")
+    assert missing == []

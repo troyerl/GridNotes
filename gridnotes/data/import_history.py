@@ -16,6 +16,7 @@ SELECT
 FROM race_results
 WHERE subsession_id IS NOT NULL
   AND subsession_id != 0
+{session_id_filter}
 GROUP BY subsession_id
 ORDER BY
     CASE WHEN MAX(race_at) IS NULL OR TRIM(MAX(race_at)) = '' THEN 1 ELSE 0 END,
@@ -23,6 +24,13 @@ ORDER BY
     subsession_id DESC
 LIMIT ?
 """
+
+
+def _session_id_filter_sql(session_id_query: str | None) -> tuple[str, list[str]]:
+    query = (session_id_query or "").strip()
+    if not query:
+        return "", []
+    return " AND CAST(subsession_id AS TEXT) LIKE ?", [f"%{query}%"]
 
 
 @dataclass(frozen=True)
@@ -37,11 +45,14 @@ def fetch_import_history(
     conn: sqlite3.Connection,
     *,
     limit: int = IMPORT_HISTORY_LIMIT,
+    session_id_query: str | None = None,
 ) -> list[ImportHistoryEntry]:
     """Distinct imported subsessions, newest first."""
     if limit <= 0:
         return []
-    rows = conn.execute(_IMPORT_HISTORY_SQL, (limit,)).fetchall()
+    filter_sql, filter_params = _session_id_filter_sql(session_id_query)
+    sql = _IMPORT_HISTORY_SQL.format(session_id_filter=filter_sql)
+    rows = conn.execute(sql, (*filter_params, limit)).fetchall()
     return [
         ImportHistoryEntry(
             subsession_id=int(row[0]),
