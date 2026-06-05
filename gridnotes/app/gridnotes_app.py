@@ -238,6 +238,7 @@ class GridNotesApp(QMainWindow):
         self._broadcast_source_name = ""
         self._broadcast_connect_host = ""
         self._broadcast_receiver_ws_connected = False
+        self._ignore_broadcast_disconnect_signal = False
         self._broadcast_connect_timer = QTimer(self)
         self._broadcast_connect_timer.setSingleShot(True)
         self._broadcast_connect_timer.timeout.connect(self._on_broadcast_connect_timeout)
@@ -2946,7 +2947,31 @@ class GridNotesApp(QMainWindow):
         self.activateWindow()
         QTimer.singleShot(0, self._restore_after_broadcast_stop)
 
-    def _disconnect_broadcast_receiver(self) -> None:
+    def _clear_broadcast_live_session_state(self) -> None:
+        """Drop live session fields fed by a broadcaster (restore pre-receiver UI)."""
+        self._sdk_connected = False
+        self.current_subsession_id = 0
+        self.current_session_kind = ""
+        self.current_session_context = {}
+        self.active_cust_ids = set()
+        self.active_driver_names = {}
+        self.active_driver_car_numbers = {}
+        self._tracked_race_subsession_id = 0
+        self._update_live_session_filter(active=False, hint=MSG_SESSION_NOT_CONNECTED)
+        if hasattr(self, "chk_current_race_only"):
+            self.chk_current_race_only.setChecked(False)
+        if hasattr(self, "live_session_view"):
+            self.live_session_view.set_grid_walk_mode(False, emit=False)
+        if hasattr(self, "_audio_spotter"):
+            self._audio_spotter.reset_tracking()
+        self._refresh_live_session_view()
+
+    def _disconnect_broadcast_receiver(
+        self,
+        *,
+        status_message: str = "Waiting for iRacing…",
+    ) -> None:
+        self._ignore_broadcast_disconnect_signal = True
         self._stop_broadcast_connect_timer()
         self._broadcast_receiver_ws_connected = False
         if self._broadcast_client is not None:
@@ -2966,14 +2991,32 @@ class GridNotesApp(QMainWindow):
             self._local_db_conn = None
         self._broadcast_source_name = ""
         self._broadcast_connect_host = ""
+        self._clear_broadcast_live_session_state()
         if self._shutting_down:
+            self._ignore_broadcast_disconnect_signal = False
             return
         self._set_broadcast_mode_ui(receiving=False)
         self.settings_tab.set_broadcast_receiver_active(False)
         self._invalidate_table_fingerprint()
         self._refresh_ui_table_now(force=True)
         self.start_sdk_worker()
-        self._set_status(STATUS_WAITING, "Waiting for iRacing…")
+        self._set_status(STATUS_WAITING, status_message)
+        QTimer.singleShot(0, self._release_broadcast_disconnect_guard)
+
+    def _release_broadcast_disconnect_guard(self) -> None:
+        self._ignore_broadcast_disconnect_signal = False
+
+    def _on_broadcaster_connection_lost(self) -> None:
+        """Unexpected drop from broadcaster — same cleanup as manual disconnect."""
+        had_broadcast_data = self._using_broadcast_db
+        message = (
+            "Broadcaster disconnected — restored your local scouting book."
+            if had_broadcast_data
+            else "Disconnected from broadcaster."
+        )
+        self._disconnect_broadcast_receiver(status_message=message)
+        if had_broadcast_data:
+            log_user_error(message, context="broadcast receiver")
 
     def _connect_as_broadcast_receiver(self) -> None:
         if self._broadcast_controller is not None:
@@ -3084,14 +3127,11 @@ class GridNotesApp(QMainWindow):
                     ws_connected=True,
                 )
             return
+        if self._ignore_broadcast_disconnect_signal:
+            return
         self._broadcast_receiver_ws_connected = False
         self._stop_broadcast_connect_timer()
-        if self._using_broadcast_db:
-            self._set_broadcast_mode_ui(receiving=True, connection_state="connecting")
-            self._set_status(STATUS_OFFLINE, "Disconnected from broadcaster")
-        else:
-            self._set_broadcast_mode_ui(receiving=False)
-            self._set_status(STATUS_WAITING, "Could not connect to broadcaster")
+        QTimer.singleShot(0, self._on_broadcaster_connection_lost)
 
     def _on_broadcast_client_error(self, message: str) -> None:
         if message:

@@ -10,6 +10,14 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.52 — 2026-06-05
+
+### Fixed
+
+- **Broadcast receiver disconnect** — When the broadcaster drops unexpectedly, the receiver now restores your local scouting book, clears broadcast live session data, re-enables Import, and reconnects to local iRacing instead of keeping stale broadcaster data on screen.
+
+---
+
 ## v1.0.51 — 2026-06-05
 
 ### Fixed

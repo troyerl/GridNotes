@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-__version__ = "1.0.51"
+__version__ = "1.0.52"
 
 WINDOWS_PUBLISHER = "Logan Troyer"
 
