@@ -96,6 +96,7 @@ from ..iracing.iracing_import import sync_live_session_drivers
 from ..ui.live_session import LiveSessionView
 from ..ui.scouting_guide_dialog import show_scouting_guide
 from ..ui.import_progress_dialog import ImportProgressDialog
+from ..ui.import_history_tab import ImportHistoryTab
 from ..ui.streamer_mode_progress_dialog import StreamerModeProgressDialog
 from ..data.queries import (
     driver_detail_sql,
@@ -877,6 +878,9 @@ class GridNotesApp(QMainWindow):
         drivers_tab_layout.addWidget(self.view_stack)
         self.main_tabs.addTab(drivers_tab, "Drivers")
 
+        self.import_history_tab = ImportHistoryTab()
+        self.main_tabs.addTab(self.import_history_tab, "Import history")
+
         self.settings_tab = SettingsTab()
         self.settings_tab.settings_saved.connect(self._on_settings_saved)
         self.settings_tab.theme_changed.connect(self.apply_theme)
@@ -1313,6 +1317,8 @@ class GridNotesApp(QMainWindow):
                 self.refresh_ui_table()
         if show_status and hasattr(self, "settings_tab"):
             self.settings_tab.show_purge_result(deleted)
+            if deleted:
+                self.import_history_tab.refresh()
         return deleted
 
     def _on_settings_saved(self) -> None:
@@ -1768,6 +1774,8 @@ class GridNotesApp(QMainWindow):
         init_db()
         self.refresh_ui_table()
         self.settings_tab.show_backup_result(ok, message)
+        if ok:
+            self.import_history_tab.refresh()
         if not ok:
             log_user_error(message, context="database restore")
 
@@ -1994,6 +2002,7 @@ class GridNotesApp(QMainWindow):
         self._set_status(STATUS_CONNECTED, message)
         if hasattr(self, "settings_tab"):
             self.settings_tab.show_api_fetch_status(message)
+            self.import_history_tab.refresh()
 
         self._api_fetch_worker = None
         self._process_api_fetch_queue()
@@ -2639,6 +2648,8 @@ class GridNotesApp(QMainWindow):
             )
             if hasattr(self, "settings_tab"):
                 self.settings_tab.refresh_storage_info()
+            if hasattr(self, "import_history_tab"):
+                self.import_history_tab.refresh()
 
             QApplication.processEvents(
                 QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents

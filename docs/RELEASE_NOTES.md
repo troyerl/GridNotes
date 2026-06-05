@@ -10,6 +10,14 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.47 — 2026-06-05
+
+### New
+
+- **Import history tab** — A dedicated tab lists every imported iRacing subsession with session ID, series/event name, and import date so you can check whether a race is already in your book before importing again.
+
+---
+
 ## v1.0.46 — 2026-06-02
 
 ### Improved

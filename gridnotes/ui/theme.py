@@ -315,6 +315,29 @@ QScrollArea#driverDetailScroll > QWidget > QWidget {
     background: transparent;
 }
 
+QTableWidget#importHistoryTable {
+    font-size: 13px;
+    background-color: {{bg_window}};
+    color: {{text_primary}};
+    border: 1px solid {{border_strong}};
+    border-radius: 6px;
+    padding: 0;
+    gridline-color: {{border}};
+}
+
+QTableWidget#importHistoryTable::item {
+    padding: 4px 8px;
+}
+
+QTableWidget#importHistoryTable QHeaderView::section {
+    background-color: {{bg_header}};
+    color: {{text_group}};
+    font-weight: 600;
+    padding: 6px 8px;
+    border: none;
+    border-bottom: 1px solid {{border_strong}};
+}
+
 QTableWidget#driverTable {
     font-size: 14px;
     background-color: {{bg_window}};
