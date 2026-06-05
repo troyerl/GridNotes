@@ -10,6 +10,25 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.45 — 2026-06-02
+
+### New
+
+- **Automated test suite** — 124 pytest tests cover core logic, data layer, iRacing import, broadcast protocol, UI helpers, legal notices, and more. Run locally with `pip install -r requirements-dev.txt && pytest`.
+- **Broadcast integration tests** — WebSocket tests verify snapshot/live delivery, receiver hello handshake, and driver-patch sync between broadcaster and receiver.
+
+### Improved
+
+- **Release pipeline** — Tagged releases run the full test suite before building the Windows installer; the build fails if any test fails.
+- **Installer bundle** — Test files and pytest are excluded from packaged builds; the release build verifies they are not bundled.
+
+### Fixed
+
+- **Broadcast on macOS** — WebSocket connected-state checks use a PyQt6-compatible API so broadcaster and receiver modes work reliably.
+- **Column width persistence** — Saved driver table column widths use the active database path at runtime.
+
+---
+
 ## v1.0.44 — 2026-06-02
 
 ### New

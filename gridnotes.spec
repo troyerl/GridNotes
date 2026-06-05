@@ -124,6 +124,7 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
+        "tests",
         "tkinter",
         "matplotlib",
         "numpy",
@@ -132,6 +133,8 @@ a = Analysis(
         "PIL",
         "cv2",
         "pytest",
+        "_pytest",
+        "pluggy",
         "unittest",
         "pydoc",
         "doctest",

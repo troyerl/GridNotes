@@ -175,9 +175,9 @@ TABLE_HOVER_ROW_PROPERTY = "hover_row"
 
 
 def load_driver_table_column_widths() -> dict[int, int]:
-    from ..data.db import get_setting
+    from ..data.db import get_db_path, get_setting
 
-    raw = get_setting(TABLE_COLUMN_WIDTHS_KEY)
+    raw = get_setting(TABLE_COLUMN_WIDTHS_KEY, db_name=get_db_path())
     if not raw:
         return {}
     try:
@@ -197,14 +197,16 @@ def load_driver_table_column_widths() -> dict[int, int]:
 
 
 def save_driver_table_column_widths(table: QTableWidget) -> None:
-    from ..data.db import set_setting
+    from ..data.db import get_db_path, set_setting
 
     widths = {
         str(col): table.columnWidth(col)
         for col in range(COLUMN_COUNT)
         if not table.isColumnHidden(col)
     }
-    set_setting(TABLE_COLUMN_WIDTHS_KEY, json.dumps(widths))
+    set_setting(
+        TABLE_COLUMN_WIDTHS_KEY, json.dumps(widths), db_name=get_db_path()
+    )
 
 
 def apply_driver_table_column_widths(

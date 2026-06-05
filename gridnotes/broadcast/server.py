@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 
 from PyQt6.QtCore import QObject, pyqtSignal
-from PyQt6.QtNetwork import QHostAddress
+from PyQt6.QtNetwork import QHostAddress, QAbstractSocket
 from PyQt6.QtWebSockets import QWebSocket, QWebSocketServer
 
 from .protocol import LiveStatePayload, SnapshotPayload, decode_message, encode_message
@@ -126,5 +126,5 @@ class BroadcastServer(QObject):
             return
         message = encode_message(payload)
         for client in list(self._clients):
-            if client.state() == QWebSocket.State.OpenState:
+            if client.state() == QAbstractSocket.SocketState.ConnectedState:
                 client.sendTextMessage(message)

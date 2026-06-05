@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import logging
 
-from PyQt6.QtCore import QObject, QUrl, pyqtSignal
+from PyQt6.QtCore import QObject, QTimer, QUrl, pyqtSignal
+from PyQt6.QtNetwork import QAbstractSocket
 from PyQt6.QtWebSockets import QWebSocket, QWebSocketProtocol
 
 from .protocol import decode_message, driver_patch_message, encode_message, hello_message
@@ -52,7 +53,7 @@ class BroadcastClient(QObject):
         self._socket.close()
 
     def is_connected(self) -> bool:
-        return self._socket.state() == QWebSocket.State.OpenState
+        return self._socket.state() == QAbstractSocket.SocketState.ConnectedState
 
     def send_driver_patch(
         self,
@@ -74,10 +75,20 @@ class BroadcastClient(QObject):
         return True
 
     def _on_connected(self) -> None:
-        import socket
+        import socket as socket_module
 
-        self._socket.sendTextMessage(encode_message(hello_message(socket.gethostname())))
         self.connected_changed.emit(True)
+        QTimer.singleShot(
+            0,
+            lambda: self._send_hello(socket_module.gethostname()),
+        )
+
+    def _send_hello(self, receiver_name: str) -> None:
+        if not self.is_connected():
+            return
+        self._socket.sendTextMessage(
+            encode_message(hello_message(receiver_name))
+        )
 
     def _on_disconnected(self) -> None:
         self.connected_changed.emit(False)

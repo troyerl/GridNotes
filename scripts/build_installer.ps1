@@ -48,6 +48,19 @@ if (-not (Test-Path $ExePath)) {
     throw "Error: expected executable at $ExePath"
 }
 
+$TestsDir = Join-Path $AppDistDir "tests"
+if (Test-Path $TestsDir) {
+    throw "Error: tests/ must not be included in the installer bundle"
+}
+$TestArtifacts = Get-ChildItem -Path $AppDistDir -Recurse -Include @(
+    "test_*.py",
+    "conftest.py",
+    "pytest.ini"
+) -ErrorAction SilentlyContinue
+if ($TestArtifacts) {
+    throw ("Error: test artifacts must not be bundled: " + ($TestArtifacts.FullName -join ", "))
+}
+
 $BuiltInstaller = $false
 $InnoCandidates = @(
     "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
