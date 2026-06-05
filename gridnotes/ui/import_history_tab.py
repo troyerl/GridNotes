@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QShowEvent
 from PyQt6.QtWidgets import (
@@ -19,7 +21,8 @@ from PyQt6.QtWidgets import (
 
 from ..core.timestamps import format_last_seen
 from ..data.db import connect_db, get_db_path
-from ..data.import_history import IMPORT_HISTORY_LIMIT, count_imported_sessions, fetch_import_history
+from ..data.import_history import count_import_history, fetch_import_history
+from .table_pagination import DEFAULT_PAGE_SIZE, TablePaginationBar
 
 
 class ImportHistoryTab(QWidget):
@@ -27,6 +30,8 @@ class ImportHistoryTab(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._page = 0
+        self._page_size = DEFAULT_PAGE_SIZE
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -51,7 +56,7 @@ class ImportHistoryTab(QWidget):
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Search by session ID…")
         self.search_input.setClearButtonEnabled(True)
-        self.search_input.textChanged.connect(self.refresh)
+        self.search_input.textChanged.connect(self._on_search_changed)
         search_row.addWidget(self.search_input, stretch=1)
         layout.addLayout(search_row)
 
@@ -85,6 +90,14 @@ class ImportHistoryTab(QWidget):
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         table_layout.addWidget(self.history_table, stretch=1)
+
+        self.pagination = TablePaginationBar()
+        self.pagination.set_page_size(self._page_size)
+        self.pagination.previous_clicked.connect(self._go_to_previous_page)
+        self.pagination.next_clicked.connect(self._go_to_next_page)
+        self.pagination.page_size_changed.connect(self._set_page_size)
+        table_layout.addWidget(self.pagination)
+
         layout.addWidget(table_frame, stretch=1)
 
         self.status_label = QLabel("")
@@ -96,20 +109,62 @@ class ImportHistoryTab(QWidget):
         super().showEvent(event)
         self.refresh()
 
+    def _on_search_changed(self) -> None:
+        self._page = 0
+        self.refresh()
+
+    def _set_page_size(self, size: int) -> None:
+        self._page_size = max(1, size)
+        self._page = 0
+        self.refresh()
+
+    def _go_to_previous_page(self) -> None:
+        if self._page <= 0:
+            return
+        self._page -= 1
+        self.refresh()
+
+    def _go_to_next_page(self) -> None:
+        self._page += 1
+        self.refresh()
+
     def refresh(self) -> None:
         session_id_query = self.search_input.text().strip()
         conn = connect_db(get_db_path())
         try:
-            total_sessions = count_imported_sessions(conn)
+            total = count_import_history(
+                conn,
+                session_id_query=session_id_query or None,
+            )
+            page_count = max(1, math.ceil(total / self._page_size)) if total else 1
+            if self._page >= page_count:
+                self._page = max(0, page_count - 1)
+            offset = self._page * self._page_size
             entries = fetch_import_history(
                 conn,
+                limit=self._page_size,
+                offset=offset,
                 session_id_query=session_id_query or None,
             )
         finally:
             conn.close()
 
         self._populate_table(entries)
-        self._update_status(total_sessions, len(entries), session_id_query)
+        if total > 0:
+            start = offset + 1
+            end = offset + len(entries)
+        else:
+            start = 0
+            end = 0
+        self.pagination.update_state(
+            page=self._page,
+            page_count=page_count,
+            total=total,
+            start=start,
+            end=end,
+            item_label="sessions",
+        )
+        self._update_status(total, session_id_query)
 
     def _populate_table(self, entries) -> None:
         self.history_table.setRowCount(len(entries))
@@ -138,37 +193,23 @@ class ImportHistoryTab(QWidget):
             self.history_table.setItem(row_idx, 1, name_item)
             self.history_table.setItem(row_idx, 2, imported_item)
 
-    def _update_status(
-        self,
-        total_sessions: int,
-        shown: int,
-        session_id_query: str,
-    ) -> None:
-        if total_sessions == 0:
+    def _update_status(self, total: int, session_id_query: str) -> None:
+        if total == 0 and not session_id_query:
             self.status_label.setText(
                 "No imported sessions yet. Use Import race JSON on the Drivers tab."
             )
             return
 
-        if session_id_query:
-            if shown == 0:
-                self.status_label.setText(
-                    f"No imported sessions match session ID “{session_id_query}”."
-                )
-            elif shown == 1:
-                self.status_label.setText(
-                    f"1 imported session matches session ID “{session_id_query}”."
-                )
-            else:
-                self.status_label.setText(
-                    f"{shown} imported sessions match session ID “{session_id_query}”."
-                )
+        if total == 0 and session_id_query:
+            self.status_label.setText(
+                f"No imported sessions match session ID “{session_id_query}”."
+            )
             return
 
-        if total_sessions > shown:
+        if session_id_query:
             self.status_label.setText(
-                f"{total_sessions} imported session(s). "
-                f"Showing the most recent {IMPORT_HISTORY_LIMIT}."
+                f"Filtered by session ID “{session_id_query}”."
             )
-        else:
-            self.status_label.setText(f"{total_sessions} imported session(s).")
+            return
+
+        self.status_label.setText(f"{total} imported session(s) in your book.")

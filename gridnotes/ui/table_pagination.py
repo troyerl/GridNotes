@@ -74,12 +74,13 @@ class TablePaginationBar(QWidget):
         total: int,
         start: int,
         end: int,
+        item_label: str = "drivers",
     ) -> None:
         if total <= 0:
-            self._summary.setText("No drivers match the current filters.")
+            self._summary.setText(f"No {item_label} match the current filters.")
             self._page_label.setText("")
         else:
-            self._summary.setText(f"Showing {start}–{end} of {total} drivers")
+            self._summary.setText(f"Showing {start}–{end} of {total} {item_label}")
             self._page_label.setText(f"Page {page + 1} of {page_count}")
         self._btn_prev.setEnabled(page > 0)
         self._btn_next.setEnabled(page < page_count - 1)

@@ -5,8 +5,6 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 
-IMPORT_HISTORY_LIMIT = 500
-
 _IMPORT_HISTORY_SQL = """
 SELECT
     subsession_id,
@@ -22,7 +20,7 @@ ORDER BY
     CASE WHEN MAX(race_at) IS NULL OR TRIM(MAX(race_at)) = '' THEN 1 ELSE 0 END,
     MAX(race_at) DESC,
     subsession_id DESC
-LIMIT ?
+LIMIT ? OFFSET ?
 """
 
 
@@ -31,6 +29,14 @@ def _session_id_filter_sql(session_id_query: str | None) -> tuple[str, list[str]
     if not query:
         return "", []
     return " AND CAST(subsession_id AS TEXT) LIKE ?", [f"%{query}%"]
+
+
+def _import_history_where(session_id_query: str | None) -> tuple[str, list[str]]:
+    filter_sql, filter_params = _session_id_filter_sql(session_id_query)
+    return (
+        "WHERE subsession_id IS NOT NULL AND subsession_id != 0" + filter_sql,
+        filter_params,
+    )
 
 
 @dataclass(frozen=True)
@@ -44,15 +50,18 @@ class ImportHistoryEntry:
 def fetch_import_history(
     conn: sqlite3.Connection,
     *,
-    limit: int = IMPORT_HISTORY_LIMIT,
+    limit: int = 50,
+    offset: int = 0,
     session_id_query: str | None = None,
 ) -> list[ImportHistoryEntry]:
     """Distinct imported subsessions, newest first."""
     if limit <= 0:
         return []
+    if offset < 0:
+        offset = 0
     filter_sql, filter_params = _session_id_filter_sql(session_id_query)
     sql = _IMPORT_HISTORY_SQL.format(session_id_filter=filter_sql)
-    rows = conn.execute(sql, (*filter_params, limit)).fetchall()
+    rows = conn.execute(sql, (*filter_params, limit, offset)).fetchall()
     return [
         ImportHistoryEntry(
             subsession_id=int(row[0]),
@@ -64,13 +73,26 @@ def fetch_import_history(
     ]
 
 
-def count_imported_sessions(conn: sqlite3.Connection) -> int:
+def count_import_history(
+    conn: sqlite3.Connection,
+    *,
+    session_id_query: str | None = None,
+) -> int:
+    where_sql, params = _import_history_where(session_id_query)
     row = conn.execute(
-        """
-        SELECT COUNT(DISTINCT subsession_id)
-        FROM race_results
-        WHERE subsession_id IS NOT NULL
-          AND subsession_id != 0
-        """
+        f"""
+        SELECT COUNT(*)
+        FROM (
+            SELECT subsession_id
+            FROM race_results
+            {where_sql}
+            GROUP BY subsession_id
+        )
+        """,
+        params,
     ).fetchone()
     return int(row[0] or 0) if row else 0
+
+
+def count_imported_sessions(conn: sqlite3.Connection) -> int:
+    return count_import_history(conn)

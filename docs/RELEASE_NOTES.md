@@ -10,6 +10,18 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.49 — 2026-06-05
+
+### Improved
+
+- **Import history pagination** — The Import history tab pages through imported sessions (50 per page by default, with 25/50/100/200 options). Search by session ID works with pagination across your full import history.
+
+### New
+
+- **Import history tests** — Unit tests cover session search, pagination queries, and the Import history tab UI.
+
+---
+
 ## v1.0.48 — 2026-06-05
 
 ### Improved
