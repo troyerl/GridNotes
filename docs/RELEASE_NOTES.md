@@ -10,6 +10,21 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.50 — 2026-06-05
+
+### New
+
+- **Leagues tab** — Organize drivers into leagues and seasons. Bulk-add from your scouting book (multi-select) or the current iRacing session with **Add current session**.
+- **Import history league races** — Mark an imported session as a league race, choose the league and season, and automatically add that session’s drivers to the season roster.
+- **League indicators** — A **League** column in the driver table plus **League** badges in Live Mode and Grid Walk show when someone is on one of your league rosters (hover for league and season details).
+
+### Improved
+
+- **Import history** — New **League** column and **Mark as league race…** / **Clear league tag** actions for tagging sessions.
+- **Live session summary** — At-a-glance line can include a league driver count when league racers are in the session.
+
+---
+
 ## v1.0.49 — 2026-06-05
 
 ### Improved

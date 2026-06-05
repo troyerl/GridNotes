@@ -392,8 +392,78 @@ def _initialize_schema(conn: sqlite3.Connection) -> None:
         """
     )
 
+    _ensure_league_schema(cursor)
     _migrate_schema(cursor)
     conn.commit()
+
+
+def _ensure_league_schema(cursor: sqlite3.Cursor) -> None:
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS leagues (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS league_seasons (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            league_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY(league_id) REFERENCES leagues(id) ON DELETE CASCADE,
+            UNIQUE(league_id, name)
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS league_memberships (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            season_id INTEGER NOT NULL,
+            cust_id INTEGER NOT NULL,
+            added_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY(season_id) REFERENCES league_seasons(id) ON DELETE CASCADE,
+            FOREIGN KEY(cust_id) REFERENCES drivers(cust_id) ON DELETE CASCADE,
+            UNIQUE(season_id, cust_id)
+        )
+        """
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_league_seasons_league_id "
+        "ON league_seasons (league_id)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_league_memberships_season_id "
+        "ON league_memberships (season_id)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_league_memberships_cust_id "
+        "ON league_memberships (cust_id)"
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS league_race_sessions (
+            subsession_id INTEGER PRIMARY KEY,
+            league_id INTEGER NOT NULL,
+            season_id INTEGER,
+            marked_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY(league_id) REFERENCES leagues(id) ON DELETE CASCADE,
+            FOREIGN KEY(season_id) REFERENCES league_seasons(id) ON DELETE SET NULL
+        )
+        """
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_league_race_sessions_league_id "
+        "ON league_race_sessions (league_id)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_league_race_sessions_season_id "
+        "ON league_race_sessions (season_id)"
+    )
 
 
 def _app_settings_table_exists(cursor: sqlite3.Cursor) -> bool:

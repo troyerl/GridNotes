@@ -238,10 +238,12 @@ def format_live_session_at_glance(entries: list[dict]) -> str:
         return ""
 
     total = len(entries)
-    flagged = disliked = liked = new = 0
+    flagged = disliked = liked = new = league = 0
     for entry in entries:
         if not entry.get("has_history"):
             new += 1
+        if entry.get("league_label"):
+            league += 1
         pref = entry.get("pref")
         if pref == 1:
             liked += 1
@@ -259,6 +261,8 @@ def format_live_session_at_glance(entries: list[dict]) -> str:
         parts.append(f"{disliked} disliked")
     if liked:
         parts.append(f"{liked} liked")
+    if league:
+        parts.append(f"{league} league")
     if new:
         parts.append(f"{new} new to your book")
     return " · ".join(parts)

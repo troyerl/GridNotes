@@ -315,7 +315,9 @@ QScrollArea#driverDetailScroll > QWidget > QWidget {
     background: transparent;
 }
 
-QTableWidget#importHistoryTable {
+QTableWidget#importHistoryTable,
+QTableWidget#leagueMembersTable,
+QTableWidget#leagueCandidatesTable {
     font-size: 13px;
     background-color: {{bg_window}};
     color: {{text_primary}};
@@ -325,11 +327,15 @@ QTableWidget#importHistoryTable {
     gridline-color: {{border}};
 }
 
-QTableWidget#importHistoryTable::item {
+QTableWidget#importHistoryTable::item,
+QTableWidget#leagueMembersTable::item,
+QTableWidget#leagueCandidatesTable::item {
     padding: 4px 8px;
 }
 
-QTableWidget#importHistoryTable QHeaderView::section {
+QTableWidget#importHistoryTable QHeaderView::section,
+QTableWidget#leagueMembersTable QHeaderView::section,
+QTableWidget#leagueCandidatesTable QHeaderView::section {
     background-color: {{bg_header}};
     color: {{text_group}};
     font-weight: 600;
@@ -540,6 +546,16 @@ QLabel#liveNewBadge {
     padding: 2px 6px;
 }
 
+QLabel#liveLeagueBadge {
+    font-size: 11px;
+    font-weight: 800;
+    color: {{text_primary}};
+    background-color: {{bg_header}};
+    border: 1px solid {{border_strong}};
+    border-radius: 4px;
+    padding: 2px 6px;
+}
+
 QLabel#liveSessionMeta {
     font-size: 14px;
     color: {{text_secondary}};
@@ -734,6 +750,16 @@ QLabel#gridWalkNewBadge {
     color: {{accent}};
     background-color: {{selection_bg}};
     border: 1px solid {{accent_border}};
+    border-radius: 4px;
+    padding: 1px 5px;
+}
+
+QLabel#gridWalkLeagueBadge {
+    font-size: 10px;
+    font-weight: 800;
+    color: {{text_primary}};
+    background-color: {{bg_header}};
+    border: 1px solid {{border_strong}};
     border-radius: 4px;
     padding: 1px 5px;
 }

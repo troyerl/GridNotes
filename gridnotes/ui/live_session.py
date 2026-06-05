@@ -54,6 +54,10 @@ class LiveDriverCard(QFrame):
         self.new_label.setObjectName("liveNewBadge")
         self.new_label.setVisible(False)
         name_row.addWidget(self.new_label)
+        self.league_label = QLabel("League")
+        self.league_label.setObjectName("liveLeagueBadge")
+        self.league_label.setVisible(False)
+        name_row.addWidget(self.league_label)
         left.addLayout(name_row)
 
         self.profile_label = QLabel("")
@@ -133,11 +137,19 @@ class LiveDriverCard(QFrame):
         pref: int | None,
         safety_trend: SafetyTrend | None = None,
         has_history: bool = True,
+        league_label: str = "",
     ) -> None:
         self._cust_id = cust_id
         self._driver_name = name or "—"
         self.name_label.setText(self._driver_name)
         self.new_label.setVisible(not has_history)
+        if league_label:
+            self.league_label.setText("League")
+            self.league_label.setToolTip(f"League racer: {league_label}")
+            self.league_label.setVisible(True)
+        else:
+            self.league_label.setVisible(False)
+            self.league_label.setToolTip("")
 
         if safety.tier == "unknown":
             self.profile_label.setText("")
@@ -197,6 +209,8 @@ class LiveDriverCard(QFrame):
             if tier_text
             else self._driver_name
         )
+        if league_label:
+            a11y_name = f"{a11y_name}, league racer"
         set_accessible(
             self,
             a11y_name,
@@ -447,6 +461,7 @@ class LiveSessionView(QWidget):
                 if e.get("safety") is not None
                 else -1,
                 (e.get("safety_trend") or SafetyTrend("unknown", None, None, 0)).direction,
+                e.get("league_label") or "",
             )
             for e in entries
         )
@@ -492,6 +507,7 @@ class LiveSessionView(QWidget):
                 pref=entry.get("pref"),
                 safety_trend=trend,
                 has_history=bool(entry.get("has_history")),
+                league_label=str(entry.get("league_label") or ""),
             )
             card.clicked.connect(self.driver_clicked.emit)
             self.cards_layout.addWidget(card)

@@ -72,6 +72,11 @@ class GridWalkRow(QFrame):
         self.new_label.setVisible(False)
         layout.addWidget(self.new_label)
 
+        self.league_label = QLabel("League")
+        self.league_label.setObjectName("gridWalkLeagueBadge")
+        self.league_label.setVisible(False)
+        layout.addWidget(self.league_label)
+
         self.score_label = QLabel("")
         self.score_label.setObjectName("gridWalkScore")
         self.score_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -108,6 +113,7 @@ class GridWalkRow(QFrame):
         self.pos_label.setText("")
         self.name_label.setText("")
         self.new_label.setVisible(False)
+        self.league_label.setVisible(False)
         self.score_label.setText("")
         self.score_label.setStyleSheet("")
         self.mark_label.setText("")
@@ -135,6 +141,7 @@ class GridWalkRow(QFrame):
         safety: SafetyIndex | None = None,
         safety_trend: SafetyTrend | None = None,
         has_history: bool = True,
+        league_label: str = "",
     ) -> None:
         self._cust_id = cust_id
         self._active = True
@@ -144,6 +151,13 @@ class GridWalkRow(QFrame):
         self.pos_label.setText(f"P{position}")
         self.name_label.setText(name)
         self.new_label.setVisible(not has_history)
+        if league_label:
+            self.league_label.setText("League")
+            self.league_label.setToolTip(f"League racer: {league_label}")
+            self.league_label.setVisible(True)
+        else:
+            self.league_label.setVisible(False)
+            self.league_label.setToolTip("")
 
         if safety is not None and safety.tier != "unknown":
             score_text = f"{safety.score:.0f}"
@@ -166,6 +180,9 @@ class GridWalkRow(QFrame):
                 if not has_history
                 else ""
             )
+        if league_label:
+            league_tip = f"League racer: {league_label}"
+            tooltip = f"{tooltip}\n{league_tip}" if tooltip else league_tip
 
         mark = driver_mark_label(pref, risky) or ""
         self.mark_label.setText(mark)
@@ -179,7 +196,8 @@ class GridWalkRow(QFrame):
         set_accessible(
             self,
             f"Grid position {position}, {side} side, {name}"
-            + (f", {mark}" if mark else ""),
+            + (f", {mark}" if mark else "")
+            + (", league racer" if league_label else ""),
             "Press Enter to open scouting notes.",
         )
 
@@ -357,6 +375,7 @@ class GridWalkView(QWidget):
             "safety": safety if isinstance(safety, SafetyIndex) else None,
             "safety_trend": trend,
             "has_history": bool(meta.get("has_history")),
+            "league_label": str(meta.get("league_label") or ""),
         }
 
     def rebuild(
@@ -390,6 +409,7 @@ class GridWalkView(QWidget):
                 meta.get("has_history"),
                 score,
                 trend_dir,
+                meta.get("league_label") or "",
             )
 
         key = (

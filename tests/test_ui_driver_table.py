@@ -30,7 +30,7 @@ def test_table_row_sort_key_name():
 
 def test_table_row_sort_key_safety_unknown():
     row = make_driver_sql_row(total_races=1)
-    key = table_row_sort_key(row, 3)  # COL_SAFETY
+    key = table_row_sort_key(row, 4)  # COL_SAFETY
     assert key[0] == 1  # unknown sorts after scored
 
 

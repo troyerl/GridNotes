@@ -22,6 +22,7 @@ from ..safety.safety_index import (
 )
 from ..safety.safety_trend import SafetyTrend, combined_safety_tooltip
 from ..core.utils import sqlite_row_to_int
+from ..data.leagues import compact_league_indicator
 from ..data.driver_models import DriverTableRow
 from .a11y import driver_mark_label
 from .theme import table_row_color
@@ -46,6 +47,8 @@ def table_row_sort_key(row: tuple, column: int) -> tuple:
     if column == COL_MARK:
         label = driver_mark_label(driver.race_preference, safety.risky) or ""
         return (0, label.lower())
+    if column == COL_LEAGUE:
+        return (0, "")
     if column == COL_RACES:
         return (0, driver.total_races)
     if column == COL_SAFETY:
@@ -77,25 +80,27 @@ def table_row_sort_key(row: tuple, column: int) -> tuple:
 
 COL_NAME = 0
 COL_MARK = 1
-COL_RACES = 2
-COL_SAFETY = 3
-COL_AVG_INC = 4
-COL_AVG_FINISH = 5
-COL_AVG_POS = 6
-COL_DNFS = 7
-COL_LAST_SR = 8
-COL_LAST_IR = 9
-COL_SERIES = 10
-COL_DNF_BREAKDOWN = 11
-COL_NOTE = 12
-COL_CUST_ID = 13
+COL_LEAGUE = 2
+COL_RACES = 3
+COL_SAFETY = 4
+COL_AVG_INC = 5
+COL_AVG_FINISH = 6
+COL_AVG_POS = 7
+COL_DNFS = 8
+COL_LAST_SR = 9
+COL_LAST_IR = 10
+COL_SERIES = 11
+COL_DNF_BREAKDOWN = 12
+COL_NOTE = 13
+COL_CUST_ID = 14
 
-COLUMN_COUNT = 14
+COLUMN_COUNT = 15
 NOTE_HAS_TEXT = "Notes"
 
 DRIVER_TABLE_HEADERS = [
     "Driver Name",
     "Mark",
+    "League",
     "Races",
     "Safety Index",
     "Avg Incidents",
@@ -113,6 +118,7 @@ DRIVER_TABLE_HEADERS = [
 DEFAULT_DRIVER_TABLE_COLUMN_WIDTHS: dict[int, int] = {
     COL_NAME: 200,
     COL_MARK: 72,
+    COL_LEAGUE: 72,
     COL_RACES: 64,
     COL_SAFETY: 112,
     COL_AVG_INC: 100,
@@ -365,6 +371,19 @@ def make_mark_item(pref: int | None, risky: bool) -> QTableWidgetItem:
     if label:
         item.setText(label)
         item.setToolTip(label)
+    else:
+        item.setText(EMPTY_CELL)
+    return item
+
+
+def make_league_item(full_label: str) -> QTableWidgetItem:
+    item = QTableWidgetItem()
+    item.setFlags(item.flags() ^ Qt.ItemFlag.ItemIsEditable)
+    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+    short = compact_league_indicator(full_label)
+    if short:
+        item.setText(short)
+        item.setToolTip(f"League racer: {full_label}")
     else:
         item.setText(EMPTY_CELL)
     return item

@@ -61,6 +61,7 @@ from ..privacy.streamer_mode import (
 )
 from ..ui.driver_table import (
     COL_CUST_ID,
+    COL_LEAGUE,
     COL_MARK,
     COL_NAME,
     COL_NOTE,
@@ -75,6 +76,7 @@ from ..ui.driver_table import (
     configure_driver_table_theme,
     configure_driver_table_widget,
     save_driver_table_column_widths,
+    make_league_item,
     make_mark_item,
     make_note_item,
     make_safety_item,
@@ -97,7 +99,9 @@ from ..ui.live_session import LiveSessionView
 from ..ui.scouting_guide_dialog import show_scouting_guide
 from ..ui.import_progress_dialog import ImportProgressDialog
 from ..ui.import_history_tab import ImportHistoryTab
+from ..ui.leagues_tab import LeaguesTab
 from ..ui.streamer_mode_progress_dialog import StreamerModeProgressDialog
+from ..data.leagues import fetch_league_membership_labels
 from ..data.queries import (
     driver_detail_sql,
     fetch_recent_races_by_cust_ids,
@@ -648,6 +652,15 @@ class GridNotesApp(QMainWindow):
             int(cust_id), info, announce_name=announce_name
         )
 
+    def _current_session_drivers_for_leagues(self) -> list[tuple[int, str]]:
+        return [
+            (
+                int(cust_id),
+                self.active_driver_names.get(int(cust_id), f"Driver #{cust_id}"),
+            )
+            for cust_id in sorted(self.active_cust_ids)
+        ]
+
     def _build_live_session_entries(self) -> list[dict]:
         if not self.active_cust_ids:
             return []
@@ -666,8 +679,13 @@ class GridNotesApp(QMainWindow):
             if isinstance(e.get("safety"), SafetyIndex) and e["safety"].tier != "unknown"
         }
         trends = compute_safety_trends_for_cust_ids(self._db_conn, lifetime_by_cust)
+        league_labels = fetch_league_membership_labels(
+            self._db_conn,
+            active_cust_ids,
+        )
         for entry in entries:
             entry["safety_trend"] = trends.get(int(entry["cust_id"]))
+            entry["league_label"] = league_labels.get(int(entry["cust_id"]), "")
         if self._streamer_mode:
             for entry in entries:
                 cid = int(entry["cust_id"])
@@ -880,6 +898,11 @@ class GridNotesApp(QMainWindow):
 
         self.import_history_tab = ImportHistoryTab()
         self.main_tabs.addTab(self.import_history_tab, "Import history")
+
+        self.leagues_tab = LeaguesTab(
+            session_drivers_provider=self._current_session_drivers_for_leagues,
+        )
+        self.main_tabs.addTab(self.leagues_tab, "Leagues")
 
         self.settings_tab = SettingsTab()
         self.settings_tab.settings_saved.connect(self._on_settings_saved)
@@ -2135,8 +2158,12 @@ class GridNotesApp(QMainWindow):
         self._last_table_fingerprint = None
 
     def _table_data_fingerprint(self, rows: list[tuple]) -> tuple:
+        league_meta = self._db_conn.execute(
+            "SELECT COUNT(*), COALESCE(MAX(added_at), '') FROM league_memberships"
+        ).fetchone()
         return (
             self._streamer_mode,
+            league_meta,
             tuple(
             (
                 row[8],  # cust_id
@@ -2175,6 +2202,10 @@ class GridNotesApp(QMainWindow):
         self.table.blockSignals(True)
         try:
             trends = self._safety_trends_for_table_rows(page_rows)
+            league_labels = fetch_league_membership_labels(
+                self._db_conn,
+                [DriverTableRow.from_sql_row(row).cust_id for row in page_rows],
+            )
             self.table.setRowCount(len(page_rows))
             for row_idx, row_data in enumerate(page_rows):
                 display_row, cust_id, pref, risky, risky_tip, safety, real_name = (
@@ -2189,6 +2220,7 @@ class GridNotesApp(QMainWindow):
                     safety=safety,
                     trend=trends.get(cust_id),
                     real_name=real_name,
+                    league_label=league_labels.get(cust_id, ""),
                 )
                 if risky:
                     self._apply_risky_row_style(row_idx, risky_tip)
@@ -2292,6 +2324,7 @@ class GridNotesApp(QMainWindow):
             [
                 display_name,
                 driver_mark_label(driver.race_preference, safety.risky),
+                "",
                 driver.total_races,
                 safety.score if safety.tier != "unknown" else None,
                 driver.avg_inc,
@@ -2323,12 +2356,15 @@ class GridNotesApp(QMainWindow):
         safety: SafetyIndex | None = None,
         trend: SafetyTrend | None = None,
         real_name: str = "",
+        league_label: str = "",
     ) -> None:
         for col_idx, value in enumerate(display_row):
             if col_idx == COL_SAFETY and safety is not None:
                 item = make_safety_item(safety, trend)
             elif col_idx == COL_MARK:
                 item = make_mark_item(pref, risky)
+            elif col_idx == COL_LEAGUE:
+                item = make_league_item(league_label)
             elif col_idx == COL_NOTE:
                 item = make_note_item(bool(value))
             else:

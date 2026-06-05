@@ -5,6 +5,7 @@ from gridnotes.data.import_history import (
     count_imported_sessions,
     fetch_import_history,
 )
+from gridnotes.data.leagues import create_league, create_season, mark_session_league_race
 
 
 def test_fetch_import_history_groups_by_subsession(memory_conn):
@@ -168,3 +169,29 @@ def test_fetch_import_history_rejects_invalid_limit_and_offset(memory_conn):
     rows = fetch_import_history(memory_conn, limit=10, offset=-5)
     assert len(rows) == 1
     assert rows[0].subsession_id == 1
+
+
+def test_fetch_import_history_includes_league_tag(memory_conn):
+    memory_conn.executemany(
+        """
+        INSERT INTO race_results (
+            cust_id, subsession_id, finish_position, incidents,
+            series_name, race_at
+        )
+        VALUES (?, ?, 1, 0, ?, ?)
+        """,
+        [
+            (1, 100, "Formula Vee", "2026-01-01T12:00:00Z"),
+            (2, 200, "GT3 Fixed", "2026-02-01T12:00:00Z"),
+        ],
+    )
+    league_id = create_league(memory_conn, "Club Racing")
+    season_id = create_season(memory_conn, league_id, "2026 S1")
+    mark_session_league_race(memory_conn, 100, league_id, season_id=season_id)
+    memory_conn.commit()
+
+    history = fetch_import_history(memory_conn)
+    by_id = {entry.subsession_id: entry for entry in history}
+    assert by_id[100].league_name == "Club Racing"
+    assert by_id[100].season_name == "2026 S1"
+    assert by_id[200].league_name is None

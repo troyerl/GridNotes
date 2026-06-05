@@ -8,6 +8,7 @@ pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
 
 from gridnotes.ui.import_history_tab import ImportHistoryTab
 from gridnotes.ui.table_pagination import DEFAULT_PAGE_SIZE
+from gridnotes.data.leagues import create_league, create_season, mark_session_league_race
 
 
 def _seed_sessions(conn, count: int, *, start_id: int = 1000) -> None:
@@ -114,3 +115,31 @@ def test_import_history_tab_page_size_change_resets_page(import_history_tab):
     assert tab._page_size == 25
     assert tab.history_table.rowCount() == 25
     assert "Showing 1–25 of 30 sessions" in tab.pagination._summary.text()
+
+
+def test_import_history_tab_shows_league_tag(import_history_tab):
+    tab, conn = import_history_tab
+    conn.execute(
+        """
+        INSERT INTO race_results (
+            cust_id, subsession_id, finish_position, incidents,
+            series_name, race_at
+        )
+        VALUES (1, 4242, 1, 0, 'League Series', '2026-01-01T12:00:00Z')
+        """
+    )
+    league_id = create_league(conn, "My League")
+    season_id = create_season(conn, league_id, "2026 S1")
+    mark_session_league_race(conn, 4242, league_id, season_id=season_id)
+    conn.commit()
+
+    tab.refresh()
+    assert tab.history_table.rowCount() == 1
+    assert tab.history_table.item(0, 2).text() == "My League · 2026 S1"
+    tab.history_table.selectRow(0)
+    assert tab.btn_clear_league.isEnabled()
+
+    tab._clear_selected_league_race()
+    tab.refresh()
+    assert tab.history_table.item(0, 2).text() == "—"
+    assert not tab.btn_clear_league.isEnabled()
