@@ -15,6 +15,13 @@ _TASKBAR_SCRIPT_NAME = "windows_taskbar_identity.ps1"
 
 def _taskbar_script_path() -> Path | None:
     candidates: list[Path] = []
+    if getattr(sys, "frozen", False):
+        meipass = getattr(sys, "_MEIPASS", "")
+        if meipass:
+            candidates.append(Path(meipass) / "scripts" / _TASKBAR_SCRIPT_NAME)
+        exe_dir = Path(sys.executable).resolve().parent
+        candidates.append(exe_dir / "scripts" / _TASKBAR_SCRIPT_NAME)
+        candidates.append(exe_dir / "_internal" / "scripts" / _TASKBAR_SCRIPT_NAME)
     try:
         from gridnotes.installer.uninstall import resolve_install_root
 

@@ -12,6 +12,8 @@ if os.path.isfile("icon.ico"):
     _datas.append(("icon.ico", "."))
 if os.path.isfile("icon.icns"):
     _datas.append(("icon.icns", "."))
+if os.path.isfile("scripts/windows_taskbar_identity.ps1"):
+    _datas.append(("scripts/windows_taskbar_identity.ps1", "scripts"))
 
 try:
     from PyInstaller.utils.hooks import collect_data_files

@@ -95,6 +95,7 @@ def apply_installer_update(
         bat_path,
         setup_exe=setup_path,
         install_root=install_root,
+        workspace_root=temp_parent,
         wait_pid=pid,
         log_path=log_path,
         release_version=version,
@@ -121,12 +122,14 @@ def _write_installer_apply_batch(
     *,
     setup_exe: Path,
     install_root: Path,
+    workspace_root: Path,
     wait_pid: int,
     log_path: Path,
     release_version: str,
 ) -> None:
     setup = str(setup_exe.resolve())
     dest = str(install_root.resolve())
+    workspace = str(workspace_root.resolve())
     log_file = str(log_path.resolve())
     pointer_lines = "".join(windows_update_pointer_batch_lines(install_root))
     relaunch_block = "\r\n".join(windows_update_relaunch_batch_lines(install_root))
@@ -135,6 +138,7 @@ def _write_installer_apply_batch(
         "setlocal EnableExtensions\r\n"
         f'set "SETUP={setup}"\r\n'
         f'set "DEST={dest}"\r\n'
+        f'set "WORKSPACE={workspace}"\r\n'
         f'set "LOG={log_file}"\r\n'
         f"set \"WAITPID={wait_pid}\"\r\n"
         f'echo [%date% %time%] GridNotes installer update started>>"%LOG%"\r\n'
@@ -155,7 +159,8 @@ def _write_installer_apply_batch(
         'echo [%date% %time%] Installer update finished>>"%LOG%"\r\n'
         f"{relaunch_block}\r\n"
         ":cleanup\r\n"
-        f'del /f /q "{setup}" 2>nul\r\n'
-        "del \"%~f0\"\r\n",
+        "cd /d %TEMP%\r\n"
+        'rd /s /q "%WORKSPACE%" 2>nul\r\n'
+        "exit /b\r\n",
         encoding="utf-8",
     )

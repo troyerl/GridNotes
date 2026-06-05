@@ -56,19 +56,28 @@ _WINDOWS_TZ_MAP: dict[str, str] = {
 }
 
 
+_tzpath_configured = False
+
+
 def configure_tzpath_for_frozen() -> None:
     """Ensure bundled tzdata is visible to zoneinfo in PyInstaller builds."""
-    if not getattr(sys, "frozen", False):
+    global _tzpath_configured
+    if _tzpath_configured or not getattr(sys, "frozen", False):
         return
+    _tzpath_configured = True
     try:
         base = getattr(sys, "_MEIPASS", "")
         for subpath in ("tzdata/zoneinfo", "zoneinfo"):
             tz_root = os.path.join(base, subpath)
-            if os.path.isdir(tz_root):
-                existing = os.environ.get("TZPATH", "")
-                paths = [p for p in (existing, tz_root) if p]
-                os.environ["TZPATH"] = os.pathsep.join(paths)
+            if not os.path.isdir(tz_root):
+                continue
+            existing = os.environ.get("TZPATH", "")
+            parts = [p for p in existing.split(os.pathsep) if p]
+            if tz_root in parts:
                 return
+            parts.append(tz_root)
+            os.environ["TZPATH"] = os.pathsep.join(parts)
+            return
     except Exception:
         logger.debug("Could not configure TZPATH for frozen build", exc_info=True)
 

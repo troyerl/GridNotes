@@ -105,12 +105,14 @@ def _write_frozen_apply_batch(
     *,
     source_root: Path,
     install_root: Path,
+    workspace_root: Path,
     wait_pid: int,
     log_path: Path,
     release_version: str,
 ) -> None:
     src = str(source_root.resolve())
     dest = str(install_root.resolve())
+    workspace = str(workspace_root.resolve())
     log_file = str(log_path.resolve())
     exe = str((install_root / "GridNotes.exe").resolve())
     pointer_lines = "".join(windows_update_pointer_batch_lines(install_root))
@@ -120,6 +122,7 @@ def _write_frozen_apply_batch(
         "setlocal EnableExtensions\r\n"
         f'set "SRC={src}"\r\n'
         f'set "DEST={dest}"\r\n'
+        f'set "WORKSPACE={workspace}"\r\n'
         f'set "LOG={log_file}"\r\n'
         f"set \"WAITPID={wait_pid}\"\r\n"
         f'echo [%date% %time%] GridNotes frozen update started>>"%LOG%"\r\n'
@@ -149,8 +152,9 @@ def _write_frozen_apply_batch(
         'echo [%date% %time%] Update finished>>"%LOG%"\r\n'
         f"{relaunch_block}\r\n"
         ":cleanup\r\n"
-        f'rd /s /q "{src}" 2>nul\r\n'
-        "del \"%~f0\"\r\n",
+        "cd /d %TEMP%\r\n"
+        'rd /s /q "%WORKSPACE%" 2>nul\r\n'
+        "exit /b\r\n",
         encoding="utf-8",
     )
 
@@ -217,6 +221,7 @@ def apply_frozen_update(
         bat_path,
         source_root=source_root,
         install_root=install_root,
+        workspace_root=temp_parent,
         wait_pid=pid,
         log_path=log_path,
         release_version=version,

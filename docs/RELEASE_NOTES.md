@@ -10,6 +10,20 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.51 — 2026-06-05
+
+### Fixed
+
+- **Broadcast receiver crash** — Fixed a crash when live session data refreshed on a receiver (`NameError` during league membership lookup).
+- **Settings timezone list (Windows)** — Stopped repeated `TZPATH` updates that could flood logs and exceed Windows environment size limits when opening Settings.
+- **Windows taskbar identity** — Bundled the taskbar grouping script in frozen builds so installed copies can apply the correct AppUserModel ID.
+
+### Improved
+
+- **Update staging cleanup** — Successful in-app updates now remove their entire staging folder. On startup, leftover folders under `%LOCALAPPDATA%\GridNotes\updates` older than 20 minutes are pruned automatically.
+
+---
+
 ## v1.0.50 — 2026-06-05
 
 ### New

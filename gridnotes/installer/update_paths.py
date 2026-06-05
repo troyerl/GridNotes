@@ -13,10 +13,16 @@ logger = logging.getLogger(__name__)
 
 UPDATE_WORK_SUBDIR = "updates"
 UPDATE_LOG_NAME = "gridnotes-update.log"
+# Keep very recent folders in case an update batch is still running.
+ACTIVE_UPDATE_GRACE_SECONDS = 20 * 60
 
 
 def update_log_path() -> Path:
     return get_data_dir_path() / UPDATE_LOG_NAME
+
+
+def update_workspace_root() -> Path:
+    return get_data_dir_path() / UPDATE_WORK_SUBDIR
 
 
 def update_workspace_dir(*, version: str, pid: int, kind: str) -> Path:
@@ -27,25 +33,50 @@ def update_workspace_dir(*, version: str, pid: int, kind: str) -> Path:
     """
     safe_version = "".join(c if c.isalnum() or c in ".-" else "_" for c in version)
     path = (
-        get_data_dir_path()
-        / UPDATE_WORK_SUBDIR
+        update_workspace_root()
         / f"{kind}-{safe_version}-{pid}-{int(time.time())}"
     )
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
-def prune_old_update_workspaces(*, max_age_seconds: int = 48 * 3600) -> None:
-    """Remove leftover update staging folders from interrupted runs."""
-    root = get_data_dir_path() / UPDATE_WORK_SUBDIR
+def remove_update_workspace(path: Path) -> bool:
+    """Delete a single update staging folder (best effort)."""
+    try:
+        if path.is_dir():
+            shutil.rmtree(path, ignore_errors=True)
+            return True
+        if path.is_file():
+            path.unlink(missing_ok=True)
+            return True
+    except OSError as exc:
+        logger.debug("Could not remove update workspace %s: %s", path, exc)
+    return False
+
+
+def prune_old_update_workspaces(
+    *,
+    keep_recent_seconds: int = ACTIVE_UPDATE_GRACE_SECONDS,
+) -> int:
+    """
+    Remove leftover update staging folders and files from interrupted or finished updates.
+
+    Returns the number of entries removed.
+    """
+    root = update_workspace_root()
     if not root.is_dir():
-        return
-    cutoff = time.time() - max_age_seconds
-    for child in root.iterdir():
-        if not child.is_dir():
-            continue
+        return 0
+    cutoff = time.time() - max(0, keep_recent_seconds)
+    removed = 0
+    for child in list(root.iterdir()):
         try:
-            if child.stat().st_mtime < cutoff:
-                shutil.rmtree(child, ignore_errors=True)
+            if child.stat().st_mtime >= cutoff:
+                continue
         except OSError as exc:
-            logger.debug("Could not prune update workspace %s: %s", child, exc)
+            logger.debug("Could not stat update workspace %s: %s", child, exc)
+            continue
+        if remove_update_workspace(child):
+            removed += 1
+    if removed:
+        logger.info("Removed %d old update staging folder(s) from %s", removed, root)
+    return removed

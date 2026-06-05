@@ -681,7 +681,7 @@ class GridNotesApp(QMainWindow):
         trends = compute_safety_trends_for_cust_ids(self._db_conn, lifetime_by_cust)
         league_labels = fetch_league_membership_labels(
             self._db_conn,
-            active_cust_ids,
+            self.active_cust_ids,
         )
         for entry in entries:
             entry["safety_trend"] = trends.get(int(entry["cust_id"]))
