@@ -10,6 +10,15 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.46 — 2026-06-02
+
+### Improved
+
+- **Release CI** — Tests run only when a version tag is pushed, so shipping a release no longer triggers duplicate test workflows on `main` and the tag.
+- **Linux CI** — Release builds install Qt runtime libraries and run PyQt6 tests headless so the test gate passes on GitHub Actions.
+
+---
+
 ## v1.0.45 — 2026-06-02
 
 ### New
