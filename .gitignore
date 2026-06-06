@@ -6,6 +6,7 @@ build/
 dist/
 *.spec.bak
 .DS_Store
+icon.icns
 gridnotes.log
 .gridnotes-version
 install-helper.log

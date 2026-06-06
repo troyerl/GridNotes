@@ -19,6 +19,8 @@ All data stays on your machine in a local SQLite database — no account or clou
 
 **Easiest for Windows:** download **`GridNotes-Setup.exe`** from [Releases → Assets](https://github.com/troyerl/GridNotes/releases) (you must build and upload it first; see [docs/BUILD_WINDOWS_INSTALLER.md](docs/BUILD_WINDOWS_INSTALLER.md)).
 
+**Easiest for Mac (Apple Silicon):** download **`GridNotes-macOS-AppleSilicon.zip`** from [Releases → Assets](https://github.com/troyerl/GridNotes/releases) — see [docs/BUILD_MACOS_INSTALLER.md](docs/BUILD_MACOS_INSTALLER.md).
+
 ## Overview
 
 GridNotes helps you remember who you raced against and whether you want to race with them again.

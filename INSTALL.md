@@ -106,7 +106,15 @@ The default install path needs **no** administrator permission. Use **Show advan
 
 ---
 
-### C) I’m on a Mac
+### C) I’m on a Mac (Apple Silicon)
+
+**Easiest:** download **`GridNotes-macOS-AppleSilicon.zip`** from [Releases → Assets](https://github.com/troyerl/GridNotes/releases). Unzip it and open **`GridNotes.app`**.
+
+If macOS says the app cannot be opened: **right-click** `GridNotes.app` → **Open** → **Open** (only needed the first time).
+
+> **Intel Macs:** release builds target **Apple Silicon (M1/M2/M3/M4) only**. Use the source install below on Intel Macs.
+
+**From source (Intel Mac or developers):**
 
 1. Install Python from **https://www.python.org/downloads/** (download and run the installer).
 2. Unzip the GridNotes folder if needed.

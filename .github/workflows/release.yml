@@ -1,4 +1,4 @@
-# Build GridNotes-Setup.exe when a version tag is pushed.
+# Build GridNotes release assets when a version tag is pushed.
 # Tags with a hyphen (e.g. v1.0.35-rc1) are published as GitHub pre-releases so
 # installed apps still see the previous full release as "latest" for updates.
 # See docs/RELEASES.md.
@@ -55,9 +55,6 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Extract release notes from RELEASE_NOTES.md
-        run: python scripts/extract_release_notes.py "${{ github.ref_name }}" -o release_body.md
-
       - name: Build installer
         shell: pwsh
         run: scripts/build_installer.ps1
@@ -81,13 +78,72 @@ jobs:
             throw ("Test artifacts must not be bundled: " + ($testArtifacts.FullName -join ", "))
           }
 
-      - name: Upload release assets
+      - name: Upload Windows assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: |
+            dist/GridNotes-Windows.zip
+            dist/GridNotes-Setup.exe
+          if-no-files-found: warn
+
+  build-macos:
+    needs: test
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify Apple Silicon runner
+        run: |
+          if [ "$(uname -m)" != "arm64" ]; then
+            echo "Expected arm64 macOS runner"
+            exit 1
+          fi
+
+      - name: Build macOS app
+        run: bash scripts/build_macos.sh
+
+      - name: Upload macOS asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-release
+          path: dist/GridNotes-macOS-AppleSilicon.zip
+          if-no-files-found: error
+
+  publish-release:
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Windows assets
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-release
+          path: release-assets
+
+      - name: Download macOS asset
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-release
+          path: release-assets
+
+      - name: Extract release notes from RELEASE_NOTES.md
+        run: python scripts/extract_release_notes.py "${{ github.ref_name }}" -o release_body.md
+
+      - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
           body_path: release_body.md
           prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
-            dist/GridNotes-Setup.exe
-            dist/GridNotes-Windows.zip
+            release-assets/*
           fail_on_unmatched_files: false
           generate_release_notes: false

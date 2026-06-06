@@ -36,9 +36,10 @@ Implementation: `gridnotes/services/app_update.py`.
 6. GitHub Actions **Release** workflow builds and uploads:
    - `GridNotes-Setup.exe`
    - `GridNotes-Windows.zip`
+   - `GridNotes-macOS-AppleSilicon.zip` (Apple Silicon / arm64 only)
 7. The release is published as a **full** release (not pre-release). It becomes **latest** for update checks.
 
-Installer build details: [BUILD_WINDOWS_INSTALLER.md](BUILD_WINDOWS_INSTALLER.md).
+Installer build details: [BUILD_WINDOWS_INSTALLER.md](BUILD_WINDOWS_INSTALLER.md) (Windows) · [BUILD_MACOS_INSTALLER.md](BUILD_MACOS_INSTALLER.md) (macOS).
 
 ---
 
