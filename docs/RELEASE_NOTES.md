@@ -10,6 +10,18 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.54 — 2026-06-05
+
+### New
+
+- **macOS download (Apple Silicon)** — Tagged releases now include **`GridNotes-macOS-AppleSilicon.zip`**: unzip and open **`GridNotes.app`**. Targets M-series Macs (arm64) only; Intel Macs can still install from source via **`Install GridNotes.command`**.
+
+### Improved
+
+- **Release pipeline** — GitHub Actions builds Windows and macOS assets on each version tag and publishes them together on the release page.
+
+---
+
 ## v1.0.53 — 2026-06-05
 
 ### Fixed
