@@ -74,11 +74,12 @@ Python is free software GridNotes needs. You are not writing code.
    **`C:\Program Files`** only: **right-click** → **Run as administrator**, or run `Install GridNotes.bat /elevate`.  
    If the black window closes instantly, open **`install-helper.log`** in the same folder.
 2. A window titled **Install GridNotes** opens.
-3. Leave the **install folder** as shown (default: your user folder, **no admin**), or use **Choose folder…** for **D:\** (→ `D:\GridNotes`).  
+3. Read the **license agreement**, check **I have read and agree to the license terms**, then choose where to install.
+4. Leave the **install folder** as shown (default: your user folder, **no admin**), or use **Choose folder…** for **D:\** (→ `D:\GridNotes`).  
    For **`C:\Program Files`**, use advanced → **Use Program Files** and **right-click** `Install GridNotes.bat` → **Run as administrator**.
-4. Leave **“Create an icon on my Desktop”** turned on if you want a desktop icon.
-5. Click **Install GridNotes** and wait. A bar will move across the screen; this can take several minutes.
-6. When it says finished, click **Launch GridNotes** (or use the Desktop icon afterward).
+5. Leave **“Create an icon on my Desktop”** turned on if you want a desktop icon.
+6. Click **Install GridNotes** and wait. A bar will move across the screen; this can take several minutes.
+7. When it says finished, click **Launch GridNotes** (or use the Desktop icon afterward).
 
 #### Step 4 — Open GridNotes later
 
@@ -120,7 +121,7 @@ If macOS says the app cannot be opened: **right-click** `GridNotes.app` → **Op
 2. Unzip the GridNotes folder if needed.
 3. **Double-click** `Install GridNotes.command`.  
    If Mac says it cannot open the file: **right-click** the file → **Open** → **Open**.
-4. Click **Install GridNotes**, then **Launch GridNotes**.
+4. Read the license, check **I have read and agree to the license terms**, click **Install GridNotes**, then **Launch GridNotes**.
 
 **Note:** Live iRacing session features need **Windows**. On Mac you can still import races and keep notes.
 

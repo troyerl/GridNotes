@@ -2,11 +2,42 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 COPYRIGHT_HOLDER = "Logan Troyer"
 PRODUCT_NAME = "GridNotes"
 
 IRACING_TERMS_URL = "https://www.iracing.com/console-terms-use-eula/"
 IRACING_OAUTH_URL = "https://oauth.iracing.com/oauth2/book/introduction.html"
+
+INSTALL_LICENSE_ACK_LABEL = "I have read and agree to the license terms"
+
+
+def _license_file_candidates(source_root: Path | None) -> list[Path]:
+    candidates: list[Path] = []
+    if source_root is not None:
+        candidates.append(source_root / "LICENSE")
+    repo_root = Path(__file__).resolve().parents[2]
+    candidates.append(repo_root / "LICENSE")
+    return candidates
+
+
+def install_license_text(source_root: Path | None = None) -> str:
+    """Plain-text license shown in the install wizard (matches LICENSE when present)."""
+    for path in _license_file_candidates(source_root):
+        if path.is_file():
+            try:
+                return path.read_text(encoding="utf-8").strip()
+            except OSError:
+                continue
+    return (
+        f"{PRODUCT_NAME} — Free for Personal Use License\n\n"
+        f"Copyright (c) 2026 {COPYRIGHT_HOLDER}\n\n"
+        "Permission is granted to download, install, and use GridNotes free of "
+        "charge for personal, non-commercial purposes. Commercial use requires "
+        "written permission. GridNotes is not affiliated with iRacing. See LICENSE "
+        "in the download folder for the full terms."
+    )
 
 
 def license_summary_html() -> str:

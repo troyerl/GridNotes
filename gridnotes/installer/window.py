@@ -24,6 +24,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from ..legal.user_notice import INSTALL_LICENSE_ACK_LABEL, install_license_text
+
 from ..ui.appearance import THEME_DARK_ID
 from ..app.app_icon import load_app_icon
 from ..ui.theme import apply_app_theme, configure_widget_scrollbars
@@ -56,10 +58,11 @@ class InstallWizardWindow(QMainWindow):
         self._install_root = default_install_location()
         self._worker: InstallWorker | None = None
         self._install_succeeded = False
+        self._python_ok = False
 
         self.setWindowTitle("Install GridNotes")
-        self.setMinimumSize(680, 620)
-        self.resize(760, 660)
+        self.setMinimumSize(680, 720)
+        self.resize(760, 760)
 
         icon = load_app_icon()
         if icon is not None:
@@ -78,11 +81,26 @@ class InstallWizardWindow(QMainWindow):
         intro = QLabel(
             "Welcome! This installs GridNotes on your computer — like any other app. "
             "It only takes a few minutes, and you only need to do this once.\n\n"
-            "When you're ready, click Install GridNotes at the bottom."
+            "Read the license below, accept the terms, then click Install GridNotes."
         )
         intro.setObjectName("sectionHint")
         intro.setWordWrap(True)
         layout.addWidget(intro)
+
+        legal_label = QLabel("License agreement")
+        legal_label.setObjectName("statInlineLabel")
+        layout.addWidget(legal_label)
+
+        self.license_view = QTextEdit()
+        self.license_view.setReadOnly(True)
+        self.license_view.setPlainText(install_license_text(self._source_root))
+        self.license_view.setMaximumHeight(180)
+        configure_widget_scrollbars(self.license_view, page_step=80)
+        layout.addWidget(self.license_view)
+
+        self.license_ack_checkbox = QCheckBox(INSTALL_LICENSE_ACK_LABEL)
+        self.license_ack_checkbox.stateChanged.connect(self._update_install_enabled)
+        layout.addWidget(self.license_ack_checkbox)
 
         install_label = QLabel("Where to install GridNotes")
         install_label.setObjectName("statInlineLabel")
@@ -104,6 +122,7 @@ class InstallWizardWindow(QMainWindow):
         layout.addWidget(install_hint)
 
         ok, python_message = check_python()
+        self._python_ok = ok
         self.python_label = QLabel(python_message)
         if ok:
             self.python_label.setObjectName("sectionHint")
@@ -210,7 +229,6 @@ class InstallWizardWindow(QMainWindow):
         self.btn_install = QPushButton("Install GridNotes")
         self.btn_install.setObjectName("primaryBtn")
         self.btn_install.clicked.connect(self._start_install)
-        self.btn_install.setEnabled(ok)
         button_row.addWidget(self.btn_install)
 
         self.btn_launch = QPushButton("Launch GridNotes")
@@ -223,6 +241,14 @@ class InstallWizardWindow(QMainWindow):
 
         if not ok:
             self.step_label.setText("Install Python first (see the steps above).")
+        self._update_install_enabled()
+
+    def _update_install_enabled(self) -> None:
+        if self._worker is not None and self._worker.isRunning():
+            return
+        self.btn_install.setEnabled(
+            self._python_ok and self.license_ack_checkbox.isChecked()
+        )
 
     def _on_details_toggled(self, checked: bool) -> None:
         self.log_view.setVisible(checked)
@@ -324,6 +350,8 @@ class InstallWizardWindow(QMainWindow):
 
     def _set_busy(self, busy: bool) -> None:
         self.btn_install.setEnabled(not busy)
+        self.license_ack_checkbox.setEnabled(not busy)
+        self.license_view.setEnabled(not busy)
         self.build_checkbox.setEnabled(not busy)
         self.install_path_input.setEnabled(not busy)
         self.btn_browse_install.setEnabled(not busy)
@@ -339,9 +367,20 @@ class InstallWizardWindow(QMainWindow):
         self.btn_cancel.setText("Cancel" if busy else "Close")
         if busy:
             self.btn_launch.setVisible(False)
+        else:
+            self._update_install_enabled()
 
     def _start_install(self) -> None:
         if self._worker is not None and self._worker.isRunning():
+            return
+
+        if not self.license_ack_checkbox.isChecked():
+            QMessageBox.warning(
+                self,
+                "License agreement",
+                "Please read the license and check the box to accept the terms "
+                "before installing.",
+            )
             return
 
         install_root = self._resolved_install_root()

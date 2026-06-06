@@ -10,6 +10,15 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.55 — 2026-06-06
+
+### Improved
+
+- **Install wizard license step** — **`Install GridNotes.bat`** and **`Install GridNotes.command`** now show the full license and require **I have read and agree to the license terms** before install can start. **`GridNotes-Setup.exe`** already showed the license page during setup.
+- **Release pipeline** — GitHub Actions updated to Node.js 24–compatible action versions ahead of GitHub’s Node 20 deprecation.
+
+---
+
 ## v1.0.54 — 2026-06-05
 
 ### New
