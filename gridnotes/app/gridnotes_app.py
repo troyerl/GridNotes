@@ -218,6 +218,8 @@ class GridNotesApp(QMainWindow):
         self._streamer_refresh_busy = False
         self._streamer_progress_dialog: StreamerModeProgressDialog | None = None
         self._sdk_connected = False
+        self._latest_grid_slots: list[dict] = []
+        self._latest_grid_player_cust_id: int | None = None
         from ..services.audio_spotter import (
             AUDIO_SPOTTER_KEY,
             AudioSpotterService,
@@ -575,27 +577,46 @@ class GridNotesApp(QMainWindow):
         enabled = self._live_mode_active and self.live_session_view.is_grid_walk_mode()
         self.worker.set_grid_walk_enabled(enabled)
 
-    def _refresh_grid_walk_view(self) -> None:
+    def _push_grid_walk_view(
+        self,
+        slots: list | None = None,
+        player_cust_id: int | None = None,
+    ) -> None:
         if not hasattr(self, "live_session_view") or not self.live_session_view.is_grid_walk_mode():
             return
-        if self.worker is not None and self._sdk_connected:
-            self.worker.request_grid_refresh()
-            return
-        entries = self._build_live_session_entries()
-        by_cust = {int(e["cust_id"]): e for e in entries}
-        self.live_session_view.update_grid(
-            [], None, by_cust, streamer_mode=self._streamer_mode
-        )
-
-    def _on_grid_updated(self, slots: list, player_cust_id) -> None:
-        if not self._live_mode_active or not self.live_session_view.is_grid_walk_mode():
-            return
+        if slots is None:
+            slots = self._latest_grid_slots
+        if player_cust_id is None:
+            player_cust_id = self._latest_grid_player_cust_id
         entries = self._build_live_session_entries()
         by_cust = {int(e["cust_id"]): e for e in entries}
         cust_id = int(player_cust_id) if player_cust_id is not None else None
         self.live_session_view.update_grid(
-            slots, cust_id, by_cust, streamer_mode=self._streamer_mode
+            list(slots),
+            cust_id,
+            by_cust,
+            streamer_mode=self._streamer_mode,
         )
+
+    def _refresh_grid_walk_view(self) -> None:
+        if not hasattr(self, "live_session_view") or not self.live_session_view.is_grid_walk_mode():
+            return
+        self._push_grid_walk_view()
+        if self.worker is not None and self._sdk_connected:
+            self.worker.request_grid_refresh()
+
+    def _on_grid_updated(self, slots: list, player_cust_id) -> None:
+        self._latest_grid_slots = list(slots)
+        if player_cust_id is None:
+            self._latest_grid_player_cust_id = None
+        else:
+            try:
+                self._latest_grid_player_cust_id = int(player_cust_id)
+            except (TypeError, ValueError):
+                self._latest_grid_player_cust_id = None
+        if not self._live_mode_active or not self.live_session_view.is_grid_walk_mode():
+            return
+        self._push_grid_walk_view(slots, player_cust_id)
 
     def _on_audio_spotter_setting_changed(self, enabled: bool) -> None:
         if self._audio_spotter_enabled == enabled:
@@ -2073,6 +2094,8 @@ class GridNotesApp(QMainWindow):
         self.active_cust_ids = set()
         self.active_driver_names = {}
         self.active_driver_car_numbers = {}
+        self._latest_grid_slots = []
+        self._latest_grid_player_cust_id = None
         self._set_status(STATUS_WAITING, "Waiting for iRacing…")
         self._update_live_session_filter(active=False, hint=MSG_SESSION_NOT_CONNECTED)
         if hasattr(self, "chk_current_race_only"):
@@ -2956,6 +2979,8 @@ class GridNotesApp(QMainWindow):
         self.active_cust_ids = set()
         self.active_driver_names = {}
         self.active_driver_car_numbers = {}
+        self._latest_grid_slots = []
+        self._latest_grid_player_cust_id = None
         self._tracked_race_subsession_id = 0
         self._update_live_session_filter(active=False, hint=MSG_SESSION_NOT_CONNECTED)
         if hasattr(self, "chk_current_race_only"):

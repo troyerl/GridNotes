@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -41,6 +42,27 @@ class BroadcastStatusDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
         layout.setContentsMargins(20, 20, 20, 20)
+
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        self._chrome_title = QLabel("GridNotes Broadcast")
+        self._chrome_title.setObjectName("updateProgressTitle")
+        title_row.addWidget(self._chrome_title, stretch=1)
+        self.btn_minimize = QPushButton("—")
+        self.btn_minimize.setObjectName("dialogChromeBtn")
+        self.btn_minimize.setFixedSize(28, 28)
+        set_button_tooltip(self.btn_minimize, "Minimize to taskbar (broadcast keeps running).")
+        set_accessible(self.btn_minimize, "Minimize", "Minimize the broadcast window.")
+        self.btn_minimize.clicked.connect(self.showMinimized)
+        title_row.addWidget(self.btn_minimize)
+        self.btn_close = QPushButton("×")
+        self.btn_close.setObjectName("dialogChromeBtn")
+        self.btn_close.setFixedSize(28, 28)
+        set_button_tooltip(self.btn_close, "Stop broadcasting and return to GridNotes.")
+        set_accessible(self.btn_close, "Close", "Stop broadcasting and return to GridNotes.")
+        self.btn_close.clicked.connect(self._request_stop)
+        title_row.addWidget(self.btn_close)
+        layout.addLayout(title_row)
 
         self._title_label = QLabel("Broadcasting scouting data")
         self._title_label.setObjectName("updateProgressTitle")
@@ -160,6 +182,10 @@ class BroadcastStatusDialog(QDialog):
         self._stopping = True
         self.btn_stop.setEnabled(False)
         self.btn_stop.setVisible(False)
+        self.btn_minimize.setEnabled(False)
+        self.btn_minimize.setVisible(False)
+        self.btn_close.setEnabled(False)
+        self.btn_close.setVisible(False)
         self.chk_audio_spotter.setEnabled(False)
         self._host_label.setVisible(False)
         self._port_label.setVisible(False)
@@ -184,6 +210,19 @@ class BroadcastStatusDialog(QDialog):
         app = QApplication.instance()
         if app is not None:
             app.processEvents()
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        if self._stopping:
+            event.accept()
+            return
+        event.ignore()
+        self._request_stop()
+
+    def reject(self) -> None:
+        if self._stopping:
+            super().reject()
+            return
+        self._request_stop()
 
     def _on_audio_spotter_changed(self, _state: int) -> None:
         self.audio_spotter_changed.emit(self.chk_audio_spotter.isChecked())

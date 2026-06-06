@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
+from .session_kind import SESSION_KIND_RACE, current_session_kind
+
 logger = logging.getLogger(__name__)
 
 
@@ -103,6 +105,19 @@ def _dedupe_positions(slots: list[GridSlot]) -> list[GridSlot]:
     return unique
 
 
+def _session_info_sessions(ir) -> list[dict]:
+    try:
+        info = ir["SessionInfo"]
+        if not isinstance(info, dict):
+            return []
+        sessions = info.get("Sessions")
+        if not isinstance(sessions, list):
+            return []
+        return [entry for entry in sessions if isinstance(entry, dict)]
+    except Exception:
+        return []
+
+
 def _current_session_dict(ir) -> dict | None:
     session_num = 0
     try:
@@ -110,30 +125,34 @@ def _current_session_dict(ir) -> dict | None:
     except Exception:
         session_num = 0
 
-    try:
-        info = ir["SessionInfo"]
-        if not isinstance(info, dict):
-            return None
-        sessions = info.get("Sessions")
-        if not isinstance(sessions, list):
-            return None
-    except Exception:
-        return None
-
+    sessions = _session_info_sessions(ir)
     for entry in sessions:
-        if isinstance(entry, dict) and int(entry.get("SessionNum", -1)) == session_num:
+        if int(entry.get("SessionNum", -1)) == session_num:
             return entry
 
     for entry in reversed(sessions):
-        if isinstance(entry, dict):
-            return entry
+        return entry
     return None
 
 
-def _slots_from_results_positions(
-    ir, directory: dict[int, tuple[int, str]]
+def _race_session_dict(ir) -> dict | None:
+    for entry in _session_info_sessions(ir):
+        for key in ("SessionType", "SessionTypeName", "SessionName"):
+            raw = entry.get(key)
+            if raw is None:
+                continue
+            text = str(raw).strip().lower()
+            if "race" in text:
+                return entry
+            if raw in (5, 6):
+                return entry
+    return None
+
+
+def _slots_from_session_results(
+    session: dict | None,
+    directory: dict[int, tuple[int, str]],
 ) -> list[GridSlot]:
-    session = _current_session_dict(ir)
     if session is None:
         return []
 
@@ -196,18 +215,43 @@ def _slots_from_results_positions(
     return _dedupe_positions(slots)
 
 
+def _slots_from_results_positions(
+    ir, directory: dict[int, tuple[int, str]]
+) -> list[GridSlot]:
+    return _slots_from_session_results(_current_session_dict(ir), directory)
+
+
+def _slots_from_race_session_results(
+    ir, directory: dict[int, tuple[int, str]]
+) -> list[GridSlot]:
+    return _slots_from_session_results(_race_session_dict(ir), directory)
+
+
 def parse_starting_grid(ir) -> tuple[list[GridSlot], int | None] | None:
     """
     Return grid slots in starting order and the player's cust_id, or None if unknown.
-    Prefers live CarIdxPosition, then SessionInfo ResultsPositions.
+
+    Prefers staged ResultsPositions from the race session (correct between qual and
+    green flag, and during the race). Live CarIdxPosition is only a fallback before
+    grid data is published — it reflects on-track order, not the starting grid.
     """
     directory = build_car_idx_directory(ir)
     if not directory:
         return None
 
-    from_positions = _slots_from_car_idx_position(ir, directory)
-    from_results = _slots_from_results_positions(ir, directory)
-    slots = from_positions if len(from_positions) >= len(from_results) else from_results
+    kind = current_session_kind(ir)
+    from_race = _slots_from_race_session_results(ir, directory)
+    from_current = _slots_from_results_positions(ir, directory)
+    from_car = _slots_from_car_idx_position(ir, directory)
+
+    if kind == SESSION_KIND_RACE:
+        slots = from_race if len(from_race) >= len(from_current) else from_current
+        if len(slots) < 2 and len(from_car) >= 2:
+            slots = from_car
+    elif len(from_race) >= 2:
+        slots = from_race
+    else:
+        slots = from_current if len(from_current) >= len(from_car) else from_car
 
     if len(slots) < 2:
         return None

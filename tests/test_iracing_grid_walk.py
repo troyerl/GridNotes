@@ -30,6 +30,7 @@ def test_parse_starting_grid_from_car_idx_position():
     ir = MockIRacing(
         {
             "PlayerCarIdx": 0,
+            "SessionNum": 0,
             "DriverInfo": {
                 "Drivers": [
                     {"CarIdx": 0, "UserID": 10, "UserName": "P1"},
@@ -37,6 +38,18 @@ def test_parse_starting_grid_from_car_idx_position():
                 ]
             },
             "CarIdxPosition": [1, 2],
+            "SessionInfo": {
+                "Sessions": [
+                    {
+                        "SessionNum": 0,
+                        "SessionType": "Race",
+                        "ResultsPositions": [
+                            {"Position": 1, "UserID": 10, "UserName": "P1"},
+                            {"Position": 2, "UserID": 20, "UserName": "P2"},
+                        ],
+                    }
+                ]
+            },
         }
     )
     parsed = parse_starting_grid(ir)
@@ -46,6 +59,78 @@ def test_parse_starting_grid_from_car_idx_position():
     assert slots[0].position == 1
     assert slots[0].cust_id == 10
     assert player_cust == 10
+
+
+def test_parse_starting_grid_prefers_race_session_during_qualifying():
+    ir = MockIRacing(
+        {
+            "PlayerCarIdx": 1,
+            "SessionNum": 0,
+            "DriverInfo": {
+                "Drivers": [
+                    {"CarIdx": 0, "UserID": 10, "UserName": "P1"},
+                    {"CarIdx": 1, "UserID": 20, "UserName": "P2"},
+                ]
+            },
+            "CarIdxPosition": [2, 1],
+            "SessionInfo": {
+                "Sessions": [
+                    {
+                        "SessionNum": 0,
+                        "SessionType": "Qualifying",
+                    },
+                    {
+                        "SessionNum": 1,
+                        "SessionType": "Race",
+                        "ResultsPositions": [
+                            {"Position": 1, "UserID": 10, "UserName": "P1"},
+                            {"Position": 2, "UserID": 20, "UserName": "P2"},
+                        ],
+                    },
+                ]
+            },
+        }
+    )
+    parsed = parse_starting_grid(ir)
+    assert parsed is not None
+    slots, player_cust = parsed
+    assert [slot.position for slot in slots] == [1, 2]
+    assert [slot.cust_id for slot in slots] == [10, 20]
+    assert player_cust == 20
+
+
+def test_parse_starting_grid_uses_race_results_not_live_order():
+    """During a race CarIdxPosition is live order; grid walk should use starting grid."""
+    ir = MockIRacing(
+        {
+            "PlayerCarIdx": 0,
+            "SessionNum": 1,
+            "DriverInfo": {
+                "Drivers": [
+                    {"CarIdx": 0, "UserID": 10, "UserName": "P1"},
+                    {"CarIdx": 1, "UserID": 20, "UserName": "P2"},
+                ]
+            },
+            "CarIdxPosition": [2, 1],
+            "SessionInfo": {
+                "Sessions": [
+                    {"SessionNum": 0, "SessionType": "Qualifying"},
+                    {
+                        "SessionNum": 1,
+                        "SessionType": "Race",
+                        "ResultsPositions": [
+                            {"Position": 1, "UserID": 10, "UserName": "P1"},
+                            {"Position": 2, "UserID": 20, "UserName": "P2"},
+                        ],
+                    },
+                ]
+            },
+        }
+    )
+    parsed = parse_starting_grid(ir)
+    assert parsed is not None
+    slots, _ = parsed
+    assert [slot.cust_id for slot in slots] == [10, 20]
 
 
 def test_slots_to_payload():

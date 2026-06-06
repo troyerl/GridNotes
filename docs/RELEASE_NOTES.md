@@ -10,6 +10,19 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.53 — 2026-06-05
+
+### Fixed
+
+- **Grid Walk blank view** — Grid Walk now shows a waiting message immediately and fills in when data arrives. Starting-grid order is read from the race session (correct between qualifying and the green flag, and during the race) instead of live on-track car positions.
+- **Grid Walk on broadcast receivers** — The broadcaster keeps grid data updated even when Grid Walk is not open, so receivers can view the starting grid.
+
+### Improved
+
+- **Broadcast status window** — Added minimize and close buttons to the broadcaster modal. Minimize keeps broadcasting in the background; close stops broadcasting and restores the main window.
+
+---
+
 ## v1.0.52 — 2026-06-05
 
 ### Fixed

@@ -1070,6 +1070,30 @@ QLabel#updateProgressStatus {
     font-size: 13px;
 }
 
+QPushButton#dialogChromeBtn {
+    border: 1px solid {{border}};
+    border-radius: 4px;
+    background-color: {{bg_elevated}};
+    color: {{text_secondary}};
+    font-size: 14px;
+    font-weight: 600;
+    padding: 0;
+}
+
+QPushButton#dialogChromeBtn:hover {
+    background-color: {{bg_button_hover}};
+    color: {{text_heading}};
+}
+
+QPushButton#dialogChromeBtn:pressed {
+    background-color: {{bg_button_pressed}};
+}
+
+QPushButton#dialogChromeBtn:disabled {
+    color: {{text_muted}};
+    background-color: {{bg_elevated}};
+}
+
 QDialog#importProgressDialog {
     background-color: {{bg_window}};
 }

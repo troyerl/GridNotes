@@ -109,6 +109,7 @@ class IRacingWorker(QThread):
         self._last_connection_key: tuple | None = None
         self._last_spotter_cust_id: int | None = None
         self._last_grid_key: tuple | None = None
+        self._grid_refresh_pending = False
         self._wait_log_counter = 0
         self._tick = 0
 
@@ -150,10 +151,10 @@ class IRacingWorker(QThread):
 
     def request_grid_refresh(self) -> None:
         self._last_grid_key = None
-        self._poll_grid()
+        self._grid_refresh_pending = True
 
     def _poll_grid(self) -> None:
-        if not self._grid_walk_enabled or self.ir is None or not self._sdk_connected:
+        if self.ir is None or not self._sdk_connected:
             return
 
         parsed = parse_starting_grid(self.ir)
@@ -301,7 +302,9 @@ class IRacingWorker(QThread):
                 if self._spotter_enabled and self._tick % _SPOTTER_INTERVAL_TICKS == 0:
                     self._poll_spotter()
 
-                if self._grid_walk_enabled and self._tick % _SESSION_INTERVAL_TICKS == 0:
+                if self._grid_refresh_pending or self._tick % _SESSION_INTERVAL_TICKS == 0:
+                    if self._grid_refresh_pending:
+                        self._grid_refresh_pending = False
                     self._poll_grid()
 
                 if self._tick % _SESSION_INTERVAL_TICKS == 0:
