@@ -169,6 +169,8 @@ TIP_LIVE_MODE = (
     "in-race scouting."
 )
 
+PLAYER_CUST_ID_KEY = "player_cust_id"
+
 # Full table rebuild when more drivers changed than this after import.
 
 class GridNotesApp(QMainWindow):
@@ -609,13 +611,11 @@ class GridNotesApp(QMainWindow):
 
     def _on_grid_updated(self, slots: list, player_cust_id) -> None:
         self._latest_grid_slots = list(slots)
-        if player_cust_id is None:
-            self._latest_grid_player_cust_id = None
-        else:
+        if player_cust_id is not None:
             try:
-                self._latest_grid_player_cust_id = int(player_cust_id)
+                self._remember_player_cust_id(int(player_cust_id))
             except (TypeError, ValueError):
-                self._latest_grid_player_cust_id = None
+                pass
         if not self._live_mode_active or not self.live_session_view.is_grid_walk_mode():
             return
         self._push_grid_walk_view(slots, player_cust_id)
@@ -685,10 +685,33 @@ class GridNotesApp(QMainWindow):
             for cust_id in sorted(self.active_cust_ids)
         ]
 
+    def _remember_player_cust_id(self, cust_id: int | None) -> None:
+        if cust_id is None:
+            return
+        try:
+            resolved = int(cust_id)
+        except (TypeError, ValueError):
+            return
+        if resolved <= 0:
+            return
+        self._latest_grid_player_cust_id = resolved
+        set_setting(PLAYER_CUST_ID_KEY, str(resolved))
+
     def _resolve_player_cust_id(self) -> int | None:
-        """Your iRacing cust_id when known (SDK grid or saved hidden name match)."""
+        """Your iRacing cust_id when known (SDK, saved setting, or hidden name)."""
         if self._latest_grid_player_cust_id is not None:
             return int(self._latest_grid_player_cust_id)
+
+        ctx_player = (self.current_session_context or {}).get("player_cust_id")
+        if ctx_player is not None:
+            try:
+                return int(ctx_player)
+            except (TypeError, ValueError):
+                pass
+
+        stored = (get_setting(PLAYER_CUST_ID_KEY, "") or "").strip()
+        if stored.isdigit():
+            return int(stored)
 
         ignore_name = ""
         if hasattr(self, "ignore_name_input"):
@@ -774,9 +797,11 @@ class GridNotesApp(QMainWindow):
             return
         driver_count = len(self.active_cust_ids)
         scouting = is_live_scouting_session(self.current_session_kind)
+        entries: list[dict] = []
         at_glance = ""
         if scouting and self.active_cust_ids:
-            at_glance = format_live_session_at_glance(self._build_live_session_entries())
+            entries = self._build_live_session_entries()
+            at_glance = format_live_session_at_glance(entries)
         self.live_session_view.set_session_info(
             connected=self._sdk_connected,
             subsession_id=self.current_subsession_id,
@@ -790,23 +815,36 @@ class GridNotesApp(QMainWindow):
             if self.live_session_view.is_grid_walk_mode():
                 self._refresh_grid_walk_view()
             else:
-                self.live_session_view.rebuild_if_changed(self._build_live_session_entries())
+                self.live_session_view.rebuild_if_changed(entries)
+                expanded = self.live_session_view.expanded_cust_id()
+                if expanded is not None:
+                    self._populate_live_expanded_detail(expanded, entries=entries)
 
     def _on_live_driver_expand_requested(self, cust_id: int) -> None:
         self._populate_live_expanded_detail(int(cust_id))
 
-    def _live_entry_for_cust_id(self, cust_id: int) -> dict | None:
-        for entry in self._build_live_session_entries():
+    def _live_entry_for_cust_id(
+        self,
+        cust_id: int,
+        entries: list[dict] | None = None,
+    ) -> dict | None:
+        source = entries if entries is not None else self._build_live_session_entries()
+        for entry in source:
             if int(entry.get("cust_id", -1)) == int(cust_id):
                 return entry
         return None
 
-    def _populate_live_expanded_detail(self, cust_id: int) -> None:
+    def _populate_live_expanded_detail(
+        self,
+        cust_id: int,
+        *,
+        entries: list[dict] | None = None,
+    ) -> None:
         if not hasattr(self, "live_session_view"):
             return
         _, notes, pref = self._fetch_driver_notes_meta(cust_id)
         row = self._fetch_driver_detail_row(cust_id)
-        entry = self._live_entry_for_cust_id(cust_id)
+        entry = self._live_entry_for_cust_id(cust_id, entries)
         safety = entry.get("safety") if entry else None
         safety_trend = entry.get("safety_trend") if entry else None
         together_races = (entry or {}).get("together_races")
@@ -2296,7 +2334,8 @@ class GridNotesApp(QMainWindow):
         self.active_driver_names = {}
         self.active_driver_car_numbers = {}
         self._latest_grid_slots = []
-        self._latest_grid_player_cust_id = None
+        if hasattr(self, "live_session_view"):
+            self.live_session_view.collapse_expanded()
         self._set_status(STATUS_WAITING, "Waiting for iRacing…")
         self._update_live_session_filter(active=False, hint=MSG_SESSION_NOT_CONNECTED)
         if hasattr(self, "chk_current_race_only"):
@@ -2317,6 +2356,12 @@ class GridNotesApp(QMainWindow):
         self.current_session_kind = session_kind
         if isinstance(session_context, dict):
             self.current_session_context = session_context
+            player_from_ctx = session_context.get("player_cust_id")
+            if player_from_ctx is not None:
+                try:
+                    self._remember_player_cust_id(int(player_from_ctx))
+                except (TypeError, ValueError):
+                    pass
 
         if (
             is_race_session(prev_kind)
@@ -2345,6 +2390,13 @@ class GridNotesApp(QMainWindow):
             for d in active_drivers
             if d.get("cust_id") is not None and d.get("car_number")
         }
+        for driver in active_drivers:
+            if driver.get("is_player") and driver.get("cust_id") is not None:
+                try:
+                    self._remember_player_cust_id(int(driver["cust_id"]))
+                except (TypeError, ValueError):
+                    pass
+                break
         driver_count = len(self.active_cust_ids)
 
         if not is_live_scouting_session(session_kind):
@@ -3137,13 +3189,13 @@ class GridNotesApp(QMainWindow):
         self.active_driver_names = {}
         self.active_driver_car_numbers = {}
         self._latest_grid_slots = []
-        self._latest_grid_player_cust_id = None
         self._tracked_race_subsession_id = 0
         self._update_live_session_filter(active=False, hint=MSG_SESSION_NOT_CONNECTED)
         if hasattr(self, "chk_current_race_only"):
             self.chk_current_race_only.setChecked(False)
         if hasattr(self, "live_session_view"):
             self.live_session_view.set_grid_walk_mode(False, emit=False)
+            self.live_session_view.collapse_expanded()
         if hasattr(self, "_audio_spotter"):
             self._audio_spotter.reset_tracking()
         self._refresh_live_session_view()

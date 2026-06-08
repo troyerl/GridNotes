@@ -56,14 +56,14 @@ Each card shows one driver in the current session. Cards are ordered by **how ma
 | **League** badge | On a [league season roster](leagues.md) — hover for details |
 | Profile text | Safety Index verdict summary |
 | **Liked** / **Disliked** label | Your mark from the scouting book |
-| **Avg Inc**, **DNF**, **Last SR**, **Together** | Key stats at a glance — **Together** counts imported races you both were in |
+| **Avg Inc**, **DNF**, **Last SR**, **Together** | Key stats — **Together** is shared races when your identity is known, otherwise races tracked in your book |
 | **▸ / ▾** | Tap the card (or chevron) to expand scouting details inline — notes, full stats, liked/disliked |
 | **Safety Index** | Score + tier (**LOW** / **MODERATE** / **HIGH**) with color |
 
 ### Interacting with cards
 
 - **Click a card** (or the **▸** chevron, or **Enter** / **Space** when focused) → expands an accordion with full scouting details inline — stats, notes, liked/disliked. Click again to collapse. You stay in Live Mode.
-- **Together** shows how many imported races you share with that driver. Set **Hide your name** on the Drivers tab to your iRacing name if the count shows **—**.
+- **Together** shows how many imported races you share with that driver once GridNotes knows your iRacing identity (from the live session or **Hide your name**). Until then it shows **races in your book** for that driver instead of **—**.
 
 ---
 

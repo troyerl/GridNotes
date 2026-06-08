@@ -5,7 +5,7 @@ from PyQt6.QtCore import QThread, pyqtSignal
 
 from .session_context import parse_session_context
 from .session_kind import SESSION_KIND_OTHER, current_session_kind, is_race_session
-from .grid_walk import parse_starting_grid, slots_to_payload
+from .grid_walk import parse_starting_grid, resolve_player_cust_id, slots_to_payload
 from .spotter_telemetry import (
     build_car_idx_to_cust_id,
     is_green_flag_run,
@@ -69,6 +69,8 @@ def _parse_session_drivers(ir) -> tuple[list[dict], int]:
 
         name = d.get("UserName") or d.get("UserNameShort") or f"Driver {cust_id}"
         driver: dict = {"cust_id": int(cust_id), "name": str(name)}
+        if d.get("IsPlayer"):
+            driver["is_player"] = True
         car_number = parse_driver_car_number(d)
         if car_number:
             driver["car_number"] = car_number
@@ -81,6 +83,10 @@ def _parse_session(ir) -> tuple[list[dict], int, str, dict]:
     active_drivers, subsession_id = _parse_session_drivers(ir)
     session_kind = current_session_kind(ir)
     context = parse_session_context(ir)
+    player_cust_id = resolve_player_cust_id(ir)
+    if player_cust_id is not None:
+        context = dict(context)
+        context["player_cust_id"] = player_cust_id
     return active_drivers, subsession_id, session_kind, context
 
 

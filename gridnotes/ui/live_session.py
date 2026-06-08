@@ -189,6 +189,7 @@ class LiveDriverCard(QFrame):
         has_history: bool = True,
         league_label: str = "",
         together_races: int | None = None,
+        book_races: int = 0,
     ) -> None:
         self._cust_id = cust_id
         self._driver_name = name or "—"
@@ -242,18 +243,26 @@ class LiveDriverCard(QFrame):
         else:
             self._sr_value.setText("—")
 
-        if together_races is None:
+        if together_races is not None:
+            self._together_value.setText(str(together_races))
+            if together_races <= 0:
+                self._together_value.setToolTip(
+                    "No imported races where you both participated."
+                )
+            else:
+                self._together_value.setToolTip(
+                    f"You have {together_races} imported races in common with this driver."
+                )
+        elif book_races > 0:
+            self._together_value.setText(str(book_races))
+            self._together_value.setToolTip(
+                f"{book_races} races tracked in your book for this driver. "
+                "Join an iRacing session or set Hide your name to count races together."
+            )
+        else:
             self._together_value.setText("—")
             self._together_value.setToolTip(
-                "Set Hide your name on the Drivers tab (your iRacing name) to count shared races."
-            )
-        elif together_races <= 0:
-            self._together_value.setText("0")
-            self._together_value.setToolTip("No imported races where you both participated.")
-        else:
-            self._together_value.setText(str(together_races))
-            self._together_value.setToolTip(
-                f"You have {together_races} imported races in common with this driver."
+                "No race history in your book yet for this driver."
             )
 
         if pref == 1:
@@ -472,6 +481,10 @@ class LiveSessionView(QWidget):
         self._apply_expanded_state(previous, False)
         self.driver_expand_collapsed.emit()
 
+    def collapse_expanded(self) -> None:
+        """Close any open inline detail panel (e.g. when iRacing disconnects)."""
+        self._collapse_expanded()
+
     def _apply_expanded_state(self, cust_id: int, expanded: bool) -> None:
         for card in self._cards:
             if expanded:
@@ -688,6 +701,7 @@ class LiveSessionView(QWidget):
                 has_history=bool(entry.get("has_history")),
                 league_label=str(entry.get("league_label") or ""),
                 together_races=entry.get("together_races"),
+                book_races=int(entry.get("total_races") or 0),
             )
             card.toggle_expand.connect(self._on_card_toggle_expand)
             self._wire_expand_panel(card.expand_signals(), int(entry["cust_id"]))
@@ -700,4 +714,3 @@ class LiveSessionView(QWidget):
 
         if expanded is not None:
             self._apply_expanded_state(expanded, True)
-            self.driver_expand_requested.emit(expanded)

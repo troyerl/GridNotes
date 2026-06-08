@@ -68,6 +68,41 @@ def _player_cust_id(ir, directory: dict[int, tuple[int, str]]) -> int | None:
     return pair[0] if pair else None
 
 
+def resolve_player_cust_id(ir) -> int | None:
+    """Logged-in user's iRacing cust_id from SDK DriverInfo / PlayerCarIdx."""
+    directory = build_car_idx_directory(ir)
+    player = _player_cust_id(ir, directory)
+    if player is not None:
+        return player
+
+    try:
+        driver_info = ir["DriverInfo"]
+        if not isinstance(driver_info, dict):
+            return None
+        drivers_raw = driver_info.get("Drivers") or []
+    except Exception:
+        return None
+
+    if not isinstance(drivers_raw, list):
+        return None
+
+    for entry in drivers_raw:
+        if not isinstance(entry, dict):
+            continue
+        if not entry.get("IsPlayer"):
+            continue
+        cust_id = entry.get("UserID")
+        if cust_id is None:
+            cust_id = entry.get("CustID")
+        if cust_id is None:
+            continue
+        try:
+            return int(cust_id)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
 def _slots_from_car_idx_position(ir, directory: dict[int, tuple[int, str]]) -> list[GridSlot]:
     try:
         positions = list(ir["CarIdxPosition"])

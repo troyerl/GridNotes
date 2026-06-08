@@ -10,6 +10,15 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.57 — 2026-06-07
+
+### Fixed
+
+- **Live Mode — Together count** — Detects your iRacing identity from the live session (`IsPlayer` / `PlayerCarIdx`) and remembers it for future launches. When identity is not known yet, **Together** shows races tracked in your book for that driver instead of **—**. Stops clearing your player id when grid data is briefly unavailable.
+- **Live Mode — freeze after racing** — Fixed a rebuild loop that could make the app stop responding when returning from iRacing with an expanded driver card open. Open panels now collapse cleanly on disconnect.
+
+---
+
 ## v1.0.56 — 2026-06-07
 
 ### New
