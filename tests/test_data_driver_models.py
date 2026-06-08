@@ -67,5 +67,26 @@ def test_build_live_session_entries():
     assert entries[0]["cust_id"] == 1
 
 
+def test_live_mode_card_sort_by_race_count():
+    from gridnotes.data.driver_models import sort_live_mode_card_entries
+
+    entries = [
+        {"cust_id": 1, "name": "New", "total_races": 0},
+        {"cust_id": 2, "name": "Veteran", "total_races": 25},
+        {"cust_id": 3, "name": "Regular", "total_races": 8},
+    ]
+    order = [e["cust_id"] for e in sort_live_mode_card_entries(entries)]
+    assert order == [2, 3, 1]
+
+
+def test_format_shared_races_label():
+    from gridnotes.data.driver_models import format_shared_races_label
+
+    assert format_shared_races_label(None) == ""
+    assert format_shared_races_label(0) == "No shared races yet"
+    assert format_shared_races_label(1) == "Raced together 1 time"
+    assert format_shared_races_label(5) == "Raced together 5 times"
+
+
 def test_format_live_session_at_glance_empty():
     assert format_live_session_at_glance([]) == ""

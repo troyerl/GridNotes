@@ -47,7 +47,7 @@ During practice/qualifying, drivers are scouted live but **not saved to your boo
 
 ## Driver cards (default view)
 
-Each card shows one driver in the current session:
+Each card shows one driver in the current session. Cards are ordered by **how many races you have on record** — most history at the top, drivers new to your book at the bottom. (Grid Walk keeps starting-grid order.)
 
 | Element | Meaning |
 |---------|---------|
@@ -56,12 +56,14 @@ Each card shows one driver in the current session:
 | **League** badge | On a [league season roster](leagues.md) — hover for details |
 | Profile text | Safety Index verdict summary |
 | **Liked** / **Disliked** label | Your mark from the scouting book |
-| **Avg Inc**, **DNF**, **Last SR**, **Note** | Key stats at a glance |
+| **Avg Inc**, **DNF**, **Last SR**, **Together** | Key stats at a glance — **Together** counts imported races you both were in |
+| **▸ / ▾** | Tap the card (or chevron) to expand scouting details inline — notes, full stats, liked/disliked |
 | **Safety Index** | Score + tier (**LOW** / **MODERATE** / **HIGH**) with color |
 
 ### Interacting with cards
 
-- **Click a card** (or **Enter** / **Space** when focused) → exits Live Mode, selects that driver in the [Drivers tab](drivers-tab.md) table, and opens the detail panel for notes.
+- **Click a card** (or the **▸** chevron, or **Enter** / **Space** when focused) → expands an accordion with full scouting details inline — stats, notes, liked/disliked. Click again to collapse. You stay in Live Mode.
+- **Together** shows how many imported races you share with that driver. Set **Hide your name** on the Drivers tab to your iRacing name if the count shows **—**.
 
 ---
 
@@ -94,7 +96,7 @@ If the grid is not loaded yet:
 
 > Starting grid not available yet — wait for the race session to load.
 
-Click any row to open that driver's notes (same as clicking a Live Mode card).
+Click any row to expand scouting details inline (same as Live Mode cards). Click again to collapse.
 
 ---
 

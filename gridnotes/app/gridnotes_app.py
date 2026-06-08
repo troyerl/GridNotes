@@ -49,6 +49,7 @@ from ..data.driver_models import (
     DriverTableRow,
     build_live_session_entries,
     format_live_session_at_glance,
+    format_shared_races_label,
 )
 from ..ui.a11y import driver_mark_label, set_accessible, set_button_tooltip
 from ..privacy.streamer_mode import (
@@ -105,6 +106,7 @@ from ..data.leagues import fetch_league_membership_labels
 from ..data.queries import (
     driver_detail_sql,
     fetch_recent_races_by_cust_ids,
+    fetch_shared_race_counts,
     table_data_for_cust_ids_sql,
     table_data_sql,
 )
@@ -683,6 +685,24 @@ class GridNotesApp(QMainWindow):
             for cust_id in sorted(self.active_cust_ids)
         ]
 
+    def _resolve_player_cust_id(self) -> int | None:
+        """Your iRacing cust_id when known (SDK grid or saved hidden name match)."""
+        if self._latest_grid_player_cust_id is not None:
+            return int(self._latest_grid_player_cust_id)
+
+        ignore_name = ""
+        if hasattr(self, "ignore_name_input"):
+            ignore_name = (self.ignore_name_input.text() or "").strip().lower()
+        if not ignore_name:
+            ignore_name = (get_setting("ignore_driver_name", "") or "").strip().lower()
+        if not ignore_name:
+            return None
+
+        for cust_id, name in self.active_driver_names.items():
+            if str(name or "").strip().lower() == ignore_name:
+                return int(cust_id)
+        return None
+
     def _build_live_session_entries(self) -> list[dict]:
         if not self.active_cust_ids:
             return []
@@ -708,6 +728,22 @@ class GridNotesApp(QMainWindow):
         for entry in entries:
             entry["safety_trend"] = trends.get(int(entry["cust_id"]))
             entry["league_label"] = league_labels.get(int(entry["cust_id"]), "")
+
+        player_cust_id = self._resolve_player_cust_id()
+        shared_counts: dict[int, int] = {}
+        if player_cust_id is not None:
+            shared_counts = fetch_shared_race_counts(
+                self._db_conn,
+                player_cust_id,
+                sorted(self.active_cust_ids),
+            )
+        for entry in entries:
+            cid = int(entry["cust_id"])
+            if player_cust_id is None or cid == player_cust_id:
+                entry["together_races"] = None
+            else:
+                entry["together_races"] = int(shared_counts.get(cid, 0))
+
         if self._streamer_mode:
             for entry in entries:
                 cid = int(entry["cust_id"])
@@ -756,9 +792,166 @@ class GridNotesApp(QMainWindow):
             else:
                 self.live_session_view.rebuild_if_changed(self._build_live_session_entries())
 
-    def _on_live_driver_clicked(self, cust_id: int) -> None:
-        self._set_live_mode(False)
-        self._select_driver_row_by_cust_id(cust_id)
+    def _on_live_driver_expand_requested(self, cust_id: int) -> None:
+        self._populate_live_expanded_detail(int(cust_id))
+
+    def _live_entry_for_cust_id(self, cust_id: int) -> dict | None:
+        for entry in self._build_live_session_entries():
+            if int(entry.get("cust_id", -1)) == int(cust_id):
+                return entry
+        return None
+
+    def _populate_live_expanded_detail(self, cust_id: int) -> None:
+        if not hasattr(self, "live_session_view"):
+            return
+        _, notes, pref = self._fetch_driver_notes_meta(cust_id)
+        row = self._fetch_driver_detail_row(cust_id)
+        entry = self._live_entry_for_cust_id(cust_id)
+        safety = entry.get("safety") if entry else None
+        safety_trend = entry.get("safety_trend") if entry else None
+        together_races = (entry or {}).get("together_races")
+        together_line = format_shared_races_label(together_races)
+
+        if row:
+            detail = DriverDetailRow.from_sql_row(row)
+            last_seen_fmt = format_last_seen(detail.last_seen_at)
+            tz_label = display_timezone_abbrev()
+            if self._streamer_mode:
+                meta_text = streamer_detail_meta(
+                    last_seen_fmt=last_seen_fmt, tz_label=tz_label
+                )
+            else:
+                meta_text = (
+                    f"ID {cust_id}  ·  Last raced {last_seen_fmt} {tz_label}"
+                )
+            if together_line:
+                meta_text = f"{meta_text}\n{together_line}"
+            recent = fetch_recent_races_by_cust_ids(self._db_conn, [cust_id], limit=5)
+            trend = compute_safety_trend(detail.safety, recent.get(cust_id, []))
+            safety = detail.safety
+            safety_trend = trend
+            self.live_session_view.populate_expanded_detail(
+                cust_id,
+                meta_text=meta_text,
+                notes=notes,
+                pref=pref,
+                series=detail.last_series,
+                avg_finish=detail.avg_fin,
+                races=detail.total_races,
+                last_irating=detail.last_ir,
+                avg_pos_delta=detail.avg_pos_delta,
+                dnfs=detail.dnf_total,
+                dnf_breakdown=detail.dnf_breakdown,
+                safety=safety,
+                safety_trend=safety_trend,
+                together_races=together_races,
+            )
+            return
+
+        name = (
+            (entry or {}).get("name")
+            or self.active_driver_names.get(cust_id, f"Driver {cust_id}")
+        )
+        if self._streamer_mode and entry:
+            safety_obj = safety if isinstance(safety, SafetyIndex) else None
+            name = self._streamer_session_display_name(cust_id, safety_obj)
+        meta_text = (
+            f"ID {cust_id}  ·  Not in your book yet — notes save after the race starts."
+            if not self._streamer_mode
+            else "New to your book — notes save after the race starts."
+        )
+        if together_line:
+            meta_text = f"{meta_text}\n{together_line}"
+        self.live_session_view.populate_expanded_detail(
+            cust_id,
+            meta_text=meta_text,
+            notes=notes,
+            pref=pref,
+            series=None,
+            avg_finish=None,
+            races=int((entry or {}).get("total_races") or 0),
+            last_irating=(entry or {}).get("last_ir"),
+            avg_pos_delta=(entry or {}).get("avg_pos_delta"),
+            dnfs=int((entry or {}).get("dnf_total") or 0),
+            dnf_breakdown="",
+            safety=safety if isinstance(safety, SafetyIndex) else empty_safety(),
+            safety_trend=safety_trend if isinstance(safety_trend, SafetyTrend) else None,
+            together_races=together_races,
+        )
+
+    def _on_live_expand_save_requested(self, cust_id: int, notes_text: str) -> None:
+        message = self._save_notes_for_cust_id(cust_id, notes_text, quiet=True)
+        self.live_session_view.show_expand_saved(cust_id, message)
+        self._refresh_live_session_view()
+
+    def _on_live_expand_preference_requested(self, cust_id: int, pref) -> None:
+        self._set_preference_for_cust_id(cust_id, pref)
+        self.live_session_view.update_expanded_preference(cust_id, pref)
+        self._refresh_live_session_view()
+
+    def _save_notes_for_cust_id(
+        self,
+        cust_id: int,
+        notes_text: str,
+        *,
+        quiet: bool = False,
+    ) -> str:
+        cursor = self._db_conn.cursor()
+        cursor.execute(
+            "UPDATE drivers SET notes = ? WHERE cust_id = ?",
+            (notes_text, cust_id),
+        )
+        if cursor.rowcount == 0:
+            return "Driver not in book yet"
+        self._db_conn.commit()
+        self._set_note_indicator(cust_id, bool(notes_text.strip()))
+        if self._broadcast_controller is not None:
+            self._broadcast_controller._push_database_snapshot(broadcast=True)
+        if self._using_broadcast_db:
+            synced = self._sync_driver_patch_to_broadcaster(cust_id, notes=notes_text)
+            if not quiet:
+                if synced:
+                    QMessageBox.information(
+                        self,
+                        "Saved",
+                        "Note saved and synced to the broadcaster.",
+                    )
+                else:
+                    QMessageBox.warning(
+                        self,
+                        "Saved on this device only",
+                        "Note saved here but could not reach the broadcaster to sync.",
+                    )
+                return "Saved"
+            if synced:
+                return "Saved and synced"
+            return "Saved on this device only"
+        if not quiet:
+            QMessageBox.information(self, "Saved", "Driver notebook updated successfully.")
+        return "Saved"
+
+    def _set_preference_for_cust_id(self, cust_id: int, pref: int | None) -> None:
+        cursor = self._db_conn.cursor()
+        cursor.execute(
+            "UPDATE drivers SET race_preference = ? WHERE cust_id = ?",
+            (pref, cust_id),
+        )
+        if cursor.rowcount == 0:
+            return
+        self._db_conn.commit()
+        if self.selected_cust_id == cust_id:
+            self._update_preference_buttons(pref)
+        if self._broadcast_controller is not None:
+            self._broadcast_controller._push_database_snapshot(broadcast=True)
+        if self._using_broadcast_db:
+            self._sync_driver_patch_to_broadcaster(cust_id, race_preference=pref)
+
+        row_idx = self._row_for_cust_id(cust_id)
+        if row_idx is not None:
+            name_item = self.table.item(row_idx, COL_NAME)
+            if name_item is not None:
+                name_item.setData(PREF_DATA_ROLE, pref)
+            refresh_driver_table_row(self.table, row_idx)
 
     def _set_detail_field(self, key: str, value) -> None:
         label = self._detail_fields.get(key)
@@ -1222,7 +1415,15 @@ class GridNotesApp(QMainWindow):
         self.view_stack.addWidget(database_panel)
 
         self.live_session_view = LiveSessionView()
-        self.live_session_view.driver_clicked.connect(self._on_live_driver_clicked)
+        self.live_session_view.driver_expand_requested.connect(
+            self._on_live_driver_expand_requested
+        )
+        self.live_session_view.expand_save_requested.connect(
+            self._on_live_expand_save_requested
+        )
+        self.live_session_view.expand_preference_requested.connect(
+            self._on_live_expand_preference_requested
+        )
         self.live_session_view.audio_spotter_changed.connect(
             self._on_audio_spotter_setting_changed
         )
@@ -2550,59 +2751,15 @@ class GridNotesApp(QMainWindow):
             return
 
         notes_text = self.notes_edit.toPlainText()
-        cursor = self._db_conn.cursor()
-        cursor.execute(
-            "UPDATE drivers SET notes = ? WHERE cust_id = ?",
-            (notes_text, self.selected_cust_id),
-        )
-        self._db_conn.commit()
-        self._set_note_indicator(self.selected_cust_id, bool(notes_text.strip()))
-        if self._broadcast_controller is not None:
-            self._broadcast_controller._push_database_snapshot(broadcast=True)
-        if self._using_broadcast_db:
-            synced = self._sync_driver_patch_to_broadcaster(
-                self.selected_cust_id,
-                notes=notes_text,
-            )
-            if synced:
-                QMessageBox.information(
-                    self,
-                    "Saved",
-                    "Note saved and synced to the broadcaster.",
-                )
-            else:
-                QMessageBox.warning(
-                    self,
-                    "Saved on this device only",
-                    "Note saved here but could not reach the broadcaster to sync.",
-                )
-            return
-        QMessageBox.information(self, "Saved", "Driver notebook updated successfully.")
+        self._save_notes_for_cust_id(self.selected_cust_id, notes_text)
 
     def set_race_preference(self, pref: int | None):
         if not self.selected_cust_id:
             show_warning(self, "Selection Required", "Please click a driver first.")
             return
 
-        cust_id = self.selected_cust_id
-        cursor = self._db_conn.cursor()
-        cursor.execute(
-            "UPDATE drivers SET race_preference = ? WHERE cust_id = ?",
-            (pref, cust_id),
-        )
-        self._db_conn.commit()
+        self._set_preference_for_cust_id(self.selected_cust_id, pref)
         self._update_preference_buttons(pref)
-        if self._broadcast_controller is not None:
-            self._broadcast_controller._push_database_snapshot(broadcast=True)
-        if self._using_broadcast_db:
-            self._sync_driver_patch_to_broadcaster(cust_id, race_preference=pref)
-
-        row_idx = self._row_for_cust_id(cust_id)
-        if row_idx is not None:
-            name_item = self.table.item(row_idx, COL_NAME)
-            if name_item is not None:
-                name_item.setData(PREF_DATA_ROLE, pref)
-            refresh_driver_table_row(self.table, row_idx)
 
     def import_json_data(self):
         if self._is_receiver_mode_active():

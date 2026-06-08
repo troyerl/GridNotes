@@ -10,6 +10,19 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.56 — 2026-06-07
+
+### New
+
+- **Live Mode — Together count** — Each driver card shows how many imported races you share with that driver. Set **Hide your name** on the Drivers tab to your iRacing name if the count shows **—**.
+
+### Improved
+
+- **Live Mode — inline expand** — Click a driver card (or **▸**) to expand scouting details in place — full stats, Safety Index, notes, and liked/disliked — without leaving Live Mode. Click again to collapse.
+- **Live Mode — card order** — Drivers with the most history in your book appear first; drivers new to your book appear last. Grid Walk still uses starting-grid order.
+
+---
+
 ## v1.0.55 — 2026-06-06
 
 ### Improved

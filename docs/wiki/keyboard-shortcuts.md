@@ -29,7 +29,7 @@ GridNotes supports a small set of keyboard shortcuts for common scouting actions
 
 | Key | Action |
 |-----|--------|
-| **Enter** / **Space** | Open selected driver card or grid row → exits Live Mode and opens [Drivers tab](drivers-tab.md) detail panel |
+| **Enter** / **Space** | Expand or collapse the focused Live Mode card or Grid Walk row (details stay on screen) |
 
 Works when a Live Mode card or Grid Walk row has keyboard focus.
 

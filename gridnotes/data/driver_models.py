@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..safety.safety_index import SafetyIndex, compute_safety_index, empty_safety, live_sort_score
+from ..safety.safety_index import SafetyIndex, compute_safety_index, empty_safety
 from ..core.utils import sqlite_row_to_int
 
 
@@ -188,7 +188,7 @@ def build_live_session_entries(
     active_driver_names: dict[int, str],
     table_rows: list[DriverTableRow],
 ) -> list[dict]:
-    """Merge SDK session drivers with saved stats; sort risky/history first."""
+    """Merge SDK session drivers with saved stats for Live Mode and Grid Walk."""
     if not active_cust_ids:
         return []
 
@@ -219,17 +219,31 @@ def build_live_session_entries(
 
         races = entry.get("total_races") or 0
         entry["has_history"] = races > 0
-        entry["_sort_score"] = live_sort_score(safety, races)
         entries.append(entry)
 
-    entries.sort(
-        key=lambda e: (
-            0 if e.get("has_history") else 1,
-            -e["_sort_score"],
-            e.get("name") or "",
-        )
-    )
     return entries
+
+
+def sort_live_mode_card_entries(entries: list[dict]) -> list[dict]:
+    """Live Mode card order: most races in your book first, none at the bottom."""
+    return sorted(
+        entries,
+        key=lambda e: (
+            -(int(e.get("total_races") or 0)),
+            (e.get("name") or "").casefold(),
+        ),
+    )
+
+
+def format_shared_races_label(count: int | None) -> str:
+    """User-facing label for how often you raced someone (Live Mode)."""
+    if count is None:
+        return ""
+    if count <= 0:
+        return "No shared races yet"
+    if count == 1:
+        return "Raced together 1 time"
+    return f"Raced together {count} times"
 
 
 def format_live_session_at_glance(entries: list[dict]) -> str:

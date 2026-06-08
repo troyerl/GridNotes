@@ -222,3 +222,38 @@ def driver_detail_sql() -> str:
         LEFT JOIN agg a ON d.cust_id = a.cust_id
         WHERE d.cust_id = ?
     """
+
+
+def fetch_shared_race_counts(
+    conn: sqlite3.Connection,
+    player_cust_id: int,
+    other_cust_ids: list[int],
+) -> dict[int, int]:
+    """
+    Count subsessions where *player_cust_id* and each other driver both appear.
+
+    Uses imported race_results rows with a non-zero subsession_id.
+    """
+    player_id = int(player_cust_id)
+    ids = sorted({int(c) for c in other_cust_ids if int(c) != player_id})
+    if not ids:
+        return {}
+
+    counts: dict[int, int] = {}
+    for chunk in _chunked_ints(ids, _IN_CLAUSE_CHUNK_SIZE):
+        placeholders = ",".join("?" * len(chunk))
+        sql = f"""
+            SELECT rr_other.cust_id, COUNT(DISTINCT rr_other.subsession_id)
+            FROM race_results rr_other
+            INNER JOIN race_results rr_me
+                ON rr_me.subsession_id = rr_other.subsession_id
+               AND rr_me.cust_id = ?
+            WHERE rr_other.cust_id IN ({placeholders})
+              AND rr_other.subsession_id IS NOT NULL
+              AND rr_other.subsession_id != 0
+            GROUP BY rr_other.cust_id
+        """
+        rows = conn.execute(sql, [player_id, *chunk]).fetchall()
+        for cust_id, count in rows:
+            counts[int(cust_id)] = int(count)
+    return counts

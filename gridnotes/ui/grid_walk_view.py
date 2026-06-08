@@ -19,6 +19,7 @@ from ..privacy.streamer_mode import streamer_display_name
 from ..safety.safety_index import SafetyIndex, tier_color_hex
 from ..safety.safety_trend import SafetyTrend, combined_safety_tooltip
 from .a11y import driver_mark_label, set_accessible
+from .live_driver_expand import LiveDriverExpandPanel
 from .theme import configure_scroll_area
 
 # Even-side cars sit half a row back, like a real staggered grid.
@@ -43,17 +44,24 @@ def grid_highlight_positions(player_position: int) -> tuple[int | None, int | No
 class GridWalkRow(QFrame):
     """One car slot on the starting grid (left = odd, right = even)."""
 
-    clicked = pyqtSignal(int)
+    toggle_expand = pyqtSignal(int)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("gridWalkRow")
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._cust_id: int | None = None
         self._active = False
+        self._expanded = False
 
-        layout = QHBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        self.summary_frame = QFrame()
+        self.summary_frame.setObjectName("gridWalkSummary")
+        self.summary_frame.setCursor(Qt.CursorShape.PointingHandCursor)
+        layout = QHBoxLayout(self.summary_frame)
         layout.setContentsMargins(14, 10, 14, 10)
         layout.setSpacing(12)
 
@@ -88,14 +96,38 @@ class GridWalkRow(QFrame):
         self.mark_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(self.mark_label)
 
-    def _activate(self) -> None:
-        if self._active and self._cust_id is not None:
-            self.clicked.emit(self._cust_id)
+        outer.addWidget(self.summary_frame)
 
-    def mousePressEvent(self, event) -> None:
+        self.expand_panel = LiveDriverExpandPanel()
+        outer.addWidget(self.expand_panel)
+
+        self.summary_frame.mousePressEvent = self._summary_mouse_press  # type: ignore[method-assign]
+
+    @property
+    def cust_id(self) -> int | None:
+        return self._cust_id
+
+    def expand_signals(self) -> LiveDriverExpandPanel:
+        return self.expand_panel
+
+    def is_expanded(self) -> bool:
+        return self._expanded
+
+    def set_expanded(self, expanded: bool) -> None:
+        self._expanded = expanded
+        self.expand_panel.setVisible(expanded)
+        self.setProperty("expanded", expanded)
+        self.style().unpolish(self)
+        self.style().polish(self)
+
+    def _summary_mouse_press(self, event) -> None:
         if self._active and event.button() == Qt.MouseButton.LeftButton:
             self._activate()
-        super().mousePressEvent(event)
+        QFrame.mousePressEvent(self.summary_frame, event)
+
+    def _activate(self) -> None:
+        if self._active and self._cust_id is not None:
+            self.toggle_expand.emit(self._cust_id)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if (
@@ -122,6 +154,7 @@ class GridWalkRow(QFrame):
         self.setProperty("pref", "")
         self.setProperty("risky", "false")
         self.setProperty("side", "")
+        self.setExpanded(False)
         self.setCursor(Qt.CursorShape.ArrowCursor)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setVisible(False)
@@ -198,7 +231,7 @@ class GridWalkRow(QFrame):
             f"Grid position {position}, {side} side, {name}"
             + (f", {mark}" if mark else "")
             + (", league racer" if league_label else ""),
-            "Press Enter to open scouting notes.",
+            "Press Enter to expand scouting details.",
         )
 
         self.style().unpolish(self)
@@ -208,7 +241,7 @@ class GridWalkRow(QFrame):
 class GridWalkPairRow(QFrame):
     """One grid row: odd position on the left, even on the right (staggered)."""
 
-    driver_clicked = pyqtSignal(int)
+    driver_expand_requested = pyqtSignal(int)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -219,7 +252,7 @@ class GridWalkPairRow(QFrame):
         layout.setSpacing(10)
 
         self.left_row = GridWalkRow()
-        self.left_row.clicked.connect(self.driver_clicked.emit)
+        self.left_row.toggle_expand.connect(self.driver_expand_requested.emit)
         layout.addWidget(self.left_row, stretch=1)
 
         lane = QFrame()
@@ -233,7 +266,7 @@ class GridWalkPairRow(QFrame):
         right_layout.setContentsMargins(0, _EVEN_COLUMN_STAGGER_PX, 0, 0)
         right_layout.setSpacing(0)
         self.right_row = GridWalkRow()
-        self.right_row.clicked.connect(self.driver_clicked.emit)
+        self.right_row.toggle_expand.connect(self.driver_expand_requested.emit)
         right_layout.addWidget(self.right_row)
         right_layout.addStretch()
         layout.addWidget(self.right_host, stretch=1)
@@ -269,7 +302,11 @@ class GridWalkPairRow(QFrame):
 class GridWalkView(QWidget):
     """Staggered starting grid with odd positions on the left."""
 
-    driver_clicked = pyqtSignal(int)
+    driver_expand_requested = pyqtSignal(int)
+    driver_expand_collapsed = pyqtSignal()
+    expand_save_requested = pyqtSignal(int, str)
+    expand_preference_requested = pyqtSignal(int, object)
+    scouting_guide_requested = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -293,7 +330,7 @@ class GridWalkView(QWidget):
 
         self.hint_label = QLabel(
             "The car ahead in your column and beside you on the grid are highlighted. "
-            "Tap a car to open notes."
+            "Tap a car to expand scouting details."
         )
         self.hint_label.setObjectName("sectionHint")
         self.hint_label.setWordWrap(True)
@@ -325,6 +362,42 @@ class GridWalkView(QWidget):
             "Starting grid",
             "Two-column starting grid with odd positions on the left.",
         )
+
+    def _wire_expand_panel(self, panel: LiveDriverExpandPanel, cust_id: int) -> None:
+        panel.save_requested.connect(
+            lambda text, cid=cust_id: self.expand_save_requested.emit(cid, text)
+        )
+        panel.preference_requested.connect(
+            lambda pref, cid=cust_id: self.expand_preference_requested.emit(cid, pref)
+        )
+        panel.scouting_guide_requested.connect(self.scouting_guide_requested.emit)
+
+    def set_row_expanded(self, cust_id: int, expanded: bool) -> None:
+        for row in self._rows:
+            if expanded:
+                row.set_expanded(row.cust_id == cust_id)
+            else:
+                row.set_expanded(False)
+        if expanded:
+            for row in self._rows:
+                if row.cust_id == cust_id:
+                    self.scroll.ensureWidgetVisible(row, 80, 80)
+                    break
+
+    def populate_expanded_detail(self, cust_id: int, **payload) -> None:
+        for row in self._rows:
+            if row.cust_id == cust_id:
+                row.expand_signals().populate(**payload)
+
+    def show_expand_saved(self, cust_id: int, message: str = "Saved") -> None:
+        for row in self._rows:
+            if row.cust_id == cust_id:
+                row.expand_signals().set_saved_feedback(message)
+
+    def update_expanded_preference(self, cust_id: int, pref) -> None:
+        for row in self._rows:
+            if row.cust_id == cust_id:
+                row.expand_signals().set_preference(pref)
 
     def _slot_payload(
         self,
@@ -476,7 +549,7 @@ class GridWalkView(QWidget):
         else:
             self.hint_label.setText(
                 "The car ahead in your column and beside you on the grid are highlighted. "
-                "Tap a car to open notes."
+                "Tap a car to expand scouting details."
             )
 
         while self.rows_layout.count():
@@ -534,7 +607,10 @@ class GridWalkView(QWidget):
 
             pair_row = GridWalkPairRow()
             pair_row.set_pair(left=left_payload, right=right_payload)
-            pair_row.driver_clicked.connect(self.driver_clicked.emit)
+            pair_row.driver_expand_requested.connect(self.driver_expand_requested.emit)
+            for row in pair_row.rows:
+                if row.cust_id is not None:
+                    self._wire_expand_panel(row.expand_signals(), int(row.cust_id))
             self.rows_layout.addWidget(pair_row)
             self._pair_rows.append(pair_row)
             self._rows.extend(pair_row.rows)

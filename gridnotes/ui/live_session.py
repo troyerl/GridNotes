@@ -17,29 +17,38 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from ..data.driver_models import sort_live_mode_card_entries
 from ..iracing.session_context import format_session_context_banner
 from ..safety.safety_index import SafetyIndex, empty_safety, tier_color_hex, tier_label
 from ..safety.safety_trend import SafetyTrend
 from ..iracing.session_kind import session_kind_label
 from .a11y import set_accessible
 from .grid_walk_view import GridWalkView
+from .live_driver_expand import LiveDriverExpandPanel
 from .theme import configure_scroll_area
 
 
 class LiveDriverCard(QFrame):
     """Single driver card in Live Mode."""
 
-    clicked = pyqtSignal(int)
+    toggle_expand = pyqtSignal(int)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("liveDriverCard")
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._cust_id: int | None = None
         self._driver_name = ""
+        self._expanded = False
 
-        layout = QHBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        self.summary_frame = QFrame()
+        self.summary_frame.setObjectName("liveDriverSummary")
+        self.summary_frame.setCursor(Qt.CursorShape.PointingHandCursor)
+        layout = QHBoxLayout(self.summary_frame)
         layout.setContentsMargins(16, 14, 16, 14)
         layout.setSpacing(16)
 
@@ -75,7 +84,7 @@ class LiveDriverCard(QFrame):
         stats.setVerticalSpacing(2)
 
         for col, (key, title) in enumerate(
-            [("inc", "Avg Inc"), ("dnf", "DNF"), ("sr", "Last SR"), ("note", "Note")]
+            [("inc", "Avg Inc"), ("dnf", "DNF"), ("sr", "Last SR"), ("together", "Together")]
         ):
             title_lbl = QLabel(title)
             title_lbl.setObjectName("liveStatTitle")
@@ -109,14 +118,55 @@ class LiveDriverCard(QFrame):
         score_col.addWidget(self.tier_label)
         layout.addLayout(score_col)
 
-    def _activate(self) -> None:
-        if self._cust_id is not None:
-            self.clicked.emit(self._cust_id)
+        self.expand_chevron = QLabel("▸")
+        self.expand_chevron.setObjectName("liveExpandChevron")
+        self.expand_chevron.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
+        layout.addWidget(self.expand_chevron)
 
-    def mousePressEvent(self, event) -> None:
+        outer.addWidget(self.summary_frame)
+
+        self.expand_panel = LiveDriverExpandPanel()
+        outer.addWidget(self.expand_panel)
+
+        self.summary_frame.mousePressEvent = self._summary_mouse_press  # type: ignore[method-assign]
+
+    @property
+    def cust_id(self) -> int | None:
+        return self._cust_id
+
+    def expand_signals(self) -> LiveDriverExpandPanel:
+        return self.expand_panel
+
+    def is_expanded(self) -> bool:
+        return self._expanded
+
+    def set_expanded(self, expanded: bool) -> None:
+        self._expanded = expanded
+        self.expand_panel.setVisible(expanded)
+        self.expand_chevron.setText("▾" if expanded else "▸")
+        self.setProperty("expanded", expanded)
+        self.style().unpolish(self)
+        self.style().polish(self)
+        hint = (
+            "Press Enter or Space to collapse driver details."
+            if expanded
+            else "Press Enter or Space to expand scouting details for this driver."
+        )
+        set_accessible(self, self._accessibility_name(), hint)
+
+    def _accessibility_name(self) -> str:
+        return getattr(self, "_a11y_name", self._driver_name or "Driver")
+
+    def _summary_mouse_press(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             self._activate()
-        super().mousePressEvent(event)
+        QFrame.mousePressEvent(self.summary_frame, event)
+
+    def _activate(self) -> None:
+        if self._cust_id is not None:
+            self.toggle_expand.emit(self._cust_id)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
@@ -138,6 +188,7 @@ class LiveDriverCard(QFrame):
         safety_trend: SafetyTrend | None = None,
         has_history: bool = True,
         league_label: str = "",
+        together_races: int | None = None,
     ) -> None:
         self._cust_id = cust_id
         self._driver_name = name or "—"
@@ -191,7 +242,19 @@ class LiveDriverCard(QFrame):
         else:
             self._sr_value.setText("—")
 
-        self._note_value.setText("Yes" if has_note else "—")
+        if together_races is None:
+            self._together_value.setText("—")
+            self._together_value.setToolTip(
+                "Set Hide your name on the Drivers tab (your iRacing name) to count shared races."
+            )
+        elif together_races <= 0:
+            self._together_value.setText("0")
+            self._together_value.setToolTip("No imported races where you both participated.")
+        else:
+            self._together_value.setText(str(together_races))
+            self._together_value.setToolTip(
+                f"You have {together_races} imported races in common with this driver."
+            )
 
         if pref == 1:
             self.setProperty("pref", "like")
@@ -211,10 +274,13 @@ class LiveDriverCard(QFrame):
         )
         if league_label:
             a11y_name = f"{a11y_name}, league racer"
+        if together_races is not None and together_races > 0:
+            a11y_name = f"{a11y_name}, raced together {together_races} times"
+        self._a11y_name = a11y_name
         set_accessible(
             self,
             a11y_name,
-            "Press Enter or Space to open scouting notes for this driver.",
+            "Press Enter or Space to expand scouting details for this driver.",
         )
 
         self.style().unpolish(self)
@@ -224,7 +290,10 @@ class LiveDriverCard(QFrame):
 class LiveSessionView(QWidget):
     """Full-width live session panel with large-font driver cards."""
 
-    driver_clicked = pyqtSignal(int)
+    driver_expand_requested = pyqtSignal(int)
+    driver_expand_collapsed = pyqtSignal()
+    expand_save_requested = pyqtSignal(int, str)
+    expand_preference_requested = pyqtSignal(int, object)
     audio_spotter_changed = pyqtSignal(bool)
     grid_walk_toggled = pyqtSignal(bool)
     scouting_guide_requested = pyqtSignal()
@@ -332,7 +401,14 @@ class LiveSessionView(QWidget):
         self.content_stack.addWidget(self.cards_page)
 
         self.grid_walk_view = GridWalkView()
-        self.grid_walk_view.driver_clicked.connect(self.driver_clicked.emit)
+        self.grid_walk_view.driver_expand_requested.connect(self._handle_expand_toggle)
+        self.grid_walk_view.expand_save_requested.connect(self.expand_save_requested.emit)
+        self.grid_walk_view.expand_preference_requested.connect(
+            self.expand_preference_requested.emit
+        )
+        self.grid_walk_view.scouting_guide_requested.connect(
+            self.scouting_guide_requested.emit
+        )
         self.content_stack.addWidget(self.grid_walk_view)
 
         root.addWidget(self.content_stack, stretch=1)
@@ -340,10 +416,11 @@ class LiveSessionView(QWidget):
         self._cards: list[LiveDriverCard] = []
         self._last_entry_key: tuple | None = None
         self._grid_walk_active = False
+        self._expanded_cust_id: int | None = None
         set_accessible(
             self.scroll,
             "Live session drivers",
-            "Scrollable list of driver cards. Tab to a card and press Enter to open notes.",
+            "Scrollable list of driver cards. Tab to a card and press Enter to expand details.",
         )
         set_accessible(
             self.chk_audio_spotter,
@@ -378,6 +455,103 @@ class LiveSessionView(QWidget):
     def is_grid_walk_mode(self) -> bool:
         return self._grid_walk_active
 
+    def _handle_expand_toggle(self, cust_id: int) -> None:
+        if self._expanded_cust_id == cust_id:
+            self._collapse_expanded()
+            return
+        self._collapse_expanded()
+        self._expanded_cust_id = cust_id
+        self._apply_expanded_state(cust_id, True)
+        self.driver_expand_requested.emit(cust_id)
+
+    def _collapse_expanded(self) -> None:
+        if self._expanded_cust_id is None:
+            return
+        previous = self._expanded_cust_id
+        self._expanded_cust_id = None
+        self._apply_expanded_state(previous, False)
+        self.driver_expand_collapsed.emit()
+
+    def _apply_expanded_state(self, cust_id: int, expanded: bool) -> None:
+        for card in self._cards:
+            if expanded:
+                card.set_expanded(card.cust_id == cust_id)
+            else:
+                card.set_expanded(False)
+        if expanded:
+            for card in self._cards:
+                if card.cust_id == cust_id:
+                    self.scroll.ensureWidgetVisible(card, 80, 80)
+                    break
+        self.grid_walk_view.set_row_expanded(cust_id, expanded)
+
+    def expanded_cust_id(self) -> int | None:
+        return self._expanded_cust_id
+
+    def populate_expanded_detail(
+        self,
+        cust_id: int,
+        *,
+        meta_text: str,
+        notes: str,
+        pref: int | None,
+        series: str | None,
+        avg_finish,
+        races: int,
+        last_irating,
+        avg_pos_delta,
+        dnfs: int,
+        dnf_breakdown: str,
+        safety: SafetyIndex | None,
+        safety_trend: SafetyTrend | None = None,
+        together_races: int | None = None,
+    ) -> None:
+        if self._expanded_cust_id != cust_id:
+            return
+        payload = dict(
+            meta_text=meta_text,
+            notes=notes,
+            pref=pref,
+            series=series,
+            avg_finish=avg_finish,
+            races=races,
+            last_irating=last_irating,
+            avg_pos_delta=avg_pos_delta,
+            dnfs=dnfs,
+            dnf_breakdown=dnf_breakdown,
+            safety=safety,
+            safety_trend=safety_trend,
+            together_races=together_races,
+        )
+        for card in self._cards:
+            if card.cust_id == cust_id:
+                card.expand_signals().populate(**payload)
+        self.grid_walk_view.populate_expanded_detail(cust_id, **payload)
+
+    def show_expand_saved(self, cust_id: int, message: str = "Saved") -> None:
+        for card in self._cards:
+            if card.cust_id == cust_id:
+                card.expand_signals().set_saved_feedback(message)
+        self.grid_walk_view.show_expand_saved(cust_id, message)
+
+    def update_expanded_preference(self, cust_id: int, pref) -> None:
+        for card in self._cards:
+            if card.cust_id == cust_id:
+                card.expand_signals().set_preference(pref)
+        self.grid_walk_view.update_expanded_preference(cust_id, pref)
+
+    def _wire_expand_panel(self, panel: LiveDriverExpandPanel, cust_id: int) -> None:
+        panel.save_requested.connect(
+            lambda text, cid=cust_id: self.expand_save_requested.emit(cid, text)
+        )
+        panel.preference_requested.connect(
+            lambda pref, cid=cust_id: self.expand_preference_requested.emit(cid, pref)
+        )
+        panel.scouting_guide_requested.connect(self.scouting_guide_requested.emit)
+
+    def _on_card_toggle_expand(self, cust_id: int) -> None:
+        self._handle_expand_toggle(cust_id)
+
     def set_grid_walk_mode(self, active: bool, *, emit: bool = True) -> None:
         self._grid_walk_active = active
         self.btn_grid_walk.blockSignals(True)
@@ -387,6 +561,8 @@ class LiveSessionView(QWidget):
         self.btn_grid_walk.style().unpolish(self.btn_grid_walk)
         self.btn_grid_walk.style().polish(self.btn_grid_walk)
         self.content_stack.setCurrentIndex(1 if active else 0)
+        if active:
+            self._collapse_expanded()
         if emit:
             self.grid_walk_toggled.emit(active)
 
@@ -462,6 +638,7 @@ class LiveSessionView(QWidget):
                 else -1,
                 (e.get("safety_trend") or SafetyTrend("unknown", None, None, 0)).direction,
                 e.get("league_label") or "",
+                e.get("together_races"),
             )
             for e in entries
         )
@@ -474,6 +651,8 @@ class LiveSessionView(QWidget):
     def rebuild(self, entries: list[dict]) -> None:
         if self._grid_walk_active:
             return
+        expanded = self._expanded_cust_id
+        entries = sort_live_mode_card_entries(entries)
         while self.cards_layout.count():
             item = self.cards_layout.takeAt(0)
             if item.widget():
@@ -508,9 +687,17 @@ class LiveSessionView(QWidget):
                 safety_trend=trend,
                 has_history=bool(entry.get("has_history")),
                 league_label=str(entry.get("league_label") or ""),
+                together_races=entry.get("together_races"),
             )
-            card.clicked.connect(self.driver_clicked.emit)
+            card.toggle_expand.connect(self._on_card_toggle_expand)
+            self._wire_expand_panel(card.expand_signals(), int(entry["cust_id"]))
+            if self._expanded_cust_id == int(entry["cust_id"]):
+                card.set_expanded(True)
             self.cards_layout.addWidget(card)
             self._cards.append(card)
 
         self.cards_layout.addStretch()
+
+        if expanded is not None:
+            self._apply_expanded_state(expanded, True)
+            self.driver_expand_requested.emit(expanded)

@@ -668,6 +668,22 @@ QFrame#liveDriverCard[pref="dislike"] {
     border-color: {{danger_btn_border}};
 }
 
+QFrame#liveDriverCard[expanded="true"] {
+    border-color: {{accent}};
+}
+
+QFrame#liveDriverExpandPanel {
+    background-color: {{live_scroll_bg}};
+    border-top: 1px solid {{bg_header}};
+}
+
+QLabel#liveExpandChevron {
+    font-size: 22px;
+    font-weight: 700;
+    color: {{text_muted}};
+    min-width: 20px;
+}
+
 QLabel#liveDriverName {
     font-size: 26px;
     font-weight: 800;
