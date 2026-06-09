@@ -538,12 +538,10 @@ QLabel#liveSessionAtGlance {
 
 QLabel#liveNewBadge {
     font-size: 11px;
-    font-weight: 800;
-    color: {{accent}};
-    background-color: {{selection_bg}};
-    border: 1px solid {{accent_border}};
-    border-radius: 4px;
-    padding: 2px 6px;
+    font-weight: 600;
+    font-style: italic;
+    color: {{text_muted}};
+    padding: 0;
 }
 
 QLabel#liveLeagueBadge {
@@ -678,10 +676,16 @@ QFrame#liveDriverExpandPanel {
 }
 
 QLabel#liveExpandChevron {
-    font-size: 22px;
-    font-weight: 700;
+    font-family: "Font Awesome 6 Free";
+    font-weight: 900;
+    font-size: 16px;
     color: {{text_muted}};
     min-width: 20px;
+}
+
+QPushButton[iconOnly="true"] {
+    padding: 4px 8px;
+    min-width: 28px;
 }
 
 QLabel#liveDriverName {
@@ -762,12 +766,10 @@ QLabel#gridWalkAtGlance {
 
 QLabel#gridWalkNewBadge {
     font-size: 10px;
-    font-weight: 800;
-    color: {{accent}};
-    background-color: {{selection_bg}};
-    border: 1px solid {{accent_border}};
-    border-radius: 4px;
-    padding: 1px 5px;
+    font-weight: 600;
+    font-style: italic;
+    color: {{text_muted}};
+    padding: 0;
 }
 
 QLabel#gridWalkLeagueBadge {
@@ -1288,6 +1290,12 @@ def apply_app_theme(app: QApplication, theme_id: str | None = None) -> str:
     if theme_id is None:
         theme_id = get_theme_id()
     app.setStyleSheet(build_stylesheet(theme_id))
+    try:
+        from .icons import clear_icon_cache
+
+        clear_icon_cache()
+    except ImportError:
+        pass
     return theme_id
 
 

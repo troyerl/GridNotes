@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
 
 from ..broadcast.discovery import BroadcastDiscovery, BroadcasterInfo
 from ..ui.a11y import set_button_tooltip
+from ..ui.icons import BUTTON_ICON_TEXT_GAP, fa_icon, set_button_fa_icon
 
 
 class BroadcastConnectDialog(QDialog):
@@ -46,6 +47,7 @@ class BroadcastConnectDialog(QDialog):
 
         refresh_row = QHBoxLayout()
         self.btn_refresh = QPushButton("Refresh")
+        set_button_fa_icon(self.btn_refresh, "arrows-rotate", text="Refresh")
         set_button_tooltip(self.btn_refresh, "Search the network again for active broadcasters.")
         self.btn_refresh.clicked.connect(self._restart_discovery)
         refresh_row.addWidget(self.btn_refresh)
@@ -71,7 +73,9 @@ class BroadcastConnectDialog(QDialog):
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
-        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Connect")
+        connect_btn = buttons.button(QDialogButtonBox.StandardButton.Ok)
+        connect_btn.setText("Connect")
+        connect_btn.setIcon(fa_icon("plug", size=14, text_gap=BUTTON_ICON_TEXT_GAP))
         buttons.accepted.connect(self._accept_manual_or_selected)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)

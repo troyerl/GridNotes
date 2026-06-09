@@ -11,6 +11,9 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from .a11y import set_accessible
+from .icons import set_button_fa_icon
+
 DEFAULT_PAGE_SIZE = 50
 PAGE_SIZE_OPTIONS = (25, 50, 100, 200)
 
@@ -47,11 +50,17 @@ class TablePaginationBar(QWidget):
         self._page_label.setObjectName("sectionHint")
         layout.addWidget(self._page_label)
 
-        self._btn_prev = QPushButton("Previous")
+        self._btn_prev = QPushButton()
+        set_button_fa_icon(self._btn_prev, "chevron-left", icon_only=True, icon_size=14)
+        self._btn_prev.setToolTip("Previous page")
+        set_accessible(self._btn_prev, "Previous page", "Go to the previous page of results.")
         self._btn_prev.clicked.connect(self.previous_clicked.emit)
         layout.addWidget(self._btn_prev)
 
-        self._btn_next = QPushButton("Next")
+        self._btn_next = QPushButton()
+        set_button_fa_icon(self._btn_next, "chevron-right", icon_only=True, icon_size=14)
+        self._btn_next.setToolTip("Next page")
+        set_accessible(self._btn_next, "Next page", "Go to the next page of results.")
         self._btn_next.clicked.connect(self.next_clicked.emit)
         layout.addWidget(self._btn_next)
 

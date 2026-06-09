@@ -17,6 +17,7 @@ from gridnotes.app.app_icon import load_app_icon, set_windows_app_user_model_id
 from gridnotes.app.gridnotes_app import GridNotesApp
 from gridnotes.data.db import init_db
 from gridnotes.services.log_config import setup_logging
+from gridnotes.ui.icons import load_font
 from gridnotes.ui.theme import apply_app_theme
 
 
@@ -29,6 +30,7 @@ def main() -> int:
     app.setApplicationName("GridNotes")
     if hasattr(app, "setApplicationDisplayName"):
         app.setApplicationDisplayName("GridNotes")
+    load_font()
     apply_app_theme(app)
 
     icon = load_app_icon()

@@ -42,6 +42,7 @@ from ..data.note_tags import (
 )
 from ..data.db import connect_db, get_data_dir_path, get_db_file_size, get_db_path, get_setting, set_setting
 from ..installer.uninstall import resolve_install_root
+from .icons import set_button_fa_icon
 from ..data.driver_cleanup import count_zero_race_drivers
 from ..core.timezone_settings import (
     get_saved_timezone,
@@ -167,6 +168,37 @@ class SettingsTab(QWidget):
         self._capture_settings_baseline()
         self._update_save_button_state()
         self._configure_accessibility()
+        self._apply_icons()
+
+    def _apply_icons(self) -> None:
+        set_button_fa_icon(self.btn_save_settings, "floppy-disk", text="Save settings")
+        set_button_fa_icon(self.btn_export_backup, "download", text="Back up database…")
+        set_button_fa_icon(self.btn_import_backup, "upload", text="Restore from backup…")
+        set_button_fa_icon(
+            self.btn_remove_zero_race, "trash", text="Remove drivers with 0 races"
+        )
+        if hasattr(self, "btn_add_note_tag"):
+            set_button_fa_icon(self.btn_add_note_tag, "plus", text="Add tag…")
+        if hasattr(self, "btn_reset_note_tags"):
+            set_button_fa_icon(
+                self.btn_reset_note_tags, "arrows-rotate", text="Reset to defaults"
+            )
+        if hasattr(self, "btn_test_api"):
+            set_button_fa_icon(self.btn_test_api, "plug", text="Test")
+        set_button_fa_icon(
+            self.btn_check_updates, "arrows-rotate", text="Check for updates"
+        )
+        set_button_fa_icon(self.btn_apply_update, "upload", text="Update now")
+        set_button_fa_icon(
+            self.btn_scouting_guide, "book-open", text="Scouting guide…"
+        )
+        set_button_fa_icon(
+            self.btn_support_bundle, "floppy-disk", text="Save support file…"
+        )
+        set_button_fa_icon(self.btn_open_logs, "folder-open", text="Open logs folder")
+        set_button_fa_icon(
+            self.btn_uninstall, "trash-can", text="Uninstall GridNotes…"
+        )
 
     def _configure_accessibility(self) -> None:
         set_accessible(self.btn_save_settings, "Save settings")
@@ -399,6 +431,17 @@ class SettingsTab(QWidget):
         disclaimer_layout = QVBoxLayout(disclaimer_group)
         disclaimer_layout.addWidget(HtmlHintLabel(disclaimer_html()))
         layout.addWidget(disclaimer_group)
+
+        attribution_group = QGroupBox("Third-party notices")
+        attribution_layout = QVBoxLayout(attribution_group)
+        attribution_layout.addWidget(
+            HtmlHintLabel(
+                "<p>Icons by "
+                '<a href="https://fontawesome.com">Font Awesome</a> '
+                "(Font Awesome Free, SIL OFL 1.1 / CC BY 4.0).</p>"
+            )
+        )
+        layout.addWidget(attribution_group)
 
         layout.addStretch()
         return page
@@ -682,6 +725,7 @@ class SettingsTab(QWidget):
         row.addWidget(desc_edit, stretch=3)
 
         btn_remove = QPushButton("Remove")
+        set_button_fa_icon(btn_remove, "trash", text="Remove")
         btn_remove.clicked.connect(
             lambda _=False, pair=(label_edit, desc_edit): self._remove_note_tag_row(pair)
         )

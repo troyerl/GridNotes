@@ -32,6 +32,14 @@ class SafetyTrend:
         }.get(self.direction, "")
 
     @property
+    def icon_name(self) -> str | None:
+        return {
+            "improving": "arrow-trend-up",
+            "worsening": "arrow-trend-down",
+            "stable": "arrow-right",
+        }.get(self.direction)
+
+    @property
     def color_hex(self) -> str:
         from .safety_index import TIER_COLORS_HEX
 

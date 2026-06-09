@@ -25,6 +25,7 @@ from ..core.utils import sqlite_row_to_int
 from ..data.leagues import compact_league_indicator
 from ..data.driver_models import DriverTableRow
 from .a11y import driver_mark_label
+from .icons import driver_mark_glyphs, fa, mark_item_font
 from .theme import table_row_color
 
 PREF_DATA_ROLE = Qt.ItemDataRole.UserRole + 1
@@ -365,12 +366,14 @@ def make_table_item(value) -> QTableWidgetItem:
 
 def make_mark_item(pref: int | None, risky: bool) -> QTableWidgetItem:
     label = driver_mark_label(pref, risky)
+    glyphs = driver_mark_glyphs(pref, risky)
     item = QTableWidgetItem()
     item.setFlags(item.flags() ^ Qt.ItemFlag.ItemIsEditable)
     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-    if label:
-        item.setText(label)
-        item.setToolTip(label)
+    if glyphs:
+        item.setText(glyphs)
+        item.setFont(mark_item_font())
+        item.setToolTip(label or "")
     else:
         item.setText(EMPTY_CELL)
     return item
@@ -390,11 +393,13 @@ def make_league_item(full_label: str) -> QTableWidgetItem:
 
 
 def make_note_item(has_note: bool) -> QTableWidgetItem:
-    item = QTableWidgetItem(NOTE_HAS_TEXT if has_note else "")
+    item = QTableWidgetItem()
     item.setFlags(item.flags() ^ Qt.ItemFlag.ItemIsEditable)
     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
     item.setData(Qt.ItemDataRole.UserRole, 1 if has_note else 0)
     if has_note:
+        item.setText(fa("note-sticky"))
+        item.setFont(mark_item_font())
         item.setToolTip("Has scouting notes")
     return item
 

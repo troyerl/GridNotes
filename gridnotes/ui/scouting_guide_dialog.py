@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .a11y import set_accessible
+from .icons import set_button_fa_icon
 from .scouting_legend import scouting_guide_document_html
 
 _DIALOG_ATTR = "_gridnotes_scouting_guide_dialog"
@@ -49,6 +50,7 @@ class ScoutingGuideDialog(QDialog):
         btn_row = QHBoxLayout()
         btn_row.addStretch()
         close_btn = QPushButton("Close")
+        set_button_fa_icon(close_btn, "xmark", text="Close")
         close_btn.setObjectName("primaryBtn")
         close_btn.clicked.connect(self.close)
         btn_row.addWidget(close_btn)

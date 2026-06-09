@@ -52,6 +52,7 @@ from ..data.driver_models import (
     format_shared_races_label,
 )
 from ..ui.a11y import driver_mark_label, set_accessible, set_button_tooltip
+from ..ui.icons import set_button_fa_icon, wire_main_tabs
 from ..privacy.streamer_mode import (
     STREAMER_MODE_KEY,
     display_driver_name,
@@ -1485,7 +1486,26 @@ class GridNotesApp(QMainWindow):
         self._refresh_ui_table_now(force=True)
         self._configure_accessibility()
         self._configure_keyboard_shortcuts()
+        self._apply_icons()
         self.apply_theme()
+
+    def _apply_icons(self) -> None:
+        set_button_fa_icon(self.btn_start_broadcast, "tower-broadcast", text="Broadcast")
+        set_button_fa_icon(self.btn_connect_broadcast, "satellite-dish", text="Receiver")
+        set_button_fa_icon(self.btn_disconnect_broadcast, "link-slash", text="Disconnect")
+        set_button_fa_icon(self.btn_streamer_mode, "eye-slash", text="Streamer mode")
+        set_button_fa_icon(self.btn_live_mode, "flag-checkered", text="Live Mode")
+        set_button_fa_icon(self.btn_import, "file-import", text="Import race JSON…")
+        set_button_fa_icon(self.btn_reset_db, "trash-can", text="Reset all data")
+        set_button_fa_icon(self.btn_save_ignore, "user-secret", text="Save hidden name")
+        set_button_fa_icon(
+            self.btn_scouting_guide, "book-open", text="Scouting guide…"
+        )
+        set_button_fa_icon(self.btn_pref_like, "thumbs-up", text="Liked")
+        set_button_fa_icon(self.btn_pref_dislike, "thumbs-down", text="Didn't like")
+        set_button_fa_icon(self.btn_pref_clear, "eraser", text="Clear")
+        set_button_fa_icon(self.btn_save_notes, "floppy-disk", text="Save notes")
+        wire_main_tabs(self.main_tabs)
 
     def _configure_accessibility(self) -> None:
         set_accessible(
@@ -1577,6 +1597,7 @@ class GridNotesApp(QMainWindow):
         app = QApplication.instance()
         if app is not None:
             apply_app_theme(app, tid)
+        self._apply_icons()
         configure_driver_table_theme(tid)
         refresh_widget_tree(self)
         if hasattr(self, "table"):

@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ..ui.a11y import set_accessible, set_button_tooltip
+from ..ui.icons import set_button_fa_icon
 from .ui_widgets import BusySpinner
 
 
@@ -48,14 +49,16 @@ class BroadcastStatusDialog(QDialog):
         self._chrome_title = QLabel("GridNotes Broadcast")
         self._chrome_title.setObjectName("updateProgressTitle")
         title_row.addWidget(self._chrome_title, stretch=1)
-        self.btn_minimize = QPushButton("—")
+        self.btn_minimize = QPushButton()
+        set_button_fa_icon(self.btn_minimize, "window-minimize", icon_only=True, icon_size=12)
         self.btn_minimize.setObjectName("dialogChromeBtn")
         self.btn_minimize.setFixedSize(28, 28)
         set_button_tooltip(self.btn_minimize, "Minimize to taskbar (broadcast keeps running).")
         set_accessible(self.btn_minimize, "Minimize", "Minimize the broadcast window.")
         self.btn_minimize.clicked.connect(self.showMinimized)
         title_row.addWidget(self.btn_minimize)
-        self.btn_close = QPushButton("×")
+        self.btn_close = QPushButton()
+        set_button_fa_icon(self.btn_close, "xmark", icon_only=True, icon_size=14)
         self.btn_close.setObjectName("dialogChromeBtn")
         self.btn_close.setFixedSize(28, 28)
         set_button_tooltip(self.btn_close, "Stop broadcasting and return to GridNotes.")
@@ -125,6 +128,7 @@ class BroadcastStatusDialog(QDialog):
         btn_row = QHBoxLayout()
         btn_row.addStretch()
         self.btn_stop = QPushButton("Stop broadcasting")
+        set_button_fa_icon(self.btn_stop, "circle-stop", text="Stop broadcasting")
         self.btn_stop.setObjectName("primaryBtn")
         set_button_tooltip(
             self.btn_stop,

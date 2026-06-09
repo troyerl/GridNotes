@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ..data.db import connect_db, get_db_path
+from .icons import set_button_fa_icon
 from ..data.leagues import (
     DriverCandidate,
     add_members_to_season,
@@ -204,7 +205,23 @@ class LeaguesTab(QWidget):
         splitter.setSizes([280, 720])
 
         self._update_actions_enabled()
+        self._apply_icons()
         self.refresh()
+
+    def _apply_icons(self) -> None:
+        set_button_fa_icon(self.btn_new_league, "plus", text="New league…")
+        set_button_fa_icon(self.btn_rename_league, "pen-to-square", text="Rename…")
+        set_button_fa_icon(self.btn_delete_league, "trash", text="Delete")
+        set_button_fa_icon(self.btn_new_season, "plus", text="New season…")
+        set_button_fa_icon(self.btn_delete_season, "trash", text="Delete")
+        set_button_fa_icon(
+            self.btn_add_session, "user-plus", text="Add current session"
+        )
+        set_button_fa_icon(self.btn_remove_members, "trash", text="Remove selected")
+        set_button_fa_icon(
+            self.btn_select_all_candidates, "table-cells", text="Select all shown"
+        )
+        set_button_fa_icon(self.btn_add_candidates, "plus", text="Add selected")
 
     def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)

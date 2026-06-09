@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
 
 from .a11y import set_accessible
 from .appearance import get_theme_id
+from .icons import set_button_fa_icon, set_label_fa_icon
 from ..safety.safety_index import SafetyIndex, tier_color_hex
 from ..safety.safety_trend import SafetyTrend
 from .theme import safety_progress_bar_style
@@ -42,6 +43,7 @@ class SafetyIndexPanel(QGroupBox):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__("Grid Safety Index", parent)
+        self.setFlat(True)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
@@ -60,6 +62,7 @@ class SafetyIndexPanel(QGroupBox):
         header.addWidget(self.tier_label)
         header.addStretch()
         self.btn_guide = QPushButton("Guide")
+        set_button_fa_icon(self.btn_guide, "book-open", text="Guide", icon_size=14)
         self.btn_guide.setObjectName("hintLinkBtn")
         self.btn_guide.setFlat(True)
         self.btn_guide.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -165,11 +168,11 @@ class SafetyIndexPanel(QGroupBox):
 
         self.score_label.setText(f"{safety.score:.0f}")
         self.score_label.setStyleSheet(f"color: {color};")
-        if trend is not None and trend.arrow:
-            self.trend_label.setText(trend.arrow)
+        if trend is not None and trend.icon_name:
+            set_label_fa_icon(self.trend_label, trend.icon_name, pixel_size=18)
             trend_color = trend.color_hex if trend.direction in ("improving", "worsening") else color
             self.trend_label.setStyleSheet(
-                f"color: {trend_color}; font-size: 18px; font-weight: 700; padding: 0 4px;"
+                f"color: {trend_color}; padding: 0 4px;"
             )
             self.trend_label.setToolTip("\n".join(trend.tooltip_lines()))
         else:

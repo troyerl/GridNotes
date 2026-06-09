@@ -19,6 +19,7 @@ from ..privacy.streamer_mode import streamer_display_name
 from ..safety.safety_index import SafetyIndex, tier_color_hex
 from ..safety.safety_trend import SafetyTrend, combined_safety_tooltip
 from .a11y import driver_mark_label, set_accessible
+from .icons import apply_solid_font, driver_mark_glyphs, trend_rich_span
 from .live_driver_expand import LiveDriverExpandPanel
 from .theme import configure_scroll_area
 
@@ -77,6 +78,9 @@ class GridWalkRow(QFrame):
 
         self.new_label = QLabel("New")
         self.new_label.setObjectName("gridWalkNewBadge")
+        self.new_label.setToolTip(
+            "Not in your race book yet. Import results or scout this session to build history."
+        )
         self.new_label.setVisible(False)
         layout.addWidget(self.new_label)
 
@@ -194,15 +198,26 @@ class GridWalkRow(QFrame):
 
         if safety is not None and safety.tier != "unknown":
             score_text = f"{safety.score:.0f}"
-            if safety_trend is not None and safety_trend.arrow:
-                score_text = f"{score_text}{safety_trend.arrow}"
             color = tier_color_hex(safety.tier)
             if safety_trend is not None and safety_trend.direction in (
                 "improving",
                 "worsening",
             ):
                 color = safety_trend.color_hex
-            self.score_label.setText(score_text)
+            if safety_trend is not None and safety_trend.icon_name:
+                trend_color = (
+                    safety_trend.color_hex
+                    if safety_trend.direction in ("improving", "worsening")
+                    else color
+                )
+                self.score_label.setTextFormat(Qt.TextFormat.RichText)
+                self.score_label.setText(
+                    f"{score_text}"
+                    f"{trend_rich_span(safety_trend.direction, color=trend_color, pixel_size=12)}"
+                )
+            else:
+                self.score_label.setTextFormat(Qt.TextFormat.PlainText)
+                self.score_label.setText(score_text)
             self.score_label.setStyleSheet(f"color: {color}; font-weight: 800;")
             tooltip = combined_safety_tooltip(safety, safety_trend)
         else:
@@ -217,8 +232,13 @@ class GridWalkRow(QFrame):
             league_tip = f"League racer: {league_label}"
             tooltip = f"{tooltip}\n{league_tip}" if tooltip else league_tip
 
-        mark = driver_mark_label(pref, risky) or ""
+        mark = driver_mark_glyphs(pref, risky)
         self.mark_label.setText(mark)
+        if mark:
+            apply_solid_font(self.mark_label, pixel_size=13)
+            self.mark_label.setToolTip(driver_mark_label(pref, risky) or "")
+        else:
+            self.mark_label.setToolTip("")
         self.setToolTip(tooltip)
 
         self.setProperty("role", role)

@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -24,6 +25,13 @@ from ..safety.safety_trend import SafetyTrend
 from ..iracing.session_kind import session_kind_label
 from .a11y import set_accessible
 from .grid_walk_view import GridWalkView
+from .icons import (
+    apply_solid_font,
+    fa,
+    set_button_fa_icon,
+    set_label_fa_icon,
+    trend_rich_span,
+)
 from .live_driver_expand import LiveDriverExpandPanel
 from .theme import configure_scroll_area
 
@@ -61,6 +69,9 @@ class LiveDriverCard(QFrame):
         name_row.addWidget(self.name_label, stretch=1)
         self.new_label = QLabel("New")
         self.new_label.setObjectName("liveNewBadge")
+        self.new_label.setToolTip(
+            "Not in your race book yet. Import results or scout this session to build history."
+        )
         self.new_label.setVisible(False)
         name_row.addWidget(self.new_label)
         self.league_label = QLabel("League")
@@ -118,12 +129,14 @@ class LiveDriverCard(QFrame):
         score_col.addWidget(self.tier_label)
         layout.addLayout(score_col)
 
-        self.expand_chevron = QLabel("▸")
-        self.expand_chevron.setObjectName("liveExpandChevron")
-        self.expand_chevron.setAlignment(
+        self.expand_hint = QLabel()
+        self.expand_hint.setObjectName("liveExpandChevron")
+        self.expand_hint.setAlignment(
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         )
-        layout.addWidget(self.expand_chevron)
+        self.expand_hint.setToolTip("Click this driver to expand scouting notes and stats")
+        set_label_fa_icon(self.expand_hint, "chevron-down", pixel_size=16)
+        layout.addWidget(self.expand_hint)
 
         outer.addWidget(self.summary_frame)
 
@@ -144,8 +157,24 @@ class LiveDriverCard(QFrame):
 
     def set_expanded(self, expanded: bool) -> None:
         self._expanded = expanded
-        self.expand_panel.setVisible(expanded)
-        self.expand_chevron.setText("▾" if expanded else "▸")
+        if expanded:
+            self.expand_panel.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+            )
+            self.expand_panel.setMinimumHeight(0)
+            self.expand_panel.setMaximumHeight(16777215)
+            self.expand_panel.setVisible(True)
+            set_label_fa_icon(self.expand_hint, "chevron-up", pixel_size=16)
+            self.expand_hint.setToolTip("Click to collapse scouting details")
+        else:
+            self.expand_panel.setSizePolicy(
+                QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored
+            )
+            self.expand_panel.setMinimumHeight(0)
+            self.expand_panel.setMaximumHeight(0)
+            self.expand_panel.setVisible(False)
+            set_label_fa_icon(self.expand_hint, "chevron-down", pixel_size=16)
+            self.expand_hint.setToolTip("Click this driver to expand scouting notes and stats")
         self.setProperty("expanded", expanded)
         self.style().unpolish(self)
         self.style().polish(self)
@@ -213,9 +242,20 @@ class LiveDriverCard(QFrame):
             self.profile_label.setText(safety.profile)
             color = tier_color_hex(safety.tier)
             score_text = f"{safety.score:.0f}"
-            if safety_trend is not None and safety_trend.arrow:
-                score_text = f"{score_text} {safety_trend.arrow}"
-            self.score_label.setText(score_text)
+            if safety_trend is not None and safety_trend.icon_name:
+                trend_color = (
+                    safety_trend.color_hex
+                    if safety_trend.direction in ("improving", "worsening")
+                    else color
+                )
+                self.score_label.setTextFormat(Qt.TextFormat.RichText)
+                self.score_label.setText(
+                    f"{score_text} "
+                    f"{trend_rich_span(safety_trend.direction, color=trend_color, pixel_size=14)}"
+                )
+            else:
+                self.score_label.setTextFormat(Qt.TextFormat.PlainText)
+                self.score_label.setText(score_text)
             if safety_trend is not None and safety_trend.direction in ("improving", "worsening"):
                 color = safety_trend.color_hex
             self.score_label.setStyleSheet(f"color: {color};")
@@ -267,13 +307,18 @@ class LiveDriverCard(QFrame):
 
         if pref == 1:
             self.setProperty("pref", "like")
-            self.pref_label.setText("Liked")
+            self.pref_label.setText(fa("thumbs-up"))
+            self.pref_label.setToolTip("Liked")
+            apply_solid_font(self.pref_label, pixel_size=14)
         elif pref == -1:
             self.setProperty("pref", "dislike")
-            self.pref_label.setText("Disliked")
+            self.pref_label.setText(fa("thumbs-down"))
+            self.pref_label.setToolTip("Disliked")
+            apply_solid_font(self.pref_label, pixel_size=14)
         else:
             self.setProperty("pref", "")
             self.pref_label.setText("")
+            self.pref_label.setToolTip("")
 
         tier_text = tier_label(safety.tier) if safety.tier != "unknown" else ""
         a11y_name = (
@@ -340,6 +385,7 @@ class LiveSessionView(QWidget):
         header_layout.addWidget(self.chk_audio_spotter)
 
         self.btn_grid_walk = QPushButton("Grid Walk")
+        set_button_fa_icon(self.btn_grid_walk, "grip", text="Grid Walk")
         self.btn_grid_walk.setObjectName("liveGridWalkBtn")
         self.btn_grid_walk.setCheckable(True)
         self.btn_grid_walk.setToolTip(
@@ -349,6 +395,7 @@ class LiveSessionView(QWidget):
         header_layout.addWidget(self.btn_grid_walk)
 
         self.btn_scouting_guide = QPushButton("Guide")
+        set_button_fa_icon(self.btn_scouting_guide, "book-open", text="Guide", icon_size=14)
         self.btn_scouting_guide.setObjectName("hintLinkBtn")
         self.btn_scouting_guide.setFlat(True)
         self.btn_scouting_guide.setCursor(Qt.CursorShape.PointingHandCursor)

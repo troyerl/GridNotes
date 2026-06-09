@@ -26,6 +26,10 @@ def _read_app_version() -> str:
 _APP_VERSION = _read_app_version()
 
 _datas = [("icon.png", ".")]
+if os.path.isdir("gridnotes/assets/fonts"):
+    _datas.append(("gridnotes/assets/fonts/fa-solid-900.ttf", "gridnotes/assets/fonts"))
+    if os.path.isfile("gridnotes/assets/fonts/LICENSE.txt"):
+        _datas.append(("gridnotes/assets/fonts/LICENSE.txt", "gridnotes/assets/fonts"))
 if os.path.isfile("LICENSE"):
     _datas.append(("LICENSE", "."))
 if os.path.isfile("icon.ico"):

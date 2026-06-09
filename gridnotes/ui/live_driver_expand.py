@@ -19,6 +19,7 @@ from ..data.note_tags import chip_label, load_note_tags
 from ..safety.safety_index import SafetyIndex, empty_safety
 from ..safety.safety_trend import SafetyTrend
 from .a11y import set_accessible
+from .icons import set_button_fa_icon
 from .safety_widgets import SafetyIndexPanel
 from .theme import configure_widget_scrollbars
 
@@ -79,6 +80,7 @@ class LiveDriverExpandPanel(QFrame):
         layout.addWidget(self.safety_panel)
 
         notes_group = QGroupBox("Scouting notes")
+        notes_group.setFlat(True)
         notes_layout = QVBoxLayout(notes_group)
         notes_layout.setSpacing(8)
         self.notes_edit = QTextEdit()
@@ -99,18 +101,22 @@ class LiveDriverExpandPanel(QFrame):
         layout.addWidget(notes_group)
 
         pref_group = QGroupBox("How was racing with them?")
+        pref_group.setFlat(True)
         pref_layout = QHBoxLayout(pref_group)
         self.btn_like = QPushButton("Liked")
+        set_button_fa_icon(self.btn_like, "thumbs-up", text="Liked")
         self.btn_like.setObjectName("prefLike")
         self.btn_like.setCheckable(True)
         self.btn_like.clicked.connect(lambda: self.preference_requested.emit(1))
         pref_layout.addWidget(self.btn_like)
         self.btn_dislike = QPushButton("Didn't like")
+        set_button_fa_icon(self.btn_dislike, "thumbs-down", text="Didn't like")
         self.btn_dislike.setObjectName("prefDislike")
         self.btn_dislike.setCheckable(True)
         self.btn_dislike.clicked.connect(lambda: self.preference_requested.emit(-1))
         pref_layout.addWidget(self.btn_dislike)
         self.btn_clear = QPushButton("Clear")
+        set_button_fa_icon(self.btn_clear, "eraser", text="Clear")
         self.btn_clear.clicked.connect(lambda: self.preference_requested.emit(None))
         pref_layout.addWidget(self.btn_clear)
         layout.addWidget(pref_group)
@@ -120,6 +126,7 @@ class LiveDriverExpandPanel(QFrame):
         self.status_label.setObjectName("sectionHint")
         action_row.addWidget(self.status_label, stretch=1)
         self.btn_save = QPushButton("Save notes")
+        set_button_fa_icon(self.btn_save, "floppy-disk", text="Save notes")
         self.btn_save.setObjectName("primaryBtn")
         self.btn_save.clicked.connect(self._emit_save)
         action_row.addWidget(self.btn_save)

@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from .icons import BUTTON_ICON_TEXT_GAP, fa_icon, settings_section_icon
 from .theme import configure_scroll_area
 
 
@@ -215,8 +216,11 @@ class AccordionSection(QFrame):
         self._sync_header_text()
 
     def _sync_header_text(self) -> None:
-        arrow = "▼" if self._header.isChecked() else "▸"
-        self._header.setText(f"{arrow}  {self._title}")
+        icon = "chevron-down" if self._header.isChecked() else "chevron-right"
+        self._header.setIcon(
+            fa_icon(icon, size=12, text_gap=BUTTON_ICON_TEXT_GAP)
+        )
+        self._header.setText(self._title)
 
     def _on_header_clicked(self) -> None:
         expanded = self._header.isChecked()
@@ -328,6 +332,11 @@ class SettingsSectionNavigator:
 
         button = QPushButton(title)
         button.setObjectName("settingsNavItem")
+        icon_name = settings_section_icon(title)
+        if icon_name:
+            button.setIcon(
+                fa_icon(icon_name, size=14, text_gap=BUTTON_ICON_TEXT_GAP)
+            )
         button.setCheckable(True)
         button.setCursor(Qt.CursorShape.PointingHandCursor)
         self._button_group.addButton(button, index)

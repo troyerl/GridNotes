@@ -10,6 +10,17 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.58 — 2026-06-09
+
+### Improved
+
+- **Icons across the app** — Toolbar, tabs, settings navigation, driver marks, form-trend arrows, pagination, and common actions now use **Font Awesome Free** icons alongside labels (tooltips and screen-reader names unchanged). Attribution is in **Settings → Legal → Third-party notices**.
+- **Button layout** — Clearer gap between icon and text on buttons.
+- **Live Mode — “New” badge** — Drivers not in your book yet show a subtle italic **New** label instead of a blue pill that looked like a clickable control.
+- **Live Mode — expand control** — Chevron icons on driver cards replace **Details** / **Close** text.
+
+---
+
 ## v1.0.57 — 2026-06-07
 
 ### Fixed

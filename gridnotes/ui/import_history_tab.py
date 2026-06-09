@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
 from ..core.timestamps import format_last_seen
 from ..data.db import connect_db, get_db_path
 from ..data.import_history import count_import_history, fetch_import_history
+from .icons import set_button_fa_icon
 from ..data.leagues import (
     clear_session_league_race,
     fetch_leagues,
@@ -270,6 +271,9 @@ class ImportHistoryTab(QWidget):
         self.status_label.setObjectName("sectionHint")
         self.status_label.setWordWrap(True)
         layout.addWidget(self.status_label)
+
+        set_button_fa_icon(self.btn_mark_league, "tag", text="Mark as league race…")
+        set_button_fa_icon(self.btn_clear_league, "eraser", text="Clear league tag")
 
     def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)
