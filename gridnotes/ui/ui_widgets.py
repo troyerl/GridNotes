@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .icons import BUTTON_ICON_TEXT_GAP, fa_icon, settings_section_icon
+from .icons import BUTTON_ICON_TEXT_GAP, current_icon_fg, fa_icon, settings_section_icon
 from .theme import configure_scroll_area
 
 
@@ -218,7 +218,12 @@ class AccordionSection(QFrame):
     def _sync_header_text(self) -> None:
         icon = "chevron-down" if self._header.isChecked() else "chevron-right"
         self._header.setIcon(
-            fa_icon(icon, size=12, text_gap=BUTTON_ICON_TEXT_GAP)
+            fa_icon(
+                icon,
+                size=12,
+                color_key=current_icon_fg(),
+                text_gap=BUTTON_ICON_TEXT_GAP,
+            )
         )
         self._header.setText(self._title)
 
@@ -335,7 +340,12 @@ class SettingsSectionNavigator:
         icon_name = settings_section_icon(title)
         if icon_name:
             button.setIcon(
-                fa_icon(icon_name, size=14, text_gap=BUTTON_ICON_TEXT_GAP)
+                fa_icon(
+                    icon_name,
+                    size=14,
+                    color_key=current_icon_fg(),
+                    text_gap=BUTTON_ICON_TEXT_GAP,
+                )
             )
         button.setCheckable(True)
         button.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -363,3 +373,17 @@ class SettingsSectionNavigator:
 
     def index_of_page(self, page: QWidget) -> int:
         return self.stack.indexOf(page)
+
+    def refresh_icons(self) -> None:
+        icon_color = current_icon_fg()
+        for button in self._button_group.buttons():
+            icon_name = settings_section_icon(button.text())
+            if icon_name:
+                button.setIcon(
+                    fa_icon(
+                        icon_name,
+                        size=14,
+                        color_key=icon_color,
+                        text_gap=BUTTON_ICON_TEXT_GAP,
+                    )
+                )

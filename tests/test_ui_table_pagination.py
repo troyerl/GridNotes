@@ -23,7 +23,7 @@ def test_table_pagination_update_state_sessions_label(qapp):
         item_label="sessions",
     )
     assert bar._summary.text() == "Showing 1–50 of 120 sessions"
-    assert bar._page_label.text() == "Page 1 of 3"
+    assert bar._page_label.text() == "1 / 3"
     assert not bar._btn_prev.isEnabled()
     assert bar._btn_next.isEnabled()
 

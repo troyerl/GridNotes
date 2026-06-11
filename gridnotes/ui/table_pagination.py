@@ -25,16 +25,17 @@ class TablePaginationBar(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.setObjectName("tablePaginationBar")
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 6, 0, 0)
-        layout.setSpacing(8)
+        layout.setContentsMargins(0, 8, 0, 0)
+        layout.setSpacing(10)
 
         self._summary = QLabel("")
         self._summary.setObjectName("sectionHint")
         layout.addWidget(self._summary)
         layout.addStretch()
 
-        rows_label = QLabel("Rows per page")
+        rows_label = QLabel("Rows per page:")
         rows_label.setObjectName("statInlineLabel")
         layout.addWidget(rows_label)
 
@@ -46,10 +47,6 @@ class TablePaginationBar(QWidget):
         self._page_size.currentIndexChanged.connect(self._emit_page_size)
         layout.addWidget(self._page_size)
 
-        self._page_label = QLabel("")
-        self._page_label.setObjectName("sectionHint")
-        layout.addWidget(self._page_label)
-
         self._btn_prev = QPushButton()
         set_button_fa_icon(self._btn_prev, "chevron-left", icon_only=True, icon_size=14)
         self._btn_prev.setToolTip("Previous page")
@@ -57,12 +54,21 @@ class TablePaginationBar(QWidget):
         self._btn_prev.clicked.connect(self.previous_clicked.emit)
         layout.addWidget(self._btn_prev)
 
+        self._page_label = QLabel("")
+        self._page_label.setObjectName("sectionHint")
+        self._page_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self._page_label)
+
         self._btn_next = QPushButton()
         set_button_fa_icon(self._btn_next, "chevron-right", icon_only=True, icon_size=14)
         self._btn_next.setToolTip("Next page")
         set_accessible(self._btn_next, "Next page", "Go to the next page of results.")
         self._btn_next.clicked.connect(self.next_clicked.emit)
         layout.addWidget(self._btn_next)
+
+    def refresh_icons(self) -> None:
+        set_button_fa_icon(self._btn_prev, "chevron-left", icon_only=True, icon_size=14)
+        set_button_fa_icon(self._btn_next, "chevron-right", icon_only=True, icon_size=14)
 
     def page_size(self) -> int:
         value = self._page_size.currentData()
@@ -84,15 +90,25 @@ class TablePaginationBar(QWidget):
         start: int,
         end: int,
         item_label: str = "drivers",
+        likes: int | None = None,
+        dislikes: int | None = None,
+        risks: int | None = None,
     ) -> None:
         if total <= 0:
             self._summary.setText(f"No {item_label} match the current filters.")
-            self._page_label.setText("")
+            self._page_label.setText("0 / 0")
         else:
-            self._summary.setText(f"Showing {start}–{end} of {total} {item_label}")
-            self._page_label.setText(f"Page {page + 1} of {page_count}")
+            summary = f"Showing {start}–{end} of {total} {item_label}"
+            if likes is not None and dislikes is not None and risks is not None:
+                summary += (
+                    f"  |  Total Likes: {likes}"
+                    f"  |  Total Dislikes: {dislikes}"
+                    f"  |  Total Risks: {risks}"
+                )
+            self._summary.setText(summary)
+            self._page_label.setText(f"{page + 1} / {page_count}")
         self._btn_prev.setEnabled(page > 0)
-        self._btn_next.setEnabled(page < page_count - 1)
+        self._btn_next.setEnabled(page < page_count - 1 and total > 0)
 
     def _emit_page_size(self, _index: int) -> None:
         self.page_size_changed.emit(self.page_size())

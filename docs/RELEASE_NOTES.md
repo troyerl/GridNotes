@@ -10,6 +10,23 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.59 — 2026-06-10
+
+### New
+
+- **Visual redesign** — Updated layout and styling across the main window: top toolbar, tab bar, driver search row, scouting sidebar, and table footer (including likes / dislikes / risks summary and pagination).
+
+### Improved
+
+- **Light mode** — Button and label icons use theme-aware dark gray colors; icon colors follow the active theme when previewing Light in Settings before saving.
+- **Settings → Data** — **Name to hide** and **Reset all data** moved from the Drivers tab into Settings (save hidden name with **Save settings**).
+
+### Changed
+
+- **Header** — Removed the OS username and profile icon from the top bar.
+
+---
+
 ## v1.0.58 — 2026-06-09
 
 ### Improved

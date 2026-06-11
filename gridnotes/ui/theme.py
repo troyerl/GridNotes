@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .appearance import THEME_DARK_ID, THEME_LIGHT_ID, get_theme_id
+from .appearance import THEME_DARK_ID, THEME_LIGHT_ID, get_theme_id, set_active_theme_id
 from .theme_tokens import THEME_DARK, THEME_LIGHT, theme_tokens
 
 STYLESHEET_TEMPLATE = """
@@ -35,6 +35,207 @@ QToolTip {
     border: 1px solid {{border_strong}};
     border-radius: 6px;
     padding: 6px 10px;
+}
+
+QFrame#topHeaderBar {
+    background-color: {{bg_elevated}};
+    border: 1px solid {{border}};
+    border-radius: 12px;
+    padding: 4px 8px;
+}
+
+QFrame#driversToolbar {
+    background-color: transparent;
+    border: none;
+}
+
+QFrame#searchInputWrapper {
+    background-color: {{bg_window}};
+    border: 1px solid {{border_strong}};
+    border-radius: 10px;
+    padding: 0 4px;
+}
+
+QFrame#searchInputWrapper:focus-within {
+    border: 2px solid {{focus_ring}};
+}
+
+QLineEdit#driverSearchInput {
+    background: transparent;
+    border: none;
+    padding: 8px 6px;
+    font-size: 13px;
+}
+
+QLineEdit#driverSearchInput:focus {
+    border: none;
+}
+
+QLabel#searchInputIcon {
+    color: {{icon_muted}};
+    font-size: 14px;
+    padding: 0 4px 0 8px;
+    background: transparent;
+}
+
+QFrame#filtersBar {
+    background-color: {{bg_elevated}};
+    border: 1px solid {{border}};
+    border-radius: 10px;
+    padding: 2px 8px;
+}
+
+QPushButton#headerBtn {
+    background-color: {{bg_button}};
+    border: 1px solid {{border_strong}};
+    border-radius: 10px;
+    padding: 8px 14px;
+    font-weight: 600;
+    min-height: 20px;
+    color: {{text_primary}};
+}
+
+QPushButton#headerBtn:hover {
+    background-color: {{bg_button_hover}};
+    border-color: {{scrollbar_handle}};
+}
+
+QPushButton#headerBtn:pressed {
+    background-color: {{bg_button_pressed}};
+}
+
+QFrame#scoutingSidebar {
+    background-color: {{bg_elevated}};
+    border: 1px solid {{border}};
+    border-radius: 12px;
+}
+
+QFrame#emptyStateCard {
+    background-color: {{bg_window}};
+    border: 1px dashed {{border_strong}};
+    border-radius: 12px;
+    padding: 24px;
+}
+
+QLabel#emptyStateIcon {
+    font-size: 32px;
+    color: {{icon_muted}};
+    background: transparent;
+}
+
+QLabel#prefBadge {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    padding: 4px 10px;
+    border-radius: 6px;
+}
+
+QLabel#prefBadge[status="liked"] {
+    background-color: {{pref_like_bg}};
+    color: {{pref_like_fg}};
+    border: 1px solid {{pref_like_border}};
+}
+
+QLabel#prefBadge[status="disliked"] {
+    background-color: {{pref_dislike_bg}};
+    color: {{pref_dislike_fg}};
+    border: 1px solid {{pref_dislike_border}};
+}
+
+QLabel#prefBadge[status="risk"] {
+    background-color: {{warning_bg}};
+    color: {{warning_text}};
+}
+
+QPushButton#prefRatingBtn {
+    border-radius: 10px;
+    padding: 12px 16px;
+    font-weight: 700;
+    font-size: 13px;
+    min-height: 24px;
+}
+
+QPushButton#prefLikeBtn {
+    background-color: {{pref_like_bg}};
+    border: 1px solid {{pref_like_border}};
+    color: {{pref_like_fg}};
+}
+
+QPushButton#prefLikeBtn:hover {
+    background-color: {{success_btn}};
+    border-color: {{success_btn}};
+    color: {{text_on_accent}};
+}
+
+QPushButton#prefLikeBtn[selected="true"] {
+    background-color: {{success_btn}};
+    border-color: {{success_border}};
+    color: {{text_on_accent}};
+}
+
+QPushButton#prefDislikeBtn {
+    background-color: {{pref_dislike_bg}};
+    border: 1px solid {{pref_dislike_border}};
+    color: {{pref_dislike_fg}};
+}
+
+QPushButton#prefDislikeBtn:hover {
+    background-color: {{danger_btn_border}};
+    border-color: {{danger_border}};
+    color: {{text_on_accent}};
+}
+
+QPushButton#prefDislikeBtn[selected="true"] {
+    background-color: {{danger_btn_border}};
+    border-color: {{danger_text}};
+    color: {{text_on_accent}};
+}
+
+QPushButton#prefClearBtn {
+    background-color: {{warning_bg}};
+    border: 1px solid {{warning_accent}};
+    color: {{warning_text}};
+}
+
+QPushButton#prefClearBtn:hover {
+    background-color: {{warning_accent}};
+    color: {{text_on_accent}};
+}
+
+QPushButton#gradientBtn {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 {{gradient_start}}, stop:1 {{gradient_end}});
+    border: none;
+    border-radius: 10px;
+    color: {{text_on_accent}};
+    font-weight: 700;
+    font-size: 14px;
+    padding: 12px 20px;
+    min-height: 22px;
+}
+
+QPushButton#gradientBtn:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 {{accent_hover}}, stop:1 {{gradient_end}});
+}
+
+QPushButton#gradientBtn:disabled {
+    background: {{bg_button}};
+    color: {{text_disabled}};
+}
+
+QLabel#userProfileLabel {
+    font-size: 13px;
+    font-weight: 600;
+    color: {{text_primary}};
+    background: transparent;
+}
+
+QLabel#userProfileIcon {
+    font-size: 22px;
+    color: {{icon_muted}};
+    background: transparent;
 }
 
 QLabel#appTitle {
@@ -104,10 +305,26 @@ QGroupBox {
     font-weight: 600;
     color: {{text_group}};
     border: 1px solid {{border}};
-    border-radius: 8px;
+    border-radius: 10px;
     margin-top: 10px;
     padding: 14px 12px 10px 12px;
-    background-color: {{bg_elevated}};
+    background-color: {{bg_window}};
+}
+
+QFrame#scoutingSidebar QGroupBox {
+    border: none;
+    background-color: transparent;
+    margin-top: 4px;
+    padding: 8px 0 0 0;
+}
+
+QFrame#scoutingSidebar QGroupBox::title {
+    color: {{text_heading}};
+    font-size: 13px;
+    font-weight: 700;
+    subcontrol-origin: margin;
+    left: 0;
+    padding: 0 0 6px 0;
 }
 
 QGroupBox::title {
@@ -117,9 +334,9 @@ QGroupBox::title {
 }
 
 QFrame#panel {
-    background-color: {{bg_elevated}};
-    border: 1px solid {{border}};
-    border-radius: 10px;
+    background-color: transparent;
+    border: none;
+    border-radius: 0;
 }
 
 QLineEdit, QTextEdit {
@@ -178,7 +395,8 @@ QPushButton#chipBtn {
     min-height: 26px;
     border-radius: 14px;
     background-color: {{bg_header}};
-    border: 1px solid {{bg_button_pressed}};
+    border: 1px solid {{border_strong}};
+    color: {{text_primary}};
     font-weight: 600;
 }
 
@@ -228,18 +446,20 @@ QPushButton#dangerBtn:hover {
     background-color: {{danger_btn_hover}};
 }
 
-QPushButton#prefLike[selected="true"] {
-    background-color: {{like_border}};
-    border-color: {{success_btn}};
-    color: {{live_verdict_low}};
-    font-weight: 600;
+QPushButton#prefLike[selected="true"],
+QPushButton#prefLikeBtn[selected="true"] {
+    background-color: {{success_btn}};
+    border-color: {{success_border}};
+    color: {{text_on_accent}};
+    font-weight: 700;
 }
 
-QPushButton#prefDislike[selected="true"] {
+QPushButton#prefDislike[selected="true"],
+QPushButton#prefDislikeBtn[selected="true"] {
     background-color: {{danger_btn_border}};
-    border-color: {{danger_border}};
-    color: {{danger_text_light}};
-    font-weight: 600;
+    border-color: {{danger_text}};
+    color: {{text_on_accent}};
+    font-weight: 700;
 }
 
 QCheckBox {
@@ -345,11 +565,11 @@ QTableWidget#leagueCandidatesTable QHeaderView::section {
 }
 
 QTableWidget#driverTable {
-    font-size: 14px;
+    font-size: 13px;
     background-color: {{bg_window}};
     color: {{text_primary}};
-    border: 1px solid {{border_strong}};
-    border-radius: 6px;
+    border: 1px solid {{border}};
+    border-radius: 10px;
     padding: 0;
     selection-background-color: {{selection_bg}};
     selection-color: {{text_on_accent}};
@@ -904,48 +1124,47 @@ QProgressBar#safetyComponentBar::chunk {
 }
 
 QTabWidget#mainTabs::pane {
-    border: 1px solid {{border}};
-    border-radius: 0 8px 8px 8px;
-    background-color: {{bg_window}};
-    top: -1px;
+    border: none;
+    border-radius: 0;
+    background-color: transparent;
+    top: 0;
 }
 
 QTabWidget#mainTabs > QTabBar {
     background: transparent;
     border: none;
+    border-bottom: 1px solid {{border}};
 }
 
 QTabWidget#mainTabs > QTabBar::tab {
-    background-color: {{bg_elevated}};
-    color: {{text_muted}};
-    border: 1px solid {{border}};
-    border-bottom: none;
+    background-color: transparent;
+    color: {{text_secondary}};
+    border: none;
+    border-bottom: 3px solid transparent;
     border-top-left-radius: 8px;
     border-top-right-radius: 8px;
-    padding: 12px 28px;
-    margin-right: 6px;
+    padding: 10px 20px;
+    margin-right: 4px;
     font-weight: 600;
-    font-size: 14px;
-    min-width: 108px;
+    font-size: 13px;
+    min-width: 96px;
 }
 
 QTabWidget#mainTabs > QTabBar::tab:selected {
-    background-color: {{accent}};
-    color: {{text_on_accent}};
-    border-color: {{accent}};
+    background-color: {{bg_header}};
+    color: {{text_heading}};
+    border-bottom: 3px solid {{accent}};
     font-weight: 700;
-    font-size: 14px;
 }
 
 QTabWidget#mainTabs > QTabBar::tab:selected:hover {
-    background-color: {{accent_hover}};
-    border-color: {{accent_hover}};
+    background-color: {{bg_header_hover}};
+    color: {{text_heading}};
 }
 
 QTabWidget#mainTabs > QTabBar::tab:hover:!selected {
-    background-color: {{bg_button_hover}};
+    background-color: {{bg_elevated}};
     color: {{text_primary}};
-    border-color: {{border_strong}};
 }
 
 QTabWidget#mainTabs > QTabBar::tab:focus {
@@ -1183,7 +1402,7 @@ QPushButton#settingsNavItem {
     border: none;
     border-radius: 6px;
     background-color: transparent;
-    color: {{text_group}};
+    color: {{text_primary}};
     font-weight: 600;
 }
 
@@ -1289,6 +1508,7 @@ def apply_app_theme(app: QApplication, theme_id: str | None = None) -> str:
     """Apply stylesheet globally; returns the theme id applied."""
     if theme_id is None:
         theme_id = get_theme_id()
+    theme_id = set_active_theme_id(theme_id)
     app.setStyleSheet(build_stylesheet(theme_id))
     try:
         from .icons import clear_icon_cache
@@ -1313,20 +1533,20 @@ def refresh_widget_tree(root: QWidget) -> None:
 
 TABLE_ROW_COLORS = {
     THEME_DARK_ID: {
-        "liked": (42, 72, 52),
-        "liked_hover": (54, 96, 66),
-        "liked_selected": (50, 88, 98),
-        "disliked": (72, 42, 42),
-        "disliked_hover": (96, 52, 52),
-        "disliked_selected": (92, 52, 82),
-        "hover": (45, 52, 64),
-        "risky": (72, 62, 32),
-        "risky_hover": (92, 80, 44),
-        "risky_selected": (78, 72, 58),
-        "alternate": (30, 35, 43),
-        "base": (26, 30, 36),
+        "liked": (28, 48, 36),
+        "liked_hover": (36, 62, 46),
+        "liked_selected": (40, 68, 78),
+        "disliked": (52, 28, 28),
+        "disliked_hover": (68, 36, 36),
+        "disliked_selected": (64, 36, 58),
+        "hover": (32, 32, 38),
+        "risky": (52, 44, 24),
+        "risky_hover": (64, 56, 30),
+        "risky_selected": (56, 50, 40),
+        "alternate": (22, 22, 26),
+        "base": (18, 18, 20),
         "highlight_fg": (232, 234, 237),
-        "selected_bg": (45, 74, 122),
+        "selected_bg": (55, 78, 140),
         "selected_fg": (255, 255, 255),
     },
     THEME_LIGHT_ID: {

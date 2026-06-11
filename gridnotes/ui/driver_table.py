@@ -25,7 +25,7 @@ from ..core.utils import sqlite_row_to_int
 from ..data.leagues import compact_league_indicator
 from ..data.driver_models import DriverTableRow
 from .a11y import driver_mark_label
-from .icons import driver_mark_glyphs, fa, mark_item_font
+from .icons import current_icon_fg, driver_mark_glyphs, fa, mark_item_font
 from .theme import table_row_color
 
 PREF_DATA_ROLE = Qt.ItemDataRole.UserRole + 1
@@ -323,6 +323,21 @@ class DriverTableDelegate(QStyledItemDelegate):
         painter.restore()
 
 
+def refresh_driver_table_icon_colors(table: QTableWidget) -> None:
+    """Re-apply icon glyph colors after a theme change."""
+    color = QColor(current_icon_fg())
+    for row_idx in range(table.rowCount()):
+        for col_idx in (COL_MARK, COL_NOTE):
+            item = table.item(row_idx, col_idx)
+            if item is None:
+                continue
+            text = item.text()
+            if not text or text == EMPTY_CELL:
+                continue
+            item.setForeground(color)
+    table.viewport().update()
+
+
 def configure_driver_table_widget(table: QTableWidget) -> None:
     """Shared table behavior: row selection with keyboard focus on the table widget."""
     table.setItemDelegate(DriverTableDelegate(table))
@@ -373,6 +388,7 @@ def make_mark_item(pref: int | None, risky: bool) -> QTableWidgetItem:
     if glyphs:
         item.setText(glyphs)
         item.setFont(mark_item_font())
+        item.setForeground(QColor(current_icon_fg()))
         item.setToolTip(label or "")
     else:
         item.setText(EMPTY_CELL)
@@ -400,6 +416,7 @@ def make_note_item(has_note: bool) -> QTableWidgetItem:
     if has_note:
         item.setText(fa("note-sticky"))
         item.setFont(mark_item_font())
+        item.setForeground(QColor(current_icon_fg()))
         item.setToolTip("Has scouting notes")
     return item
 

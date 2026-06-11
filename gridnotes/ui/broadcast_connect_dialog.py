@@ -75,7 +75,16 @@ class BroadcastConnectDialog(QDialog):
         )
         connect_btn = buttons.button(QDialogButtonBox.StandardButton.Ok)
         connect_btn.setText("Connect")
-        connect_btn.setIcon(fa_icon("plug", size=14, text_gap=BUTTON_ICON_TEXT_GAP))
+        from .icons import current_icon_fg
+
+        connect_btn.setIcon(
+            fa_icon(
+                "plug",
+                size=14,
+                color_key=current_icon_fg(),
+                text_gap=BUTTON_ICON_TEXT_GAP,
+            )
+        )
         buttons.accepted.connect(self._accept_manual_or_selected)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)

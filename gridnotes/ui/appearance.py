@@ -21,9 +21,29 @@ def normalize_theme_id(value: str | None) -> str:
     return THEME_DARK_ID
 
 
+_active_theme_id: str | None = None
+
+
 def get_theme_id() -> str:
     return normalize_theme_id(get_setting(THEME_SETTING_KEY, DEFAULT_THEME_ID))
 
 
+def active_theme_id() -> str:
+    """Theme currently applied to the UI (may differ from saved setting while previewing)."""
+    if _active_theme_id is not None:
+        return _active_theme_id
+    return get_theme_id()
+
+
+def set_active_theme_id(theme_id: str | None = None) -> str:
+    """Record the theme id used for stylesheets and theme-aware widgets."""
+    global _active_theme_id
+    resolved = get_theme_id() if theme_id is None else normalize_theme_id(theme_id)
+    _active_theme_id = resolved
+    return resolved
+
+
 def set_theme_id(theme_id: str) -> None:
-    set_setting(THEME_SETTING_KEY, normalize_theme_id(theme_id))
+    normalized = normalize_theme_id(theme_id)
+    set_setting(THEME_SETTING_KEY, normalized)
+    set_active_theme_id(normalized)

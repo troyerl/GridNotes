@@ -5,7 +5,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtGui import QColor, QFont, QFontDatabase, QFontMetrics, QIcon, QPainter, QPixmap
 from PyQt6.QtWidgets import QApplication, QLabel, QPushButton, QWidget
 
@@ -40,6 +40,7 @@ _GLYPHS: dict[str, str] = {
     "gear": "\uf013",
     "grip": "\uf58d",
     "link-slash": "\uf127",
+    "magnifying-glass": "\uf002",
     "minus": "\uf068",
     "note-sticky": "\uf249",
     "palette": "\uf53f",
@@ -59,6 +60,7 @@ _GLYPHS: dict[str, str] = {
     "triangle-exclamation": "\uf071",
     "trophy": "\uf091",
     "upload": "\uf093",
+    "user-circle": "\uf2bd",
     "user-plus": "\uf234",
     "user-secret": "\uf21b",
     "users": "\uf0c0",
@@ -86,12 +88,14 @@ _SETTINGS_SECTION_ICONS = {
 
 _MAIN_TAB_ICONS = {
     "Drivers": "users",
+    "Import History": "clock-rotate-left",
     "Import history": "clock-rotate-left",
     "Leagues": "trophy",
     "Settings": "gear",
 }
 
 _font_loaded = False
+_resolved_font_family: str | None = None
 
 
 def _assets_root() -> Path:
@@ -108,7 +112,7 @@ def _font_path() -> Path:
 
 def load_font() -> bool:
     """Register Font Awesome with Qt. Safe to call multiple times."""
-    global _font_loaded
+    global _font_loaded, _resolved_font_family
     if _font_loaded:
         return True
     path = _font_path()
@@ -117,6 +121,9 @@ def load_font() -> bool:
     font_id = QFontDatabase.addApplicationFont(str(path))
     if font_id < 0:
         return False
+    families = QFontDatabase.applicationFontFamilies(font_id)
+    if families:
+        _resolved_font_family = families[0]
     _font_loaded = True
     return True
 
@@ -138,8 +145,12 @@ def main_tab_icon(title: str) -> str | None:
     return _MAIN_TAB_ICONS.get(title)
 
 
+def _font_family_name() -> str:
+    return _resolved_font_family or FONT_FAMILY
+
+
 def solid_font(*, pixel_size: int = 14) -> QFont:
-    font = QFont(FONT_FAMILY)
+    font = QFont(_font_family_name())
     font.setPixelSize(pixel_size)
     font.setWeight(FONT_WEIGHT)
     return font
@@ -175,6 +186,61 @@ def trend_rich_span(direction: str, *, color: str | None = None, pixel_size: int
     return fa_rich_span(icon, color=color, pixel_size=pixel_size)
 
 
+def _active_tokens() -> dict[str, str]:
+    from .appearance import active_theme_id
+    from .theme_tokens import theme_tokens
+
+    return theme_tokens(active_theme_id())
+
+
+def current_icon_button() -> str:
+    tokens = _active_tokens()
+    return tokens.get("icon_button", tokens.get("icon_fg", "#e8eaed"))
+
+
+def current_icon_fg() -> str:
+    return _active_tokens().get("icon_fg", "#e8eaed")
+
+
+def current_icon_muted() -> str:
+    return _active_tokens().get("icon_muted", "#8a94a6")
+
+
+def _resolve_icon_color(color_key: str = "") -> QColor:
+    if color_key:
+        resolved = QColor(color_key)
+        if resolved.isValid():
+            return resolved
+    return QColor(current_icon_fg())
+
+
+def _icon_color_for_button(
+    button: QPushButton,
+    *,
+    icon_color: str | None = None,
+    on_accent: bool = False,
+) -> str:
+    if icon_color:
+        return icon_color
+    tokens = _active_tokens()
+    if on_accent:
+        return tokens["text_on_accent"]
+    obj = button.objectName()
+    if obj in ("gradientBtn", "primaryBtn"):
+        return tokens["text_on_accent"]
+    if obj == "prefLikeBtn":
+        if button.isCheckable() and button.isChecked():
+            return tokens["text_on_accent"]
+        return tokens["pref_like_fg"]
+    if obj == "prefDislikeBtn":
+        if button.isCheckable() and button.isChecked():
+            return tokens["text_on_accent"]
+        return tokens["pref_dislike_fg"]
+    if obj == "prefClearBtn":
+        return tokens["warning_text"]
+    return tokens.get("icon_button", tokens["icon_fg"])
+
+
 @lru_cache(maxsize=256)
 def fa_icon(
     name: str,
@@ -185,13 +251,7 @@ def fa_icon(
     glyph = fa(name)
     if not glyph:
         return QIcon()
-    color = QColor(color_key) if color_key else QColor()
-    if not color.isValid():
-        app = QApplication.instance()
-        if app is not None:
-            color = app.palette().color(app.palette().ColorRole.ButtonText)
-        else:
-            color = QColor("#e8e8e8")
+    color = _resolve_icon_color(color_key)
     font = solid_font(pixel_size=size)
     metrics = QFontMetrics(font)
     rect = metrics.boundingRect(glyph)
@@ -221,10 +281,16 @@ def set_button_fa_icon(
     text: str | None = None,
     icon_size: int = 15,
     icon_only: bool = False,
+    icon_color: str | None = None,
+    on_accent: bool = False,
 ) -> None:
     has_text = text is not None and text != ""
     gap = BUTTON_ICON_TEXT_GAP if has_text else 0
-    button.setIcon(fa_icon(name, size=icon_size, text_gap=gap))
+    color_key = _icon_color_for_button(
+        button, icon_color=icon_color, on_accent=on_accent
+    )
+    button.setIcon(fa_icon(name, size=icon_size, color_key=color_key, text_gap=gap))
+    button.setIconSize(QSize(icon_size, icon_size))
     if has_text:
         button.setText(text)
     elif icon_only:
@@ -234,9 +300,21 @@ def set_button_fa_icon(
     button.style().polish(button)
 
 
-def set_label_fa_icon(label: QLabel, name: str, *, pixel_size: int = 14) -> None:
+def set_label_fa_icon(
+    label: QLabel,
+    name: str,
+    *,
+    pixel_size: int = 14,
+    muted: bool = False,
+    color: str | None = None,
+) -> None:
+    if color is None:
+        color = current_icon_muted() if muted else current_icon_fg()
     label.setText(fa(name))
     apply_solid_font(label, pixel_size=pixel_size)
+    label.setStyleSheet(
+        f'color: {color}; background: transparent; font-family: "{_font_family_name()}";'
+    )
 
 
 def driver_mark_glyphs(pref: int | None, risky: bool) -> str:
@@ -265,7 +343,10 @@ def wire_main_tabs(tab_widget) -> None:
 
     if not isinstance(tab_widget, QTabWidget):
         return
+    icon_color = current_icon_fg()
     for index in range(tab_widget.count()):
         icon_name = main_tab_icon(tab_widget.tabText(index))
         if icon_name:
-            tab_widget.setTabIcon(index, fa_icon(icon_name, size=15))
+            tab_widget.setTabIcon(
+                index, fa_icon(icon_name, size=15, color_key=icon_color)
+            )

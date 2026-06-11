@@ -272,8 +272,15 @@ class ImportHistoryTab(QWidget):
         self.status_label.setWordWrap(True)
         layout.addWidget(self.status_label)
 
+        self._apply_icons()
+
+    def _apply_icons(self) -> None:
         set_button_fa_icon(self.btn_mark_league, "tag", text="Mark as league race…")
         set_button_fa_icon(self.btn_clear_league, "eraser", text="Clear league tag")
+
+    def refresh_icons(self) -> None:
+        self._apply_icons()
+        self.pagination.refresh_icons()
 
     def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)

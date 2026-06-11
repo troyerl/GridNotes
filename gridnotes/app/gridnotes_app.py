@@ -52,7 +52,7 @@ from ..data.driver_models import (
     format_shared_races_label,
 )
 from ..ui.a11y import driver_mark_label, set_accessible, set_button_tooltip
-from ..ui.icons import set_button_fa_icon, wire_main_tabs
+from ..ui.icons import set_button_fa_icon, set_label_fa_icon, wire_main_tabs
 from ..privacy.streamer_mode import (
     STREAMER_MODE_KEY,
     display_driver_name,
@@ -83,6 +83,7 @@ from ..ui.driver_table import (
     make_note_item,
     make_safety_item,
     make_table_item,
+    refresh_driver_table_icon_colors,
     refresh_driver_table_row,
     set_driver_table_hover_row,
     table_row_sort_key,
@@ -510,7 +511,7 @@ class GridNotesApp(QMainWindow):
         if active:
             self.search_input.setPlaceholderText("Search by alias (#14) or real name…")
         else:
-            self.search_input.setPlaceholderText("Search by name…")
+            self.search_input.setPlaceholderText("Search drivers by name…")
         self._begin_streamer_mode_refresh(enabling=active)
         QTimer.singleShot(0, self._complete_streamer_mode_toggle)
 
@@ -714,11 +715,7 @@ class GridNotesApp(QMainWindow):
         if stored.isdigit():
             return int(stored)
 
-        ignore_name = ""
-        if hasattr(self, "ignore_name_input"):
-            ignore_name = (self.ignore_name_input.text() or "").strip().lower()
-        if not ignore_name:
-            ignore_name = (get_setting("ignore_driver_name", "") or "").strip().lower()
+        ignore_name = self._hidden_driver_name_lc()
         if not ignore_name:
             return None
 
@@ -1005,6 +1002,7 @@ class GridNotesApp(QMainWindow):
     def _clear_driver_details(self) -> None:
         self.driver_name_label.clear()
         self.driver_meta_label.clear()
+        self._update_driver_pref_badge(None)
         for label in self._detail_fields.values():
             label.setText("—")
         if hasattr(self, "safety_index_panel"):
@@ -1052,21 +1050,58 @@ class GridNotesApp(QMainWindow):
         )
         trend = compute_safety_trend(detail.safety, recent.get(cust_id, []))
         self.safety_index_panel.update_safety(detail.safety, trend)
+        _, _, pref = self._fetch_driver_notes_meta(cust_id)
+        self._update_driver_pref_badge(pref, risky=detail.safety.risky)
 
     def _set_driver_panel_enabled(self, enabled: bool) -> None:
-        self.empty_state_label.setVisible(not enabled)
+        self._empty_state_card.setVisible(not enabled)
+        self._driver_header_widget.setVisible(enabled)
+        self._pref_row_widget.setVisible(enabled)
         self.driver_detail_scroll.setVisible(enabled)
+        self._notes_group.setVisible(enabled)
+        self.btn_save_notes.setVisible(enabled)
         self.notes_edit.setEnabled(enabled)
         self.btn_pref_like.setEnabled(enabled)
         self.btn_pref_dislike.setEnabled(enabled)
         self.btn_pref_clear.setEnabled(enabled)
         self.btn_save_notes.setEnabled(enabled)
 
+    def _update_driver_pref_badge(
+        self, pref: int | None, *, risky: bool = False
+    ) -> None:
+        if pref == 1:
+            self.driver_pref_badge.setText("LIKED")
+            self._polish_property(self.driver_pref_badge, "status", "liked")
+            self.driver_pref_badge.setVisible(True)
+        elif pref == -1:
+            self.driver_pref_badge.setText("DISLIKED")
+            self._polish_property(self.driver_pref_badge, "status", "disliked")
+            self.driver_pref_badge.setVisible(True)
+        elif risky:
+            self.driver_pref_badge.setText("RISK")
+            self._polish_property(self.driver_pref_badge, "status", "risk")
+            self.driver_pref_badge.setVisible(True)
+        else:
+            self.driver_pref_badge.clear()
+            self.driver_pref_badge.setVisible(False)
+
+    def _driver_mark_stats(self) -> tuple[int, int, int]:
+        likes = dislikes = risks = 0
+        for row in self._filtered_table_rows:
+            driver = DriverTableRow.from_sql_row(row)
+            if driver.race_preference == 1:
+                likes += 1
+            elif driver.race_preference == -1:
+                dislikes += 1
+            if driver.safety.risky:
+                risks += 1
+        return likes, dislikes, risks
+
     def init_ui(self):
         root = QWidget()
         root_layout = QVBoxLayout(root)
-        root_layout.setContentsMargins(16, 14, 16, 14)
-        root_layout.setSpacing(12)
+        root_layout.setContentsMargins(12, 10, 12, 10)
+        root_layout.setSpacing(10)
         self.setCentralWidget(root)
 
         self.broadcast_receiver_banner = QLabel("")
@@ -1075,39 +1110,37 @@ class GridNotesApp(QMainWindow):
         self.broadcast_receiver_banner.setVisible(False)
         root_layout.addWidget(self.broadcast_receiver_banner)
 
-        header = QHBoxLayout()
-        title_block = QVBoxLayout()
-        title_block.setSpacing(2)
+        header_frame = QFrame()
+        header_frame.setObjectName("topHeaderBar")
+        header = QHBoxLayout(header_frame)
+        header.setContentsMargins(12, 8, 12, 8)
+        header.setSpacing(10)
+
         app_title = QLabel("GridNotes")
         app_title.setObjectName("appTitle")
+        header.addWidget(app_title)
+
         self.app_subtitle = QLabel("Driver scouting notes & race history")
         self.app_subtitle.setObjectName("appSubtitle")
-        title_block.addWidget(app_title)
-        title_block.addWidget(self.app_subtitle)
-        header.addLayout(title_block)
-        header.addStretch()
+        self.app_subtitle.setVisible(False)
+
+        header.addSpacing(16)
         self.btn_start_broadcast = QPushButton("Broadcast")
+        self.btn_start_broadcast.setObjectName("headerBtn")
         set_button_tooltip(self.btn_start_broadcast, TIP_BROADCAST)
         self.btn_start_broadcast.clicked.connect(self._start_broadcasting)
-        header.addWidget(
-            self.btn_start_broadcast,
-            alignment=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-        )
+        header.addWidget(self.btn_start_broadcast)
         self.btn_connect_broadcast = QPushButton("Receiver")
+        self.btn_connect_broadcast.setObjectName("headerBtn")
         set_button_tooltip(self.btn_connect_broadcast, TIP_RECEIVER)
         self.btn_connect_broadcast.clicked.connect(self._connect_as_broadcast_receiver)
-        header.addWidget(
-            self.btn_connect_broadcast,
-            alignment=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-        )
+        header.addWidget(self.btn_connect_broadcast)
         self.btn_disconnect_broadcast = QPushButton("Disconnect")
+        self.btn_disconnect_broadcast.setObjectName("headerBtn")
         set_button_tooltip(self.btn_disconnect_broadcast, TIP_DISCONNECT)
         self.btn_disconnect_broadcast.clicked.connect(self._disconnect_broadcast_receiver)
         self.btn_disconnect_broadcast.setVisible(False)
-        header.addWidget(
-            self.btn_disconnect_broadcast,
-            alignment=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-        )
+        header.addWidget(self.btn_disconnect_broadcast)
         self.btn_streamer_mode = QPushButton("Streamer mode")
         self.btn_streamer_mode.setObjectName("streamerModeBtn")
         self.btn_streamer_mode.setCheckable(True)
@@ -1117,21 +1150,22 @@ class GridNotesApp(QMainWindow):
         self._polish_property(self.btn_streamer_mode, "active", self._streamer_mode)
         if self._streamer_mode:
             self.app_subtitle.setText("Streamer mode — names hidden on screen")
-        header.addWidget(
-            self.btn_streamer_mode,
-            alignment=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-        )
-        self.status_label = QLabel("Waiting for iRacing…")
-        self.status_label.setObjectName("statusBadge")
-        self._set_status(STATUS_WAITING, "Waiting for iRacing…")
+        header.addWidget(self.btn_streamer_mode)
         self.btn_live_mode = QPushButton("Live Mode")
         self.btn_live_mode.setObjectName("liveModeBtn")
         self.btn_live_mode.setCheckable(True)
         set_button_tooltip(self.btn_live_mode, TIP_LIVE_MODE)
         self.btn_live_mode.clicked.connect(self._toggle_live_mode)
-        header.addWidget(self.btn_live_mode, alignment=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        header.addWidget(self.status_label, alignment=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        root_layout.addLayout(header)
+        header.addWidget(self.btn_live_mode)
+
+        header.addStretch()
+
+        self.status_label = QLabel("Waiting for iRacing…")
+        self.status_label.setObjectName("statusBadge")
+        self._set_status(STATUS_WAITING, "Waiting for iRacing…")
+        header.addWidget(self.status_label)
+
+        root_layout.addWidget(header_frame)
 
         self.main_tabs = QTabWidget()
         self.main_tabs.setObjectName("mainTabs")
@@ -1151,7 +1185,7 @@ class GridNotesApp(QMainWindow):
         self.main_tabs.addTab(drivers_tab, "Drivers")
 
         self.import_history_tab = ImportHistoryTab()
-        self.main_tabs.addTab(self.import_history_tab, "Import history")
+        self.main_tabs.addTab(self.import_history_tab, "Import History")
 
         self.leagues_tab = LeaguesTab(
             session_drivers_provider=self._current_session_drivers_for_leagues,
@@ -1164,6 +1198,7 @@ class GridNotesApp(QMainWindow):
         self.settings_tab.check_updates_requested.connect(self._check_for_app_updates)
         self.settings_tab.apply_update_requested.connect(self._apply_app_update)
         self.settings_tab.zero_race_cleanup_requested.connect(self._cleanup_zero_race_drivers)
+        self.settings_tab.reset_database_requested.connect(self.reset_database)
         self.settings_tab.uninstall_requested.connect(self._uninstall_application)
         self.settings_tab.backup_export_requested.connect(self._export_database_backup)
         self.settings_tab.backup_import_requested.connect(self._import_database_backup)
@@ -1186,28 +1221,64 @@ class GridNotesApp(QMainWindow):
         left_panel = QFrame()
         left_panel.setObjectName("panel")
         left_layout = QVBoxLayout(left_panel)
-        left_layout.setContentsMargins(14, 14, 14, 14)
+        left_layout.setContentsMargins(12, 12, 12, 12)
         left_layout.setSpacing(10)
 
-        controls_group = QGroupBox("Controls")
-        controls_layout = QGridLayout(controls_group)
-        controls_layout.setHorizontalSpacing(10)
-        controls_layout.setVerticalSpacing(8)
+        toolbar = QFrame()
+        toolbar.setObjectName("driversToolbar")
+        toolbar_layout = QVBoxLayout(toolbar)
+        toolbar_layout.setContentsMargins(0, 0, 0, 0)
+        toolbar_layout.setSpacing(8)
 
-        self.btn_import = QPushButton("Import race JSON…")
-        self.btn_import.setObjectName("primaryBtn")
+        search_row = QHBoxLayout()
+        search_row.setSpacing(10)
+        search_wrapper = QFrame()
+        search_wrapper.setObjectName("searchInputWrapper")
+        search_inner = QHBoxLayout(search_wrapper)
+        search_inner.setContentsMargins(0, 0, 4, 0)
+        search_inner.setSpacing(0)
+        search_icon = QLabel()
+        search_icon.setObjectName("searchInputIcon")
+        self._search_icon_label = search_icon
+        set_label_fa_icon(search_icon, "magnifying-glass", pixel_size=14, muted=True)
+        search_inner.addWidget(search_icon)
+        self.search_input = QLineEdit()
+        self.search_input.setObjectName("driverSearchInput")
+        self.search_input.setPlaceholderText(
+            "Search by alias (#14) or real name…"
+            if self._streamer_mode
+            else "Search drivers by name…"
+        )
+        self.search_input.setClearButtonEnabled(True)
+        self.search_input.textChanged.connect(self.apply_driver_filters)
+        search_inner.addWidget(self.search_input, stretch=1)
+        search_row.addWidget(search_wrapper, stretch=1)
+
+        self.btn_import = QPushButton("Import Race JSON")
+        self.btn_import.setObjectName("headerBtn")
         self.btn_import.setToolTip("Import iRacing event_result JSON or custom race logs")
         self.btn_import.clicked.connect(self.import_json_data)
-        controls_layout.addWidget(self.btn_import, 0, 0)
+        search_row.addWidget(self.btn_import)
 
-        self.btn_reset_db = QPushButton("Reset all data")
-        self.btn_reset_db.setObjectName("dangerBtn")
-        self.btn_reset_db.setToolTip("Permanently delete all drivers, notes, and race results")
-        self.btn_reset_db.clicked.connect(self.reset_database)
-        controls_layout.addWidget(self.btn_reset_db, 0, 1)
+        self.btn_scouting_guide = QPushButton("Scouting Guide")
+        self.btn_scouting_guide.setObjectName("headerBtn")
+        self.btn_scouting_guide.setToolTip(
+            "Safety Index, form arrows (↗ ↘ →), liked/disliked/risk marks, and risk factors"
+        )
+        self.btn_scouting_guide.clicked.connect(self._show_scouting_guide)
+        search_row.addWidget(self.btn_scouting_guide)
+        toolbar_layout.addLayout(search_row)
 
-        live_session_row = QHBoxLayout()
-        live_session_row.setSpacing(8)
+        filters_bar = QFrame()
+        filters_bar.setObjectName("filtersBar")
+        filters_layout = QHBoxLayout(filters_bar)
+        filters_layout.setContentsMargins(8, 4, 8, 4)
+        filters_layout.setSpacing(10)
+
+        filters_label = QLabel("Active filters")
+        filters_label.setObjectName("statInlineLabel")
+        filters_layout.addWidget(filters_label)
+
         self.chk_current_race_only = QCheckBox("Current session only")
         self.chk_current_race_only.setChecked(False)
         self.chk_current_race_only.setToolTip(
@@ -1215,56 +1286,15 @@ class GridNotesApp(QMainWindow):
             "During practice and qualifying this is scouting only — drivers are saved when the race starts."
         )
         self.chk_current_race_only.stateChanged.connect(self.apply_driver_filters)
-        live_session_row.addWidget(self.chk_current_race_only)
+        filters_layout.addWidget(self.chk_current_race_only)
+
         self.live_session_note = QLabel(MSG_SESSION_NOT_CONNECTED)
         self.live_session_note.setObjectName("sectionHint")
         self.live_session_note.setWordWrap(True)
-        live_session_row.addWidget(self.live_session_note, stretch=1)
-        controls_layout.addLayout(live_session_row, 0, 2, 1, 2)
+        filters_layout.addWidget(self.live_session_note, stretch=1)
 
-        self.search_input = QLineEdit()
-        search_label = QLabel("Search drivers")
-        search_label.setBuddy(self.search_input)
-        self.search_input.setPlaceholderText(
-            "Search by alias (#14) or real name…"
-            if self._streamer_mode
-            else "Search by name…"
-        )
-        self.search_input.setClearButtonEnabled(True)
-        self.search_input.textChanged.connect(self.apply_driver_filters)
-        controls_layout.addWidget(search_label, 1, 0)
-        controls_layout.addWidget(self.search_input, 1, 1)
-
-        self.ignore_name_input = QLineEdit()
-        ignore_label = QLabel("Hide your name")
-        ignore_label.setBuddy(self.ignore_name_input)
-        self.ignore_name_input.setPlaceholderText("Optional")
-        self.ignore_name_input.setText(get_setting("ignore_driver_name", "") or "")
-        self.ignore_name_input.textChanged.connect(self.apply_driver_filters)
-        controls_layout.addWidget(ignore_label, 1, 2)
-        controls_layout.addWidget(self.ignore_name_input, 1, 3)
-
-        self.btn_save_ignore = QPushButton("Save hidden name")
-        self.btn_save_ignore.setToolTip("Save the hidden name to settings")
-        self.btn_save_ignore.clicked.connect(self.save_ignore_name)
-        controls_layout.addWidget(self.btn_save_ignore, 2, 2, 1, 2)
-
-        self.btn_scouting_guide = QPushButton("Scouting guide…")
-        self.btn_scouting_guide.setToolTip(
-            "Safety Index, form arrows (↗ ↘ →), liked/disliked/risk marks, and risk factors"
-        )
-        self.btn_scouting_guide.clicked.connect(self._show_scouting_guide)
-        controls_layout.addWidget(self.btn_scouting_guide, 2, 0, 1, 2)
-
-        left_layout.addWidget(controls_group)
-
-        drivers_label = QLabel(
-            "Drivers — select a row for notes (arrow keys, Enter)  ·  "
-            "Mark: Liked, Disliked, or Risk  ·  Safety Index may show form arrows (↗ ↘)  ·  "
-            "open Scouting guide for details"
-        )
-        drivers_label.setObjectName("sectionHint")
-        left_layout.addWidget(drivers_label)
+        toolbar_layout.addWidget(filters_bar)
+        left_layout.addWidget(toolbar)
 
         self.table = QTableWidget()
         self.table.setColumnCount(COLUMN_COUNT)
@@ -1291,25 +1321,76 @@ class GridNotesApp(QMainWindow):
 
         main_splitter.addWidget(left_panel)
 
-        # --- Right: driver detail ---
+        # --- Right: driver detail / scouting sidebar ---
         right_panel = QFrame()
-        right_panel.setObjectName("panel")
+        right_panel.setObjectName("scoutingSidebar")
         right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(14, 14, 14, 14)
-        right_layout.setSpacing(8)
+        right_layout.setContentsMargins(16, 16, 16, 16)
+        right_layout.setSpacing(12)
 
-        detail_title = QLabel("Driver details")
-        detail_title.setObjectName("appTitle")
-        detail_title.setStyleSheet("font-size: 16px;")
-        right_layout.addWidget(detail_title)
-
+        empty_state_card = QFrame()
+        empty_state_card.setObjectName("emptyStateCard")
+        empty_state_layout = QVBoxLayout(empty_state_card)
+        empty_state_layout.setContentsMargins(20, 28, 20, 28)
+        empty_state_layout.setSpacing(10)
+        empty_state_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_icon = QLabel()
+        empty_icon.setObjectName("emptyStateIcon")
+        self._empty_icon_label = empty_icon
+        set_label_fa_icon(empty_icon, "user-circle", pixel_size=32, muted=True)
+        empty_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_state_layout.addWidget(empty_icon)
         self.empty_state_label = QLabel(
-            "Select a driver from the table to view stats, write scouting notes, "
-            "and mark whether you liked racing with them."
+            "Select a driver from the list to view stats and add scouting notes."
         )
         self.empty_state_label.setObjectName("emptyState")
         self.empty_state_label.setWordWrap(True)
-        right_layout.addWidget(self.empty_state_label)
+        self.empty_state_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_state_layout.addWidget(self.empty_state_label)
+        self._empty_state_card = empty_state_card
+        right_layout.addWidget(empty_state_card)
+
+        driver_header_row = QHBoxLayout()
+        driver_header_row.setSpacing(10)
+        self.driver_name_label = QLabel()
+        self.driver_name_label.setObjectName("driverName")
+        self.driver_name_label.setWordWrap(True)
+        driver_header_row.addWidget(self.driver_name_label, stretch=1)
+        self.driver_pref_badge = QLabel("")
+        self.driver_pref_badge.setObjectName("prefBadge")
+        self.driver_pref_badge.setVisible(False)
+        driver_header_row.addWidget(
+            self.driver_pref_badge,
+            alignment=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop,
+        )
+        self._driver_header_widget = QWidget()
+        self._driver_header_widget.setLayout(driver_header_row)
+        self._driver_header_widget.setVisible(False)
+        right_layout.addWidget(self._driver_header_widget)
+
+        pref_row = QHBoxLayout()
+        pref_row.setSpacing(8)
+        self.btn_pref_like = QPushButton("Liked")
+        self.btn_pref_like.setObjectName("prefLikeBtn")
+        self.btn_pref_like.setCheckable(True)
+        self.btn_pref_like.setToolTip("Highlight row green in the driver list")
+        self.btn_pref_like.clicked.connect(lambda: self.set_race_preference(1))
+        pref_row.addWidget(self.btn_pref_like)
+        self.btn_pref_dislike = QPushButton("Disliked")
+        self.btn_pref_dislike.setObjectName("prefDislikeBtn")
+        self.btn_pref_dislike.setCheckable(True)
+        self.btn_pref_dislike.setToolTip("Highlight row red in the driver list")
+        self.btn_pref_dislike.clicked.connect(lambda: self.set_race_preference(-1))
+        pref_row.addWidget(self.btn_pref_dislike)
+        self.btn_pref_clear = QPushButton("Clear")
+        self.btn_pref_clear.setObjectName("prefClearBtn")
+        self.btn_pref_clear.setToolTip("Remove like/dislike highlight")
+        self.btn_pref_clear.clicked.connect(lambda: self.set_race_preference(None))
+        pref_row.addWidget(self.btn_pref_clear)
+        self._pref_row_widget = QWidget()
+        self._pref_row_widget.setLayout(pref_row)
+        self._pref_row_widget.setVisible(False)
+        right_layout.addWidget(self._pref_row_widget)
 
         self.driver_detail_scroll = QScrollArea()
         self.driver_detail_scroll.setObjectName("driverDetailScroll")
@@ -1324,11 +1405,6 @@ class GridNotesApp(QMainWindow):
         detail_layout = QVBoxLayout(self.driver_detail_frame)
         detail_layout.setContentsMargins(0, 0, 0, 0)
         detail_layout.setSpacing(4)
-
-        self.driver_name_label = QLabel()
-        self.driver_name_label.setObjectName("driverName")
-        self.driver_name_label.setWordWrap(True)
-        detail_layout.addWidget(self.driver_name_label)
 
         self.driver_meta_label = QLabel()
         self.driver_meta_label.setObjectName("driverMeta")
@@ -1390,53 +1466,35 @@ class GridNotesApp(QMainWindow):
         self.driver_detail_scroll.setVisible(False)
         right_layout.addWidget(self.driver_detail_scroll)
 
-        notes_group = QGroupBox("Scouting notes")
+        notes_group = QGroupBox("Scouting Notes")
         notes_layout = QVBoxLayout(notes_group)
-        notes_layout.setSpacing(12)
+        notes_layout.setSpacing(10)
         self.notes_edit = QTextEdit()
         self.notes_edit.setPlaceholderText(
-            "e.g. Aggressive on restarts, gives room on restarts, weak under pressure…"
+            "Add scouting notes for this driver…"
         )
-        self.notes_edit.setMinimumHeight(140)
+        self.notes_edit.setMinimumHeight(160)
         configure_widget_scrollbars(self.notes_edit, single_step=20, page_step=100)
         notes_layout.addWidget(self.notes_edit)
 
-        templates_label = QLabel("Quick note templates")
-        templates_label.setObjectName("sectionHint")
+        templates_label = QLabel("Note Templates")
+        templates_label.setObjectName("statInlineLabel")
         notes_layout.addWidget(templates_label)
 
         templates_grid = QGridLayout()
-        templates_grid.setHorizontalSpacing(12)
-        templates_grid.setVerticalSpacing(14)
+        templates_grid.setHorizontalSpacing(8)
+        templates_grid.setVerticalSpacing(8)
         templates_grid.setContentsMargins(0, 4, 0, 0)
         self._note_templates_grid = templates_grid
         notes_layout.addLayout(templates_grid)
         self._rebuild_note_template_buttons()
 
+        self._notes_group = notes_group
+        self._notes_group.setVisible(False)
         right_layout.addWidget(notes_group, stretch=1)
 
-        pref_group = QGroupBox("How was racing with them?")
-        pref_layout = QHBoxLayout(pref_group)
-        self.btn_pref_like = QPushButton("Liked")
-        self.btn_pref_like.setObjectName("prefLike")
-        self.btn_pref_like.setCheckable(True)
-        self.btn_pref_like.setToolTip("Highlight row green in the driver list")
-        self.btn_pref_like.clicked.connect(lambda: self.set_race_preference(1))
-        pref_layout.addWidget(self.btn_pref_like)
-        self.btn_pref_dislike = QPushButton("Didn't like")
-        self.btn_pref_dislike.setObjectName("prefDislike")
-        self.btn_pref_dislike.setCheckable(True)
-        self.btn_pref_dislike.setToolTip("Highlight row red in the driver list")
-        self.btn_pref_dislike.clicked.connect(lambda: self.set_race_preference(-1))
-        pref_layout.addWidget(self.btn_pref_dislike)
-        self.btn_pref_clear = QPushButton("Clear")
-        self.btn_pref_clear.setToolTip("Remove like/dislike highlight")
-        self.btn_pref_clear.clicked.connect(lambda: self.set_race_preference(None))
-        pref_layout.addWidget(self.btn_pref_clear)
-        right_layout.addWidget(pref_group)
-
-        self.btn_save_notes = QPushButton("Save notes")
-        self.btn_save_notes.setObjectName("primaryBtn")
+        self.btn_save_notes = QPushButton("Save Notes")
+        self.btn_save_notes.setObjectName("gradientBtn")
         set_button_tooltip(
             self.btn_save_notes,
             "Save scouting notes for the selected driver (Ctrl+S / Cmd+S).",
@@ -1445,11 +1503,11 @@ class GridNotesApp(QMainWindow):
         right_layout.addWidget(self.btn_save_notes)
 
         main_splitter.addWidget(right_panel)
-        right_panel.setMinimumWidth(300)
-        right_panel.setMaximumWidth(520)
-        main_splitter.setStretchFactor(0, 5)
-        main_splitter.setStretchFactor(1, 2)
-        main_splitter.setSizes([1000, 340])
+        right_panel.setMinimumWidth(320)
+        right_panel.setMaximumWidth(480)
+        main_splitter.setStretchFactor(0, 7)
+        main_splitter.setStretchFactor(1, 3)
+        main_splitter.setSizes([1100, 380])
 
         self.view_stack.addWidget(database_panel)
 
@@ -1495,16 +1553,16 @@ class GridNotesApp(QMainWindow):
         set_button_fa_icon(self.btn_disconnect_broadcast, "link-slash", text="Disconnect")
         set_button_fa_icon(self.btn_streamer_mode, "eye-slash", text="Streamer mode")
         set_button_fa_icon(self.btn_live_mode, "flag-checkered", text="Live Mode")
-        set_button_fa_icon(self.btn_import, "file-import", text="Import race JSON…")
-        set_button_fa_icon(self.btn_reset_db, "trash-can", text="Reset all data")
-        set_button_fa_icon(self.btn_save_ignore, "user-secret", text="Save hidden name")
+        set_button_fa_icon(self.btn_import, "file-import", text="Import Race JSON")
         set_button_fa_icon(
-            self.btn_scouting_guide, "book-open", text="Scouting guide…"
+            self.btn_scouting_guide, "book-open", text="Scouting Guide"
         )
         set_button_fa_icon(self.btn_pref_like, "thumbs-up", text="Liked")
-        set_button_fa_icon(self.btn_pref_dislike, "thumbs-down", text="Didn't like")
+        set_button_fa_icon(self.btn_pref_dislike, "thumbs-down", text="Disliked")
         set_button_fa_icon(self.btn_pref_clear, "eraser", text="Clear")
-        set_button_fa_icon(self.btn_save_notes, "floppy-disk", text="Save notes")
+        set_button_fa_icon(
+            self.btn_save_notes, "floppy-disk", text="Save Notes", on_accent=True
+        )
         wire_main_tabs(self.main_tabs)
 
     def _configure_accessibility(self) -> None:
@@ -1519,12 +1577,6 @@ class GridNotesApp(QMainWindow):
             "Filter the driver list by name.",
         )
         set_accessible(
-            self.ignore_name_input,
-            "Hide your name",
-            "Hide a driver row matching this name from the list.",
-        )
-        set_accessible(self.btn_save_ignore, "Save hidden name")
-        set_accessible(
             self.btn_scouting_guide,
             "Scouting guide",
             "Open reference for Safety Index, form arrows, marks, and risk factors.",
@@ -1533,11 +1585,6 @@ class GridNotesApp(QMainWindow):
             self.btn_import,
             "Import race JSON",
             "Import iRacing event result JSON or custom race logs.",
-        )
-        set_accessible(
-            self.btn_reset_db,
-            "Reset all data",
-            "Permanently delete all drivers, notes, and race results.",
         )
         set_accessible(
             self.chk_current_race_only,
@@ -1578,7 +1625,7 @@ class GridNotesApp(QMainWindow):
         set_accessible(self.btn_pref_like, "Liked", "Mark that you liked racing with this driver.")
         set_accessible(
             self.btn_pref_dislike,
-            "Didn't like",
+            "Disliked",
             "Mark that you did not like racing with this driver.",
         )
         set_accessible(self.btn_pref_clear, "Clear preference")
@@ -1601,15 +1648,32 @@ class GridNotesApp(QMainWindow):
         configure_driver_table_theme(tid)
         refresh_widget_tree(self)
         if hasattr(self, "table"):
+            refresh_driver_table_icon_colors(self.table)
             self.table.viewport().update()
         if hasattr(self, "safety_index_panel"):
             self.safety_index_panel.refresh_theme()
         if hasattr(self, "live_session_view"):
             self.live_session_view.update()
+        if hasattr(self, "settings_tab"):
+            self.settings_tab.refresh_theme()
+        if hasattr(self, "leagues_tab"):
+            self.leagues_tab._apply_icons()
+        if hasattr(self, "import_history_tab"):
+            self.import_history_tab.refresh_icons()
+        if hasattr(self, "table_pagination"):
+            self.table_pagination.refresh_icons()
+        self._refresh_label_icons()
 
-    def save_ignore_name(self):
-        set_setting("ignore_driver_name", (self.ignore_name_input.text() or "").strip() or None)
-        self.apply_driver_filters()
+    def _hidden_driver_name_lc(self) -> str:
+        return (get_setting("ignore_driver_name", "") or "").strip().lower()
+
+    def _refresh_label_icons(self) -> None:
+        for label, name, size, muted in (
+            (getattr(self, "_search_icon_label", None), "magnifying-glass", 14, True),
+            (getattr(self, "_empty_icon_label", None), "user-circle", 32, True),
+        ):
+            if label is not None:
+                set_label_fa_icon(label, name, pixel_size=size, muted=muted)
 
     def _run_data_retention_purge(self, *, show_status: bool = False, refresh: bool = True) -> int:
         retention = get_setting(SETTING_KEY, DEFAULT_RETENTION) or DEFAULT_RETENTION
@@ -1628,6 +1692,7 @@ class GridNotesApp(QMainWindow):
 
     def _on_settings_saved(self) -> None:
         self._rebuild_note_template_buttons()
+        self.apply_driver_filters()
         deleted = self._run_data_retention_purge(show_status=True)
         if self.selected_cust_id is not None:
             self._populate_driver_details(self.selected_cust_id)
@@ -1683,7 +1748,7 @@ class GridNotesApp(QMainWindow):
     def _driver_row_matches_filters(self, row_data: tuple) -> bool:
         driver = DriverTableRow.from_sql_row(row_data)
         q = (self.search_input.text() or "").strip().lower()
-        ignore_name = (self.ignore_name_input.text() or "").strip().lower()
+        ignore_name = self._hidden_driver_name_lc()
         current_only = (
             hasattr(self, "chk_current_race_only")
             and self.chk_current_race_only.isEnabled()
@@ -1737,6 +1802,7 @@ class GridNotesApp(QMainWindow):
 
     def _update_table_pagination_bar(self) -> None:
         total = len(self._filtered_table_rows)
+        likes, dislikes, risks = self._driver_mark_stats()
         if total <= 0:
             self.table_pagination.update_state(
                 page=0,
@@ -1744,6 +1810,9 @@ class GridNotesApp(QMainWindow):
                 total=0,
                 start=0,
                 end=0,
+                likes=likes,
+                dislikes=dislikes,
+                risks=risks,
             )
             return
         start_idx = self._table_page * self._table_page_size
@@ -1754,6 +1823,9 @@ class GridNotesApp(QMainWindow):
             total=total,
             start=start_idx + 1,
             end=end_idx,
+            likes=likes,
+            dislikes=dislikes,
+            risks=risks,
         )
 
     def _go_to_previous_table_page(self) -> None:
@@ -2734,6 +2806,14 @@ class GridNotesApp(QMainWindow):
         self.btn_pref_dislike.setChecked(pref == -1)
         self._polish_property(self.btn_pref_like, "selected", pref == 1)
         self._polish_property(self.btn_pref_dislike, "selected", pref == -1)
+        set_button_fa_icon(self.btn_pref_like, "thumbs-up", text="Liked")
+        set_button_fa_icon(self.btn_pref_dislike, "thumbs-down", text="Disliked")
+        risky = False
+        if self.selected_cust_id is not None:
+            row = self._fetch_driver_detail_row(self.selected_cust_id)
+            if row is not None:
+                risky = DriverDetailRow.from_sql_row(row).safety.risky
+        self._update_driver_pref_badge(pref, risky=risky)
 
     def _row_for_cust_id(self, cust_id: int) -> int | None:
         for row in range(self.table.rowCount()):

@@ -84,6 +84,7 @@ class SettingsTab(QWidget):
     settings_saved = pyqtSignal()
     theme_changed = pyqtSignal(str)
     zero_race_cleanup_requested = pyqtSignal()
+    reset_database_requested = pyqtSignal()
     check_updates_requested = pyqtSignal()
     apply_update_requested = pyqtSignal()
     uninstall_requested = pyqtSignal(bool)  # remove_user_data
@@ -170,13 +171,22 @@ class SettingsTab(QWidget):
         self._configure_accessibility()
         self._apply_icons()
 
+    def refresh_theme(self) -> None:
+        """Re-apply icons and theme-dependent styles after a color theme change."""
+        self._apply_icons()
+        self._section_nav.refresh_icons()
+        self._refresh_note_tag_input_styles()
+
     def _apply_icons(self) -> None:
-        set_button_fa_icon(self.btn_save_settings, "floppy-disk", text="Save settings")
+        set_button_fa_icon(
+            self.btn_save_settings, "floppy-disk", text="Save settings", on_accent=True
+        )
         set_button_fa_icon(self.btn_export_backup, "download", text="Back up database…")
         set_button_fa_icon(self.btn_import_backup, "upload", text="Restore from backup…")
         set_button_fa_icon(
             self.btn_remove_zero_race, "trash", text="Remove drivers with 0 races"
         )
+        set_button_fa_icon(self.btn_reset_db, "trash-can", text="Reset all data")
         if hasattr(self, "btn_add_note_tag"):
             set_button_fa_icon(self.btn_add_note_tag, "plus", text="Add tag…")
         if hasattr(self, "btn_reset_note_tags"):
@@ -225,6 +235,11 @@ class SettingsTab(QWidget):
         set_accessible(self.btn_open_logs, "Open logs folder")
         set_accessible(self.btn_export_backup, "Back up database")
         set_accessible(self.btn_import_backup, "Restore from backup")
+        set_accessible(
+            self.btn_reset_db,
+            "Reset all data",
+            "Permanently delete all drivers, notes, and race results.",
+        )
         if hasattr(self, "btn_add_note_tag"):
             set_accessible(
                 self.btn_add_note_tag,
@@ -245,6 +260,12 @@ class SettingsTab(QWidget):
                 self.chk_audio_spotter,
                 "Audio spotter",
                 "Speak warnings when a flagged driver is within 1.5 seconds behind you.",
+            )
+        if hasattr(self, "ignore_driver_name_input"):
+            set_accessible(
+                self.ignore_driver_name_input,
+                "Name to hide",
+                "Hide a driver row matching this name from the Drivers table.",
             )
 
     def _section_hint(self, text: str) -> QLabel:
@@ -514,6 +535,28 @@ class SettingsTab(QWidget):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(12)
 
+        hide_name_group = QGroupBox("Driver list")
+        hide_name_layout = QVBoxLayout(hide_name_group)
+        hide_name_layout.setSpacing(10)
+        hide_name_layout.addWidget(
+            self._section_hint(
+                "Hide your own row from the Drivers table. Enter your exact iRacing "
+                "driver name (case-insensitive match)."
+            )
+        )
+        hide_label = QLabel("Name to hide")
+        hide_label.setObjectName("statInlineLabel")
+        hide_name_layout.addWidget(hide_label)
+        self.ignore_driver_name_input = QLineEdit()
+        self.ignore_driver_name_input.setObjectName("settingsCombo")
+        self.ignore_driver_name_input.setPlaceholderText("Optional")
+        self.ignore_driver_name_input.setText(
+            get_setting("ignore_driver_name", "") or ""
+        )
+        self.ignore_driver_name_input.textChanged.connect(self._on_settings_edited)
+        hide_name_layout.addWidget(self.ignore_driver_name_input)
+        layout.addWidget(hide_name_group)
+
         layout.addWidget(self._build_note_tags_group())
 
         retention_group = QGroupBox("Race history retention")
@@ -591,6 +634,24 @@ class SettingsTab(QWidget):
         self.btn_remove_zero_race.clicked.connect(self._request_zero_race_cleanup)
         cleanup_layout.addWidget(self.btn_remove_zero_race)
         layout.addWidget(cleanup_group)
+
+        reset_group = QGroupBox("Reset database")
+        reset_layout = QVBoxLayout(reset_group)
+        reset_layout.setSpacing(10)
+        reset_layout.addWidget(
+            self._section_hint(
+                "Permanently delete all drivers, scouting notes, and race results. "
+                "Back up first if you might need this data later."
+            )
+        )
+        self.btn_reset_db = QPushButton("Reset all data")
+        self.btn_reset_db.setObjectName("dangerBtn")
+        self.btn_reset_db.setToolTip(
+            "Permanently delete all drivers, notes, and race results"
+        )
+        self.btn_reset_db.clicked.connect(self._request_reset_database)
+        reset_layout.addWidget(self.btn_reset_db)
+        layout.addWidget(reset_group)
 
         storage_group = QGroupBox("Storage location")
         storage_layout = QVBoxLayout(storage_group)
@@ -937,12 +998,18 @@ class SettingsTab(QWidget):
         value = self.timezone_combo.currentData()
         return "" if value is None else str(value)
 
+    def current_ignore_driver_name(self) -> str:
+        if not hasattr(self, "ignore_driver_name_input"):
+            return (get_setting("ignore_driver_name", "") or "").strip()
+        return (self.ignore_driver_name_input.text() or "").strip()
+
     def _current_settings_snapshot(self) -> tuple[str, ...]:
         snapshot: list[str] = [
             self.current_retention_value(),
             self.current_theme_value(),
             self.current_timezone_value(),
             "1" if self.chk_auto_check_updates.isChecked() else "0",
+            self.current_ignore_driver_name(),
             "|".join(self._note_tags_snapshot()),
         ]
         if iracing_data_api_auto_import_enabled():
@@ -1020,6 +1087,9 @@ class SettingsTab(QWidget):
 
     def _request_zero_race_cleanup(self) -> None:
         self.zero_race_cleanup_requested.emit()
+
+    def _request_reset_database(self) -> None:
+        self.reset_database_requested.emit()
 
     def _refresh_installed_version_label(self) -> None:
         self.version_label.setText(f"Your version: {installed_version()}")
@@ -1250,6 +1320,10 @@ class SettingsTab(QWidget):
 
     def _save_settings(self) -> None:
         set_setting(SETTING_KEY, self.current_retention_value())
+        set_setting(
+            "ignore_driver_name",
+            self.current_ignore_driver_name() or None,
+        )
         set_theme_id(self.current_theme_value())
         tz = self.current_timezone_value()
         set_display_timezone(tz if tz else None)
