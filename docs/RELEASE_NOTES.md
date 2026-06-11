@@ -10,6 +10,14 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.60 — 2026-06-10
+
+### Improved
+
+- **Driver search** — Searching the driver table is much faster on large lists. Filter fields are precomputed when data loads, search is debounced while typing, and filtering/sorting no longer recomputes safety scores on every keystroke.
+
+---
+
 ## v1.0.59 — 2026-06-10
 
 ### New

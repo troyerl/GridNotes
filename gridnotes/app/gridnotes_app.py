@@ -2,6 +2,7 @@ import logging
 import os
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 from PyQt6.QtCore import QEvent, QEventLoop, Qt, QTimer, QUrl
 from PyQt6.QtGui import QDesktopServices, QFont, QKeySequence, QShortcut, QShowEvent, QTextCursor
@@ -162,6 +163,19 @@ TIP_RECEIVER_DISABLED = (
 TIP_DISCONNECT = (
     "Disconnect — stop viewing the broadcaster and return to your local scouting book."
 )
+
+SEARCH_FILTER_DEBOUNCE_MS = 150
+
+
+class _DriverFilterMeta(NamedTuple):
+    row: tuple
+    name_lc: str
+    display_lc: str
+    cust_id: int
+    race_preference: int | None
+    risky: bool
+
+
 TIP_STREAMER_MODE = (
     "Streamer mode — replace driver names with aliases on screen (e.g. Driver #14). "
     "Your database and notes are not changed."
@@ -210,7 +224,13 @@ class GridNotesApp(QMainWindow):
         self._table_refresh_timer.timeout.connect(self._refresh_ui_table_now)
         self._last_table_fingerprint: tuple | None = None
         self._table_rows_cache: list[tuple] = []
+        self._table_filter_index: list[_DriverFilterMeta] = []
         self._filtered_table_rows: list[tuple] = []
+        self._filtered_mark_stats: tuple[int, int, int] = (0, 0, 0)
+        self._search_filter_timer = QTimer(self)
+        self._search_filter_timer.setSingleShot(True)
+        self._search_filter_timer.setInterval(SEARCH_FILTER_DEBOUNCE_MS)
+        self._search_filter_timer.timeout.connect(self.apply_driver_filters)
         self._table_page = 0
         self._table_page_size = DEFAULT_PAGE_SIZE
         self._table_sort_column = COL_NAME
@@ -1086,16 +1106,33 @@ class GridNotesApp(QMainWindow):
             self.driver_pref_badge.setVisible(False)
 
     def _driver_mark_stats(self) -> tuple[int, int, int]:
-        likes = dislikes = risks = 0
-        for row in self._filtered_table_rows:
-            driver = DriverTableRow.from_sql_row(row)
-            if driver.race_preference == 1:
-                likes += 1
-            elif driver.race_preference == -1:
-                dislikes += 1
-            if driver.safety.risky:
-                risks += 1
-        return likes, dislikes, risks
+        return self._filtered_mark_stats
+
+    def _filter_meta_for_row(self, row: tuple) -> _DriverFilterMeta:
+        driver = DriverTableRow.from_sql_row(row)
+        name_lc = (driver.name or "").lower()
+        if self._streamer_mode:
+            display = self._streamer_session_display_name(
+                driver.cust_id, driver.safety, compact=True
+            )
+        else:
+            display = driver.name or ""
+        return _DriverFilterMeta(
+            row=row,
+            name_lc=name_lc,
+            display_lc=display.lower(),
+            cust_id=driver.cust_id,
+            race_preference=driver.race_preference,
+            risky=driver.safety.risky,
+        )
+
+    def _rebuild_table_filter_index(self) -> None:
+        self._table_filter_index = [
+            self._filter_meta_for_row(row) for row in self._table_rows_cache
+        ]
+
+    def _schedule_search_filter(self, *_args: object) -> None:
+        self._search_filter_timer.start()
 
     def init_ui(self):
         root = QWidget()
@@ -1250,7 +1287,7 @@ class GridNotesApp(QMainWindow):
             else "Search drivers by name…"
         )
         self.search_input.setClearButtonEnabled(True)
-        self.search_input.textChanged.connect(self.apply_driver_filters)
+        self.search_input.textChanged.connect(self._schedule_search_filter)
         search_inner.addWidget(self.search_input, stretch=1)
         search_row.addWidget(search_wrapper, stretch=1)
 
@@ -1745,43 +1782,17 @@ class GridNotesApp(QMainWindow):
         self._recompute_filtered_table_rows(reset_page=True)
         self._render_table_page()
 
-    def _driver_row_matches_filters(self, row_data: tuple) -> bool:
-        driver = DriverTableRow.from_sql_row(row_data)
-        q = (self.search_input.text() or "").strip().lower()
-        ignore_name = self._hidden_driver_name_lc()
-        current_only = (
-            hasattr(self, "chk_current_race_only")
-            and self.chk_current_race_only.isEnabled()
-            and self.chk_current_race_only.isChecked()
-        )
-        display_name = (
-            self._streamer_session_display_name(driver.cust_id, driver.safety, compact=True)
-            if self._streamer_mode
-            else display_driver_name(
-                driver.cust_id,
-                driver.name,
-                driver.safety,
-                streamer_mode=False,
-                compact_table=True,
-            )
-        )
-        name_lc = (driver.name or "").lower()
-        display_lc = display_name.lower()
-        if q and q not in name_lc and q not in display_lc:
-            return False
-        if ignore_name and name_lc == ignore_name:
-            return False
-        if current_only and driver.cust_id not in self.active_cust_ids:
-            return False
-        return True
-
     def _sort_filtered_table_rows(self) -> None:
+        if not self._filtered_table_rows:
+            return
         reverse = self._table_sort_order == Qt.SortOrder.DescendingOrder
         column = self._table_sort_column
-        self._filtered_table_rows.sort(
-            key=lambda row: table_row_sort_key(row, column),
-            reverse=reverse,
-        )
+        keyed = [
+            (table_row_sort_key(row, column), row)
+            for row in self._filtered_table_rows
+        ]
+        keyed.sort(reverse=reverse)
+        self._filtered_table_rows = [row for _, row in keyed]
 
     def _table_page_count(self) -> int:
         total = len(self._filtered_table_rows)
@@ -1792,9 +1803,34 @@ class GridNotesApp(QMainWindow):
     def _recompute_filtered_table_rows(self, *, reset_page: bool = False) -> None:
         if reset_page:
             self._table_page = 0
-        self._filtered_table_rows = [
-            row for row in self._table_rows_cache if self._driver_row_matches_filters(row)
-        ]
+        q = (self.search_input.text() or "").strip().lower()
+        ignore_name = self._hidden_driver_name_lc()
+        current_only = (
+            hasattr(self, "chk_current_race_only")
+            and self.chk_current_race_only.isEnabled()
+            and self.chk_current_race_only.isChecked()
+        )
+        active_ids = self.active_cust_ids
+
+        filtered: list[tuple] = []
+        likes = dislikes = risks = 0
+        for meta in self._table_filter_index:
+            if q and q not in meta.name_lc and q not in meta.display_lc:
+                continue
+            if ignore_name and meta.name_lc == ignore_name:
+                continue
+            if current_only and meta.cust_id not in active_ids:
+                continue
+            filtered.append(meta.row)
+            if meta.race_preference == 1:
+                likes += 1
+            elif meta.race_preference == -1:
+                dislikes += 1
+            if meta.risky:
+                risks += 1
+
+        self._filtered_table_rows = filtered
+        self._filtered_mark_stats = (likes, dislikes, risks)
         self._sort_filtered_table_rows()
         page_count = self._table_page_count()
         if self._table_page >= page_count:
@@ -1879,6 +1915,7 @@ class GridNotesApp(QMainWindow):
             else:
                 index_by_id[cust_id] = len(self._table_rows_cache)
                 self._table_rows_cache.append(row)
+        self._rebuild_table_filter_index()
 
     def reset_database(self):
         res = QMessageBox.question(
@@ -2558,6 +2595,7 @@ class GridNotesApp(QMainWindow):
             return
         self._last_table_fingerprint = fingerprint
         self._table_rows_cache = rows
+        self._rebuild_table_filter_index()
         self._recompute_filtered_table_rows()
         selected_cust_id = self.selected_cust_id
         self._render_table_page(reselect=selected_cust_id is not None)
