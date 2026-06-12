@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 
 from PyQt6.QtCore import QEventLoop, Qt, QTimer
-from PyQt6.QtGui import QIcon, QPainterPath, QRegion, QShowEvent
+from PyQt6.QtGui import QCursor, QIcon, QPainterPath, QRegion, QShowEvent
 from PyQt6.QtWidgets import (
     QApplication,
     QFrame,
@@ -29,9 +29,10 @@ class StartupSplash(QWidget):
     def __init__(self, icon: QIcon | None = None, parent: QWidget | None = None) -> None:
         super().__init__(
             parent,
-            Qt.WindowType.SplashScreen | Qt.WindowType.FramelessWindowHint,
+            Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint,
         )
         self.setFixedSize(380, 228)
+        self.setCursor(Qt.CursorShape.ArrowCursor)
         # Translucent outer shells flicker on Windows; use an opaque masked window there.
         self._use_translucent_shell = sys.platform != "win32"
 
@@ -111,15 +112,19 @@ class StartupSplash(QWidget):
 
         self._pulse_timer = QTimer(self)
         self._pulse_timer.setInterval(_PUMP_INTERVAL_MS)
-        self._pulse_timer.timeout.connect(self._pump_events)
+        self._pulse_timer.timeout.connect(self.pulse)
 
         self._center_on_screen()
 
     def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)
         self._apply_rounded_mask()
+        app = QApplication.instance()
+        if app is not None:
+            app.setOverrideCursor(QCursor(Qt.CursorShape.ArrowCursor))
         self._spinner.start()
         self._pulse_timer.start()
+        self.pulse()
 
     def _apply_rounded_mask(self) -> None:
         if self._use_translucent_shell:
@@ -147,8 +152,9 @@ class StartupSplash(QWidget):
     def set_message(self, message: str) -> None:
         self._message_label.setText(message or "Starting…")
 
-    @staticmethod
-    def _pump_events() -> None:
+    def pulse(self) -> None:
+        """Repaint the spinner and yield to Qt while the main thread is busy."""
+        self._spinner.update()
         app = QApplication.instance()
         if app is not None:
             app.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
@@ -156,6 +162,9 @@ class StartupSplash(QWidget):
     def finish(self, main_window: QWidget | None = None) -> None:
         self._pulse_timer.stop()
         self._spinner.stop()
+        app = QApplication.instance()
+        if app is not None:
+            app.restoreOverrideCursor()
         if main_window is not None:
             main_window.raise_()
             main_window.activateWindow()

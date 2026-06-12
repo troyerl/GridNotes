@@ -10,6 +10,14 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.66 — 2026-06-10
+
+### Fixed
+
+- **Startup splash** — Loading spinner animates again during startup, and the mouse pointer stays a normal arrow instead of the Windows busy/wait cursor.
+
+---
+
 ## v1.0.65 — 2026-06-10
 
 ### Fixed
