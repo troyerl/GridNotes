@@ -12,7 +12,7 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-from PyQt6.QtCore import QTimer
+from PyQt6.QtCore import QEventLoop, QTimer
 from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import QApplication
 
@@ -93,40 +93,43 @@ def main() -> int:
 
     splash = StartupSplash(icon=icon)
     splash.show()
-    app.processEvents()
+    app.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
 
-    window = GridNotesApp(splash=splash)
-    if icon is not None:
-        window.setWindowIcon(icon)
+    def _launch_main_window() -> None:
+        window = GridNotesApp(splash=splash)
+        if icon is not None:
+            window.setWindowIcon(icon)
+        window.show()
+        app.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
+        splash.finish(window)
+        if sys.platform == "win32":
 
-    splash.finish(window)
-    window.show()
-    if sys.platform == "win32":
-        def _apply_windows_taskbar_branding() -> None:
-            try:
-                from gridnotes.app.app_icon import shell_icon_path
-                from gridnotes.installer.uninstall import resolve_install_root
-                from gridnotes.platform.windows.windows_shell import (
-                    apply_window_taskbar_identity,
-                    build_relaunch_command,
-                )
+            def _apply_windows_taskbar_branding() -> None:
+                try:
+                    from gridnotes.app.app_icon import shell_icon_path
+                    from gridnotes.installer.uninstall import resolve_install_root
+                    from gridnotes.platform.windows.windows_shell import (
+                        apply_window_taskbar_identity,
+                        build_relaunch_command,
+                    )
 
-                install_root = resolve_install_root()
-                relaunch = (
-                    build_relaunch_command(install_root) if install_root else None
-                )
-                apply_window_taskbar_identity(
-                    window,
-                    shell_icon_path(),
-                    relaunch_command=relaunch,
-                    display_name="GridNotes",
-                )
-            except Exception:
-                pass
+                    install_root = resolve_install_root()
+                    relaunch = (
+                        build_relaunch_command(install_root) if install_root else None
+                    )
+                    apply_window_taskbar_identity(
+                        window,
+                        shell_icon_path(),
+                        relaunch_command=relaunch,
+                        display_name="GridNotes",
+                    )
+                except Exception:
+                    pass
 
-        QTimer.singleShot(0, _apply_windows_taskbar_branding)
-        QTimer.singleShot(750, _apply_windows_taskbar_branding)
+            QTimer.singleShot(0, _apply_windows_taskbar_branding)
+            QTimer.singleShot(750, _apply_windows_taskbar_branding)
 
+    QTimer.singleShot(0, _launch_main_window)
     return app.exec()
 
 

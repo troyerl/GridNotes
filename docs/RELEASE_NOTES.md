@@ -10,6 +10,14 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.65 — 2026-06-10
+
+### Fixed
+
+- **Startup splash on Windows** — Smoother loading animation and less flicker while GridNotes opens. The splash keeps the spinner moving during startup and hands off cleanly to the main window.
+
+---
+
 ## v1.0.64 — 2026-06-10
 
 ### Improved
