@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
 from .a11y import set_accessible
 from .icons import set_button_fa_icon
 from .scouting_legend import scouting_guide_document_html
+from .theme import configure_modal_dialog
 
 _DIALOG_ATTR = "_gridnotes_scouting_guide_dialog"
 
@@ -57,6 +58,7 @@ class ScoutingGuideDialog(QDialog):
         layout.addLayout(btn_row)
 
         set_accessible(self._browser, "Scouting guide reference", None)
+        configure_modal_dialog(self)
 
 
 def show_scouting_guide(parent: QWidget | None = None) -> ScoutingGuideDialog:

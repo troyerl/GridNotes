@@ -7,6 +7,7 @@ from PyQt6.QtGui import QShowEvent
 from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QVBoxLayout
 
 from .ui_widgets import BusySpinner
+from .theme import configure_modal_dialog
 
 
 class StreamerModeProgressDialog(QDialog):
@@ -57,6 +58,7 @@ class StreamerModeProgressDialog(QDialog):
         status_label = QLabel("Please wait…")
         status_label.setObjectName("streamerModeProgressStatus")
         layout.addWidget(status_label)
+        configure_modal_dialog(self)
 
     def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)

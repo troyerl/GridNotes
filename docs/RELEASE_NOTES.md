@@ -10,6 +10,16 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.64 — 2026-06-10
+
+### Improved
+
+- **Rounded modal corners** — Import, update, broadcast, scouting guide, and other dialogs now use the same rounded panel treatment as the startup splash (macOS and Windows).
+- **Startup splash** — Rounded corners on the loading screen; larger spinner; smoother animation while the app opens.
+- **Loading spinner** — Redesigned 12-bar radial spinner used on the splash and in progress dialogs.
+
+---
+
 ## v1.0.63 — 2026-06-10
 
 ### Improved

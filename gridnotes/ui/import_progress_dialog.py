@@ -5,6 +5,8 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QDialog, QLabel, QProgressBar, QVBoxLayout
 
+from ..ui.theme import configure_modal_dialog
+
 
 class ImportProgressDialog(QDialog):
     """Indeterminate progress while JSON race logs are uploaded and imported."""
@@ -55,6 +57,7 @@ class ImportProgressDialog(QDialog):
         self._status_label.setObjectName("importProgressStatus")
         self._status_label.setWordWrap(True)
         layout.addWidget(self._status_label)
+        configure_modal_dialog(self)
 
     def set_file_progress(self, current: int, total: int, filename: str) -> None:
         name = (filename or "").strip() or "file"

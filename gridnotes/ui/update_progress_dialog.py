@@ -6,6 +6,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication, QDialog, QLabel, QProgressBar, QVBoxLayout
 
 from ..installer.user_messages import friendly_update_progress, update_windows_permission_notice
+from ..ui.theme import configure_modal_dialog
 
 
 class UpdateProgressDialog(QDialog):
@@ -50,6 +51,7 @@ class UpdateProgressDialog(QDialog):
         layout.addWidget(self._hint_label)
 
         self._requires_windows_permission = False
+        configure_modal_dialog(self)
 
     def begin(
         self,

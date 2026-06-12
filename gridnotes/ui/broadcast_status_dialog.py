@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
 from ..ui.a11y import set_accessible, set_button_tooltip
 from ..ui.icons import set_button_fa_icon
 from .ui_widgets import BusySpinner
+from .theme import configure_modal_dialog
 
 
 class BroadcastStatusDialog(QDialog):
@@ -33,7 +34,7 @@ class BroadcastStatusDialog(QDialog):
         parent=None,
     ) -> None:
         super().__init__(parent)
-        self.setObjectName("updateProgressDialog")
+        self.setObjectName("broadcastStatusDialog")
         self.setWindowTitle("GridNotes Broadcast")
         self.setModal(True)
         self.setMinimumWidth(420)
@@ -140,6 +141,7 @@ class BroadcastStatusDialog(QDialog):
 
         if sys.platform != "win32":
             self.set_audio_spotter_available(False)
+        configure_modal_dialog(self)
 
     def set_connected_receivers(self, names: list[str]) -> None:
         if self._stopping:

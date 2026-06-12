@@ -6,6 +6,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon, QShowEvent
 from PyQt6.QtWidgets import (
     QApplication,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QVBoxLayout,
@@ -25,13 +26,23 @@ class StartupSplash(QWidget):
             parent,
             Qt.WindowType.SplashScreen | Qt.WindowType.FramelessWindowHint,
         )
-        self.setObjectName("startupSplash")
-        self.setFixedSize(380, 196)
+        self.setObjectName("startupSplashWindow")
+        self.setFixedSize(380, 228)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setAutoFillBackground(False)
+        self.setStyleSheet("QWidget#startupSplashWindow { background: transparent; }")
 
         tokens = theme_tokens(get_theme_id())
-        self.setStyleSheet(
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+
+        panel = QFrame()
+        panel.setObjectName("startupSplash")
+        panel.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        panel.setStyleSheet(
             f"""
-            QWidget#startupSplash {{
+            QFrame#startupSplash {{
                 background-color: {tokens["bg_elevated"]};
                 border: 1px solid {tokens["border_strong"]};
                 border-radius: 14px;
@@ -49,30 +60,32 @@ class StartupSplash(QWidget):
             }}
             """
         )
+        outer.addWidget(panel)
 
-        layout = QVBoxLayout(self)
+        layout = QVBoxLayout(panel)
         layout.setContentsMargins(28, 24, 28, 22)
         layout.setSpacing(12)
 
         header = QHBoxLayout()
         header.setSpacing(14)
         if icon is not None and not icon.isNull():
-            icon_label = QLabel()
+            icon_label = QLabel(panel)
             icon_label.setPixmap(icon.pixmap(48, 48))
             icon_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+            icon_label.setStyleSheet("background: transparent;")
             header.addWidget(icon_label)
-        title = QLabel("GridNotes")
+        title = QLabel("GridNotes", panel)
         title.setObjectName("startupSplashTitle")
         header.addWidget(title, stretch=1)
         layout.addLayout(header)
 
-        self._message_label = QLabel("Starting…")
+        self._message_label = QLabel("Starting…", panel)
         self._message_label.setObjectName("startupSplashMessage")
         layout.addWidget(self._message_label)
 
         spinner_row = QHBoxLayout()
         spinner_row.addStretch()
-        self._spinner = BusySpinner(self, diameter=32)
+        self._spinner = BusySpinner(panel, diameter=56)
         spinner_row.addWidget(self._spinner)
         spinner_row.addStretch()
         layout.addLayout(spinner_row)
@@ -95,6 +108,10 @@ class StartupSplash(QWidget):
 
     def set_message(self, message: str) -> None:
         self._message_label.setText(message or "Starting…")
+        self._pump_events()
+
+    @staticmethod
+    def _pump_events() -> None:
         app = QApplication.instance()
         if app is not None:
             app.processEvents()

@@ -1,3 +1,4 @@
+import argparse
 import sys
 
 # Must run before Qt loads (including via gridnotes.app.app_icon).
@@ -11,6 +12,8 @@ if sys.platform == "win32":
     except Exception:
         pass
 
+from PyQt6.QtCore import QTimer
+from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import QApplication
 
 from gridnotes.app.app_icon import load_app_icon, set_windows_app_user_model_id
@@ -21,8 +24,58 @@ from gridnotes.ui.icons import load_font
 from gridnotes.ui.startup_splash import StartupSplash
 from gridnotes.ui.theme import apply_app_theme
 
+_SPLASH_PREVIEW_MESSAGES = (
+    "Starting…",
+    "Loading database…",
+    "Building interface…",
+    "Loading drivers…",
+)
+
+
+def preview_startup_splash() -> int:
+    """Show the startup splash only (for design review). Press Esc to quit."""
+    set_windows_app_user_model_id()
+    app = QApplication(sys.argv)
+    app.setApplicationName("GridNotes")
+    load_font()
+    apply_app_theme(app)
+
+    icon = load_app_icon()
+    if icon is not None:
+        app.setWindowIcon(icon)
+
+    splash = StartupSplash(icon=icon)
+    shortcut = QShortcut(QKeySequence("Esc"), splash)
+    shortcut.activated.connect(app.quit)
+
+    message_index = 0
+
+    def show_next_message() -> None:
+        nonlocal message_index
+        splash.set_message(_SPLASH_PREVIEW_MESSAGES[message_index % len(_SPLASH_PREVIEW_MESSAGES)])
+        message_index += 1
+
+    show_next_message()
+    splash.show()
+
+    timer = QTimer()
+    timer.timeout.connect(show_next_message)
+    timer.start(1800)
+
+    return app.exec()
+
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="GridNotes")
+    parser.add_argument(
+        "--preview-splash",
+        action="store_true",
+        help="Open the startup splash only (Esc to close).",
+    )
+    args, _unknown = parser.parse_known_args()
+    if args.preview_splash:
+        return preview_startup_splash()
+
     set_windows_app_user_model_id()
     setup_logging()
     init_db()
@@ -49,8 +102,6 @@ def main() -> int:
     splash.finish(window)
     window.show()
     if sys.platform == "win32":
-        from PyQt6.QtCore import QTimer
-
         def _apply_windows_taskbar_branding() -> None:
             try:
                 from gridnotes.app.app_icon import shell_icon_path

@@ -6,6 +6,7 @@ pytest.importorskip("PyQt6.QtGui", exc_type=ImportError)
 
 from gridnotes.ui.theme import (
     build_stylesheet,
+    configure_modal_dialog,
     status_message_color,
     table_row_color,
 )
@@ -30,7 +31,32 @@ def test_status_message_color():
 def test_build_stylesheet_contains_driver_table():
     css = build_stylesheet(THEME_DARK_ID)
     assert "driverTable" in css
+    assert "QDialog" in css
+    assert "QFrame#appModalPanel" in css
+    assert "border-radius: 14px" in css
     assert "{{" not in css
+
+
+def test_configure_modal_dialog_wraps_content_in_rounded_panel(qapp):
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtWidgets import QDialog, QFrame, QLabel, QVBoxLayout
+
+    dialog = QDialog()
+    dialog.setObjectName("testModalDialog")
+    layout = QVBoxLayout(dialog)
+    layout.setContentsMargins(18, 16, 18, 16)
+    label = QLabel("Hello")
+    layout.addWidget(label)
+
+    configure_modal_dialog(dialog)
+
+    assert dialog.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+    panel = dialog.findChild(QFrame, "appModalPanel")
+    assert panel is not None
+    assert label.parent() is panel
+    assert getattr(dialog, "_modal_panel_wrapped", False)
+    configure_modal_dialog(dialog)
+    assert dialog.findChildren(QFrame, "appModalPanel") == [panel]
 
 
 def test_build_stylesheet_light_mode_pref_tokens():

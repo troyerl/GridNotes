@@ -301,9 +301,12 @@ class GridNotesApp(QMainWindow):
         if splash is None:
             return
         splash.set_message(message)
-        app = QApplication.instance()
-        if app is not None:
-            app.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
+
+    def _splash_pulse(self) -> None:
+        splash = getattr(self, "_splash", None)
+        if splash is None:
+            return
+        splash._pump_events()
 
     def _sync_windows_install_metadata(self) -> None:
         """Keep Settings → Apps and the version label in sync with the installed release."""
@@ -1310,6 +1313,7 @@ class GridNotesApp(QMainWindow):
         if iracing_data_api_auto_import_enabled():
             self.settings_tab.api_test_requested.connect(self._test_iracing_api_connection)
         self.main_tabs.addTab(self.settings_tab, "Settings")
+        self._splash_pulse()
 
         database_panel = QWidget()
         database_layout = QVBoxLayout(database_panel)
@@ -1613,6 +1617,7 @@ class GridNotesApp(QMainWindow):
         main_splitter.setSizes([1100, 380])
 
         self.view_stack.addWidget(database_panel)
+        self._splash_pulse()
 
         self.live_session_view = LiveSessionView()
         self.live_session_view.driver_expand_requested.connect(
@@ -1645,6 +1650,7 @@ class GridNotesApp(QMainWindow):
         self._update_live_session_filter(active=False, hint=MSG_SESSION_NOT_CONNECTED)
         self._set_driver_panel_enabled(False)
         self._splash_message("Loading drivers…")
+        self._splash_pulse()
         self._refresh_ui_table_now(force=True)
         self._configure_accessibility()
         self._configure_keyboard_shortcuts()

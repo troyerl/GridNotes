@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, QElapsedTimer, QSize, QTimer, pyqtSignal
-from PyQt6.QtGui import QPainter, QPen, QTextDocument
+from PyQt6.QtCore import Qt, QElapsedTimer, QRectF, QSize, QTimer, pyqtSignal
+from PyQt6.QtGui import QBrush, QColor, QPainter, QPen, QTextDocument
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QFrame,
@@ -22,11 +22,11 @@ from .theme import configure_scroll_area
 
 
 class BusySpinner(QWidget):
-    """Indeterminate arc spinner for modal waiting states."""
+    """Indeterminate radial-bar spinner for modal and splash waiting states."""
 
+    _BAR_COUNT = 12
     _REPAINT_MS = 16
-    _ARC_SPAN_DEG = 270
-    _ROTATION_MS = 1100
+    _CYCLE_MS = 900
 
     def __init__(self, parent: QWidget | None = None, *, diameter: int = 28) -> None:
         super().__init__(parent)
@@ -34,6 +34,7 @@ class BusySpinner(QWidget):
         self._diameter = diameter
         self._elapsed = QElapsedTimer()
         self.setFixedSize(diameter, diameter)
+        self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, False)
         self._timer = QTimer(self)
         self._timer.setTimerType(Qt.TimerType.PreciseTimer)
         self._timer.setInterval(self._REPAINT_MS)
@@ -49,34 +50,44 @@ class BusySpinner(QWidget):
         self._timer.stop()
         self.setVisible(False)
 
-    def _current_angle(self) -> float:
+    def _cycle_position(self) -> float:
         if not self._elapsed.isValid():
             return 0.0
-        elapsed_ms = self._elapsed.elapsed()
-        return (elapsed_ms * 360.0 / self._ROTATION_MS) % 360.0
+        return (self._elapsed.elapsed() % self._CYCLE_MS) / self._CYCLE_MS
 
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        pad = max(2, self._diameter // 10)
-        rect = self.rect().adjusted(pad, pad, -pad, -pad)
-        highlight = self.palette().color(self.palette().ColorRole.Highlight)
-        pen_width = max(2, self._diameter // 9)
+        painter.fillRect(self.rect(), Qt.GlobalColor.transparent)
 
-        track_color = highlight
-        track_color.setAlpha(max(30, highlight.alpha() // 4))
-        track = QPen(track_color)
-        track.setWidth(pen_width)
-        track.setCapStyle(Qt.PenCapStyle.RoundCap)
-        painter.setPen(track)
-        painter.drawArc(rect, 0, 360 * 16)
+        base = self.palette().color(self.palette().ColorRole.Highlight)
+        center_x = self.width() / 2.0
+        center_y = self.height() / 2.0
+        scale = self._diameter / 32.0
+        bar_width = max(2.5, 3.2 * scale)
+        inner_radius = 5.5 * scale
+        bar_length = 7.5 * scale
+        lead = self._cycle_position() * self._BAR_COUNT
 
-        pen = QPen(highlight)
-        pen.setWidth(pen_width)
-        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-        painter.setPen(pen)
-        angle = self._current_angle()
-        painter.drawArc(rect, int(-angle * 16), -self._ARC_SPAN_DEG * 16)
+        for index in range(self._BAR_COUNT):
+            distance = (index - lead) % self._BAR_COUNT
+            alpha = int(255 * max(0.0, 1.0 - distance / self._BAR_COUNT))
+            if alpha < 35:
+                continue
+
+            color = QColor(base)
+            color.setAlpha(alpha)
+            painter.save()
+            painter.translate(center_x, center_y)
+            painter.rotate(index * (360.0 / self._BAR_COUNT))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(color))
+            painter.drawRoundedRect(
+                QRectF(-bar_width / 2, inner_radius, bar_width, bar_length),
+                bar_width / 2,
+                bar_width / 2,
+            )
+            painter.restore()
         painter.end()
 
 

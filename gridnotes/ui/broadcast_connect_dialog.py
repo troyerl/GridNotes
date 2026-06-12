@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
 from ..broadcast.discovery import BroadcastDiscovery, BroadcasterInfo
 from ..ui.a11y import set_button_tooltip
 from ..ui.icons import BUTTON_ICON_TEXT_GAP, fa_icon, set_button_fa_icon
+from ..ui.theme import configure_modal_dialog
 
 
 class BroadcastConnectDialog(QDialog):
@@ -92,6 +93,7 @@ class BroadcastConnectDialog(QDialog):
         self._discovery = BroadcastDiscovery(self)
         self._discovery.broadcaster_found.connect(self._add_broadcaster)
         self._known: dict[str, BroadcasterInfo] = {}
+        configure_modal_dialog(self)
 
     def showEvent(self, event) -> None:
         super().showEvent(event)

@@ -1278,8 +1278,20 @@ QWidget#settingsContent QCheckBox::indicator:checked {
     background-color: {{accent}};
 }
 
-QDialog#updateProgressDialog {
+QDialog {
+    background: transparent;
+}
+
+QFrame#appModalPanel {
+    background-color: {{bg_elevated}};
+    border: 1px solid {{border_strong}};
+    border-radius: 14px;
+}
+
+QMessageBox {
     background-color: {{bg_window}};
+    border: 1px solid {{border_strong}};
+    border-radius: 14px;
 }
 
 QLabel#updateProgressTitle {
@@ -1331,10 +1343,6 @@ QPushButton#dialogChromeBtn:disabled {
     background-color: {{bg_elevated}};
 }
 
-QDialog#importProgressDialog {
-    background-color: {{bg_window}};
-}
-
 QLabel#importProgressTitle {
     font-size: 15px;
     font-weight: 600;
@@ -1356,10 +1364,6 @@ QProgressBar#importProgressBar::chunk {
 QLabel#importProgressStatus {
     color: {{text_tab}};
     font-size: 13px;
-}
-
-QDialog#streamerModeProgressDialog {
-    background-color: {{bg_window}};
 }
 
 QLabel#streamerModeProgressTitle {
@@ -1494,6 +1498,68 @@ def note_tag_input_stylesheet(theme_id: str | None = None) -> str:
         f" border: 2px solid {t['accent_border']};"
         " }"
     )
+
+
+def configure_modal_dialog(dialog) -> None:
+    """Wrap dialog content in a rounded inner panel on a transparent outer window."""
+    from PyQt6.QtWidgets import QDialog, QFrame, QVBoxLayout, QWidget
+
+    if not isinstance(dialog, QDialog):
+        return
+    if getattr(dialog, "_modal_panel_wrapped", False):
+        return
+    dialog._modal_panel_wrapped = True
+
+    if not dialog.objectName():
+        dialog.setObjectName("appModalDialog")
+
+    old_layout = dialog.layout()
+    if old_layout is None:
+        return
+
+    margins = old_layout.contentsMargins()
+    spacing = old_layout.spacing()
+
+    items = []
+    while old_layout.count():
+        item = old_layout.takeAt(0)
+        if item is not None:
+            items.append(item)
+
+    stealer = QWidget()
+    stealer.setLayout(old_layout)
+    stealer.deleteLater()
+
+    dialog.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+    dialog.setAutoFillBackground(False)
+    dialog.setStyleSheet(f"QDialog#{dialog.objectName()} {{ background: transparent; }}")
+
+    panel = QFrame(dialog)
+    panel.setObjectName("appModalPanel")
+    panel.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+
+    panel_layout = QVBoxLayout(panel)
+    panel_layout.setContentsMargins(margins)
+    panel_layout.setSpacing(spacing)
+    for item in items:
+        widget = item.widget()
+        nested = item.layout()
+        if widget is not None:
+            panel_layout.addWidget(widget)
+        elif nested is not None:
+            panel_layout.addLayout(nested)
+        else:
+            panel_layout.addItem(item)
+
+    outer = QVBoxLayout(dialog)
+    outer.setContentsMargins(0, 0, 0, 0)
+    outer.addWidget(panel)
+
+    style = dialog.style()
+    if style is not None:
+        style.unpolish(panel)
+        style.polish(panel)
+    dialog.update()
 
 
 def configure_note_tag_input(line_edit: QLineEdit, theme_id: str | None = None) -> None:

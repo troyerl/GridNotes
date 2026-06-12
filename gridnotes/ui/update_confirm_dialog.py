@@ -15,6 +15,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from .theme import configure_modal_dialog
+
 
 def format_release_notes_plain(notes: str | None, *, max_lines: int = 24) -> str:
     if not notes or not notes.strip():
@@ -51,6 +53,7 @@ class UpdateConfirmDialog(QDialog):
         requires_windows_permission: bool = False,
     ) -> None:
         super().__init__(parent)
+        self.setObjectName("updateConfirmDialog")
         self.setWindowTitle("Update available")
         self.setMinimumWidth(480)
 
@@ -106,3 +109,4 @@ class UpdateConfirmDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+        configure_modal_dialog(self)

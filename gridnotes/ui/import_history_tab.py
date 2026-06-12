@@ -36,6 +36,7 @@ from ..data.leagues import (
     mark_session_league_race,
 )
 from .table_pagination import DEFAULT_PAGE_SIZE, TablePaginationBar
+from .theme import configure_modal_dialog
 
 
 class MarkLeagueRaceDialog(QDialog):
@@ -51,6 +52,7 @@ class MarkLeagueRaceDialog(QDialog):
         current_season_id: int | None = None,
     ) -> None:
         super().__init__(parent)
+        self.setObjectName("markLeagueRaceDialog")
         self.setWindowTitle("Mark as league race")
         self.setModal(True)
         self._selected_league_id: int | None = None
@@ -83,6 +85,7 @@ class MarkLeagueRaceDialog(QDialog):
         layout.addWidget(buttons)
 
         self._load_leagues(current_league_id, current_season_id)
+        configure_modal_dialog(self)
 
     def _load_leagues(
         self,
