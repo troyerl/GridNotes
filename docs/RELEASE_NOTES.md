@@ -10,11 +10,20 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.63 — 2026-06-10
+
+### Improved
+
+- **Startup splash** — Uses the same loading spinner as elsewhere in the app, with smoother rotation while GridNotes opens.
+- **Loading spinner** — Smoother animation in splash, Streamer mode, and Broadcast status dialogs.
+
+---
+
 ## v1.0.62 — 2026-06-10
 
 ### New
 
-- **Startup splash** — A loading screen with progress appears while GridNotes opens (database, interface, and driver list).
+- **Startup splash** — A loading screen appears while GridNotes opens (database, interface, and driver list).
 
 ---
 

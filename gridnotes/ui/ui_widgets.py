@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QElapsedTimer, QSize, QTimer, pyqtSignal
 from PyQt6.QtGui import QPainter, QPen, QTextDocument
 from PyQt6.QtWidgets import (
     QButtonGroup,
@@ -24,18 +24,23 @@ from .theme import configure_scroll_area
 class BusySpinner(QWidget):
     """Indeterminate arc spinner for modal waiting states."""
 
+    _REPAINT_MS = 16
+    _ARC_SPAN_DEG = 270
+    _ROTATION_MS = 1100
+
     def __init__(self, parent: QWidget | None = None, *, diameter: int = 28) -> None:
         super().__init__(parent)
         self.setObjectName("busySpinner")
         self._diameter = diameter
-        self._angle = 0
+        self._elapsed = QElapsedTimer()
         self.setFixedSize(diameter, diameter)
         self._timer = QTimer(self)
-        self._timer.setInterval(80)
-        self._timer.timeout.connect(self._tick)
+        self._timer.setTimerType(Qt.TimerType.PreciseTimer)
+        self._timer.setInterval(self._REPAINT_MS)
+        self._timer.timeout.connect(self.update)
 
     def start(self) -> None:
-        self._angle = 0
+        self._elapsed.start()
         self._timer.start()
         self.setVisible(True)
         self.update()
@@ -44,20 +49,34 @@ class BusySpinner(QWidget):
         self._timer.stop()
         self.setVisible(False)
 
-    def _tick(self) -> None:
-        self._angle = (self._angle + 30) % 360
-        self.update()
+    def _current_angle(self) -> float:
+        if not self._elapsed.isValid():
+            return 0.0
+        elapsed_ms = self._elapsed.elapsed()
+        return (elapsed_ms * 360.0 / self._ROTATION_MS) % 360.0
 
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         pad = max(2, self._diameter // 10)
         rect = self.rect().adjusted(pad, pad, -pad, -pad)
-        pen = QPen(self.palette().color(self.palette().ColorRole.Highlight))
-        pen.setWidth(max(2, self._diameter // 9))
+        highlight = self.palette().color(self.palette().ColorRole.Highlight)
+        pen_width = max(2, self._diameter // 9)
+
+        track_color = highlight
+        track_color.setAlpha(max(30, highlight.alpha() // 4))
+        track = QPen(track_color)
+        track.setWidth(pen_width)
+        track.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(track)
+        painter.drawArc(rect, 0, 360 * 16)
+
+        pen = QPen(highlight)
+        pen.setWidth(pen_width)
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         painter.setPen(pen)
-        painter.drawArc(rect, -self._angle * 16, -270 * 16)
+        angle = self._current_angle()
+        painter.drawArc(rect, int(-angle * 16), -self._ARC_SPAN_DEG * 16)
         painter.end()
 
 

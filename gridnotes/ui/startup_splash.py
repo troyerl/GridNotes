@@ -3,22 +3,22 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QIcon
+from PyQt6.QtGui import QIcon, QShowEvent
 from PyQt6.QtWidgets import (
     QApplication,
     QHBoxLayout,
     QLabel,
-    QProgressBar,
     QVBoxLayout,
     QWidget,
 )
 
 from .appearance import get_theme_id
 from .theme_tokens import theme_tokens
+from .ui_widgets import BusySpinner
 
 
 class StartupSplash(QWidget):
-    """Frameless splash with app branding and an indeterminate progress bar."""
+    """Frameless splash with app branding and a loading spinner."""
 
     def __init__(self, icon: QIcon | None = None, parent: QWidget | None = None) -> None:
         super().__init__(
@@ -47,17 +47,6 @@ class StartupSplash(QWidget):
                 color: {tokens["text_muted"]};
                 background: transparent;
             }}
-            QProgressBar {{
-                background-color: {tokens["bg_window"]};
-                border: 1px solid {tokens["border"]};
-                border-radius: 4px;
-                min-height: 6px;
-                max-height: 6px;
-            }}
-            QProgressBar::chunk {{
-                background-color: {tokens["accent"]};
-                border-radius: 3px;
-            }}
             """
         )
 
@@ -81,12 +70,18 @@ class StartupSplash(QWidget):
         self._message_label.setObjectName("startupSplashMessage")
         layout.addWidget(self._message_label)
 
-        self._progress = QProgressBar()
-        self._progress.setRange(0, 0)
-        self._progress.setTextVisible(False)
-        layout.addWidget(self._progress)
+        spinner_row = QHBoxLayout()
+        spinner_row.addStretch()
+        self._spinner = BusySpinner(self, diameter=32)
+        spinner_row.addWidget(self._spinner)
+        spinner_row.addStretch()
+        layout.addLayout(spinner_row)
 
         self._center_on_screen()
+
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        self._spinner.start()
 
     def _center_on_screen(self) -> None:
         screen = QApplication.primaryScreen()
@@ -105,6 +100,7 @@ class StartupSplash(QWidget):
             app.processEvents()
 
     def finish(self, main_window: QWidget | None = None) -> None:
+        self._spinner.stop()
         if main_window is not None:
             main_window.raise_()
             main_window.activateWindow()
