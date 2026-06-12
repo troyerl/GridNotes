@@ -49,6 +49,8 @@ from ..data.driver_models import (
     DriverDetailRow,
     DriverTableRow,
     build_live_session_entries,
+    format_head_to_head_record,
+    head_to_head_tooltip,
     format_live_session_at_glance,
     format_shared_races_label,
 )
@@ -70,6 +72,7 @@ from ..ui.driver_table import (
     COL_NOTE,
     COL_SAFETY,
     COL_SERIES,
+    COL_VS_YOU,
     COLUMN_COUNT,
     DRIVER_TABLE_HEADERS,
     PREF_DATA_ROLE,
@@ -103,11 +106,13 @@ from ..ui.live_session import LiveSessionView
 from ..ui.scouting_guide_dialog import show_scouting_guide
 from ..ui.import_progress_dialog import ImportProgressDialog
 from ..ui.import_history_tab import ImportHistoryTab
+from ..ui.race_history_tab import RaceHistoryTab
 from ..ui.leagues_tab import LeaguesTab
 from ..ui.streamer_mode_progress_dialog import StreamerModeProgressDialog
 from ..data.leagues import fetch_league_membership_labels
 from ..data.queries import (
     driver_detail_sql,
+    fetch_head_to_head_records,
     fetch_recent_races_by_cust_ids,
     fetch_shared_race_counts,
     table_data_for_cust_ids_sql,
@@ -227,6 +232,7 @@ class GridNotesApp(QMainWindow):
         self._table_filter_index: list[_DriverFilterMeta] = []
         self._filtered_table_rows: list[tuple] = []
         self._filtered_mark_stats: tuple[int, int, int] = (0, 0, 0)
+        self._head_to_head_by_cust: dict[int, tuple[int, int, int]] = {}
         self._search_filter_timer = QTimer(self)
         self._search_filter_timer.setSingleShot(True)
         self._search_filter_timer.setInterval(SEARCH_FILTER_DEBOUNCE_MS)
@@ -718,6 +724,12 @@ class GridNotesApp(QMainWindow):
             return
         self._latest_grid_player_cust_id = resolved
         set_setting(PLAYER_CUST_ID_KEY, str(resolved))
+        if self._table_rows_cache:
+            self._refresh_head_to_head_cache()
+            if hasattr(self, "table"):
+                self._render_table_page()
+        if self._live_mode_active and self.active_cust_ids:
+            self._refresh_live_session_view()
 
     def _resolve_player_cust_id(self) -> int | None:
         """Your iRacing cust_id when known (SDK, saved setting, or hidden name)."""
@@ -772,18 +784,27 @@ class GridNotesApp(QMainWindow):
 
         player_cust_id = self._resolve_player_cust_id()
         shared_counts: dict[int, int] = {}
+        head_to_head: dict[int, tuple[int, int, int]] = {}
         if player_cust_id is not None:
+            active_ids = sorted(self.active_cust_ids)
             shared_counts = fetch_shared_race_counts(
                 self._db_conn,
                 player_cust_id,
-                sorted(self.active_cust_ids),
+                active_ids,
+            )
+            head_to_head = fetch_head_to_head_records(
+                self._db_conn,
+                player_cust_id,
+                active_ids,
             )
         for entry in entries:
             cid = int(entry["cust_id"])
             if player_cust_id is None or cid == player_cust_id:
                 entry["together_races"] = None
+                entry["head_to_head"] = None
             else:
                 entry["together_races"] = int(shared_counts.get(cid, 0))
+                entry["head_to_head"] = head_to_head.get(cid)
 
         if self._streamer_mode:
             for entry in entries:
@@ -866,6 +887,7 @@ class GridNotesApp(QMainWindow):
         safety = entry.get("safety") if entry else None
         safety_trend = entry.get("safety_trend") if entry else None
         together_races = (entry or {}).get("together_races")
+        head_to_head = (entry or {}).get("head_to_head")
         together_line = format_shared_races_label(together_races)
 
         if row:
@@ -882,6 +904,10 @@ class GridNotesApp(QMainWindow):
                 )
             if together_line:
                 meta_text = f"{meta_text}\n{together_line}"
+            if head_to_head is not None:
+                h2h_line = format_head_to_head_record(*head_to_head)
+                if h2h_line != "—":
+                    meta_text = f"{meta_text}\n{h2h_line}"
             recent = fetch_recent_races_by_cust_ids(self._db_conn, [cust_id], limit=5)
             trend = compute_safety_trend(detail.safety, recent.get(cust_id, []))
             safety = detail.safety
@@ -901,6 +927,7 @@ class GridNotesApp(QMainWindow):
                 safety=safety,
                 safety_trend=safety_trend,
                 together_races=together_races,
+                head_to_head=head_to_head,
             )
             return
 
@@ -918,6 +945,10 @@ class GridNotesApp(QMainWindow):
         )
         if together_line:
             meta_text = f"{meta_text}\n{together_line}"
+        if head_to_head is not None:
+            h2h_line = format_head_to_head_record(*head_to_head)
+            if h2h_line != "—":
+                meta_text = f"{meta_text}\n{h2h_line}"
         self.live_session_view.populate_expanded_detail(
             cust_id,
             meta_text=meta_text,
@@ -933,6 +964,7 @@ class GridNotesApp(QMainWindow):
             safety=safety if isinstance(safety, SafetyIndex) else empty_safety(),
             safety_trend=safety_trend if isinstance(safety_trend, SafetyTrend) else None,
             together_races=together_races,
+            head_to_head=head_to_head,
         )
 
     def _on_live_expand_save_requested(self, cust_id: int, notes_text: str) -> None:
@@ -1130,6 +1162,23 @@ class GridNotesApp(QMainWindow):
         self._table_filter_index = [
             self._filter_meta_for_row(row) for row in self._table_rows_cache
         ]
+        self._refresh_head_to_head_cache()
+
+    def _refresh_head_to_head_cache(self) -> None:
+        player_cust_id = self._resolve_player_cust_id()
+        if player_cust_id is None or not self._table_rows_cache:
+            self._head_to_head_by_cust = {}
+            return
+        other_ids = [
+            DriverTableRow.from_sql_row(row).cust_id
+            for row in self._table_rows_cache
+            if DriverTableRow.from_sql_row(row).cust_id != player_cust_id
+        ]
+        self._head_to_head_by_cust = fetch_head_to_head_records(
+            self._db_conn,
+            player_cust_id,
+            other_ids,
+        )
 
     def _schedule_search_filter(self, *_args: object) -> None:
         self._search_filter_timer.start()
@@ -1222,12 +1271,17 @@ class GridNotesApp(QMainWindow):
         self.main_tabs.addTab(drivers_tab, "Drivers")
 
         self.import_history_tab = ImportHistoryTab()
-        self.main_tabs.addTab(self.import_history_tab, "Import History")
+
+        self.race_history_tab = RaceHistoryTab()
+        self.race_history_tab.set_player_cust_id_provider(self._resolve_player_cust_id)
+        self.main_tabs.addTab(self.race_history_tab, "Race History")
 
         self.leagues_tab = LeaguesTab(
             session_drivers_provider=self._current_session_drivers_for_leagues,
         )
         self.main_tabs.addTab(self.leagues_tab, "Leagues")
+
+        self.main_tabs.addTab(self.import_history_tab, "Import History")
 
         self.settings_tab = SettingsTab()
         self.settings_tab.settings_saved.connect(self._on_settings_saved)
@@ -1697,6 +1751,8 @@ class GridNotesApp(QMainWindow):
             self.leagues_tab._apply_icons()
         if hasattr(self, "import_history_tab"):
             self.import_history_tab.refresh_icons()
+        if hasattr(self, "race_history_tab"):
+            self.race_history_tab.refresh_icons()
         if hasattr(self, "table_pagination"):
             self.table_pagination.refresh_icons()
         self._refresh_label_icons()
@@ -1729,6 +1785,7 @@ class GridNotesApp(QMainWindow):
 
     def _on_settings_saved(self) -> None:
         self._rebuild_note_template_buttons()
+        self._refresh_head_to_head_cache()
         self.apply_driver_filters()
         deleted = self._run_data_retention_purge(show_status=True)
         if self.selected_cust_id is not None:
@@ -1788,7 +1845,16 @@ class GridNotesApp(QMainWindow):
         reverse = self._table_sort_order == Qt.SortOrder.DescendingOrder
         column = self._table_sort_column
         keyed = [
-            (table_row_sort_key(row, column), row)
+            (
+                table_row_sort_key(
+                    row,
+                    column,
+                    head_to_head=self._head_to_head_by_cust.get(
+                        DriverTableRow.from_sql_row(row).cust_id
+                    ),
+                ),
+                row,
+            )
             for row in self._filtered_table_rows
         ]
         keyed.sort(reverse=reverse)
@@ -2690,6 +2756,9 @@ class GridNotesApp(QMainWindow):
 
         if self._live_mode_active and self.active_cust_ids:
             self._refresh_live_session_view()
+        if hasattr(self, "race_history_tab"):
+            self.race_history_tab._reload_driver_list()
+            self.race_history_tab.refresh()
         if self.selected_cust_id is not None and int(self.selected_cust_id) in affected_cust_ids:
             self._populate_driver_details(self.selected_cust_id)
 
@@ -2728,12 +2797,15 @@ class GridNotesApp(QMainWindow):
                 compact_table=True,
             )
         )
+        h2h = self._head_to_head_by_cust.get(driver.cust_id)
+        vs_you = format_head_to_head_record(*(h2h or (0, 0, 0)))
         return (
             [
                 display_name,
                 driver_mark_label(driver.race_preference, safety.risky),
                 "",
                 driver.total_races,
+                vs_you,
                 safety.score if safety.tier != "unknown" else None,
                 driver.avg_inc,
                 driver.avg_fin,
@@ -2777,6 +2849,19 @@ class GridNotesApp(QMainWindow):
                 item = make_note_item(bool(value))
             else:
                 item = make_table_item(value)
+            if col_idx == COL_VS_YOU:
+                h2h = self._head_to_head_by_cust.get(cust_id)
+                if h2h and sum(h2h) > 0:
+                    item.setToolTip(head_to_head_tooltip(*h2h))
+                elif self._resolve_player_cust_id() is None:
+                    item.setToolTip(
+                        "Set Hide your name in Settings or join iRacing to track your record."
+                    )
+                else:
+                    item.setToolTip(
+                        "No shared imported races with this driver yet, "
+                        "or none with a finish comparison."
+                    )
             if col_idx == COL_NAME:
                 item.setData(Qt.ItemDataRole.UserRole, cust_id)
                 item.setData(REAL_NAME_DATA_ROLE, real_name or display_row[COL_NAME])
@@ -2822,6 +2907,8 @@ class GridNotesApp(QMainWindow):
         self._populate_driver_details(self.selected_cust_id)
         self.notes_edit.setText(notes or "")
         self._set_driver_panel_enabled(True)
+        if hasattr(self, "race_history_tab"):
+            self.race_history_tab.select_driver(self.selected_cust_id)
 
     def _fetch_driver_notes_meta(self, cust_id: int) -> tuple[str | None, str, int | None]:
         cursor = self._db_conn.cursor()

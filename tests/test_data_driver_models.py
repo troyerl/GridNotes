@@ -3,9 +3,28 @@
 from gridnotes.data.driver_models import (
     DriverTableRow,
     build_live_session_entries,
+    compare_race_finish_outcome,
     format_dnf_breakdown,
+    format_head_to_head_record,
     format_live_session_at_glance,
+    format_vs_you_outcome,
 )
+
+
+def test_compare_race_finish_outcome():
+    assert compare_race_finish_outcome(1, 0, 3, 0) == "win"
+    assert compare_race_finish_outcome(4, 0, 2, 0) == "loss"
+    assert compare_race_finish_outcome(3, 0, 3, 0) == "tie"
+    assert compare_race_finish_outcome(5, 3, 2, 0) == "loss"
+    assert compare_race_finish_outcome(5, 0, 2, 1) == "win"
+
+
+def test_format_head_to_head_record():
+    assert format_head_to_head_record(0, 0, 0) == "—"
+    assert format_head_to_head_record(3, 2) == "You 3–2"
+    assert format_head_to_head_record(1, 1, 1) == "You 1–1–1"
+    assert format_vs_you_outcome("win") == "You won"
+    assert format_vs_you_outcome("loss") == "You lost"
 
 
 def test_format_dnf_breakdown():

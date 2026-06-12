@@ -40,6 +40,7 @@ _GLYPHS: dict[str, str] = {
     "gear": "\uf013",
     "grip": "\uf58d",
     "link-slash": "\uf127",
+    "list-ul": "\uf03a",
     "magnifying-glass": "\uf002",
     "minus": "\uf068",
     "note-sticky": "\uf249",
@@ -90,6 +91,8 @@ _MAIN_TAB_ICONS = {
     "Drivers": "users",
     "Import History": "clock-rotate-left",
     "Import history": "clock-rotate-left",
+    "Race History": "list-ul",
+    "Race history": "list-ul",
     "Leagues": "trophy",
     "Settings": "gear",
 }

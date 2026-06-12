@@ -8,6 +8,70 @@ from ..safety.safety_index import SafetyIndex, compute_safety_index, empty_safet
 from ..core.utils import sqlite_row_to_int
 
 
+def _is_race_dnf(reason_out_id: int | None) -> bool:
+    return int(reason_out_id or 0) in (1, 2, 3, 4)
+
+
+def compare_race_finish_outcome(
+    player_finish: int | None,
+    player_reason: int | None,
+    other_finish: int | None,
+    other_reason: int | None,
+) -> str | None:
+    """Return ``win``, ``loss``, or ``tie`` for the player vs another driver in one race."""
+    player_dnf = _is_race_dnf(player_reason)
+    other_dnf = _is_race_dnf(other_reason)
+    if player_dnf and not other_dnf:
+        return "loss"
+    if other_dnf and not player_dnf:
+        return "win"
+    if player_finish is None or other_finish is None:
+        return None
+    if player_finish < other_finish:
+        return "win"
+    if player_finish > other_finish:
+        return "loss"
+    return "tie"
+
+
+def format_head_to_head_record(
+    wins: int,
+    losses: int,
+    ties: int = 0,
+) -> str:
+    """Your wins–losses(–ties) vs another driver. First number is always your wins."""
+    if wins <= 0 and losses <= 0 and ties <= 0:
+        return "—"
+    if ties > 0:
+        return f"You {wins}–{losses}–{ties}"
+    return f"You {wins}–{losses}"
+
+
+def head_to_head_tooltip(
+    wins: int,
+    losses: int,
+    ties: int = 0,
+) -> str:
+    """Explain a head-to-head record from your perspective."""
+    tie_note = f", {ties} tie{'s' if ties != 1 else ''}" if ties else ""
+    return (
+        f"Your record vs this driver: {wins} win{'s' if wins != 1 else ''}, "
+        f"{losses} loss{'es' if losses != 1 else ''}{tie_note}. "
+        "The score is always your wins first, then your losses."
+    )
+
+
+def format_vs_you_outcome(outcome: str | None) -> str:
+    """Single-race result when you and the selected driver shared a session."""
+    if outcome == "win":
+        return "You won"
+    if outcome == "loss":
+        return "You lost"
+    if outcome == "tie":
+        return "Tie"
+    return "—"
+
+
 def format_dnf_breakdown(disc: int, eject: int, quit_: int, dq: int, other: int) -> str:
     parts = []
     if disc:

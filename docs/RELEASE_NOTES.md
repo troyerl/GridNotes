@@ -10,6 +10,20 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.61 — 2026-06-10
+
+### New
+
+- **You vs them** — When your iRacing identity is known, the driver table and Live Mode show your head-to-head record against each driver (e.g. **You 1–0**). Race History lists **You won** / **You lost** / **Tie** for shared races.
+- **Race History tab** — Browse every imported race for a driver: date, session, series, grid/finish, incidents, and your result when you raced together.
+
+### Improved
+
+- **Race History** — Driver list includes only drivers with real imported sessions (not live placeholders). Compact driver picker; removed iRating column.
+- **Tab order** — Import History moved next to Settings.
+
+---
+
 ## v1.0.60 — 2026-06-10
 
 ### Improved

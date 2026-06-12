@@ -4,6 +4,7 @@ from gridnotes.data.driver_cleanup import count_zero_race_drivers, purge_zero_ra
 from gridnotes.data.queries import (
     _chunked_ints,
     driver_detail_sql,
+    fetch_head_to_head_records,
     fetch_recent_races_by_cust_ids,
     fetch_shared_race_counts,
     table_data_for_cust_ids_sql,
@@ -81,6 +82,28 @@ def test_purge_zero_race_drivers(memory_conn):
     removed = purge_zero_race_drivers(memory_conn)
     assert removed == 1
     assert memory_conn.execute("SELECT COUNT(*) FROM drivers").fetchone()[0] == 1
+
+
+def test_fetch_head_to_head_records(memory_conn):
+    memory_conn.executemany(
+        """
+        INSERT INTO race_results (
+            cust_id, subsession_id, finish_position, reason_out_id, incidents
+        )
+        VALUES (?, ?, ?, ?, 0)
+        """,
+        [
+            (100, 1, 1, 0),
+            (200, 1, 3, 0),
+            (100, 2, 4, 0),
+            (200, 2, 2, 0),
+            (100, 3, 2, 0),
+            (200, 3, 5, 0),
+        ],
+    )
+    memory_conn.commit()
+    records = fetch_head_to_head_records(memory_conn, 100, [200])
+    assert records[200] == (2, 1, 0)
 
 
 def test_fetch_shared_race_counts(memory_conn):

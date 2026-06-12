@@ -39,7 +39,12 @@ EMPTY_CELL = "—"
 _MISSING_NUMERIC = float("-inf")
 
 
-def table_row_sort_key(row: tuple, column: int) -> tuple:
+def table_row_sort_key(
+    row: tuple,
+    column: int,
+    *,
+    head_to_head: tuple[int, int, int] | None = None,
+) -> tuple:
     """Sort key for a driver SQL row and table column (matches table sort semantics)."""
     driver = DriverTableRow.from_sql_row(row)
     safety = driver.safety
@@ -52,6 +57,13 @@ def table_row_sort_key(row: tuple, column: int) -> tuple:
         return (0, "")
     if column == COL_RACES:
         return (0, driver.total_races)
+    if column == COL_VS_YOU:
+        if head_to_head is None:
+            return (1, 0)
+        wins, losses, ties = head_to_head
+        if wins + losses + ties <= 0:
+            return (1, 0)
+        return (0, wins - losses, wins)
     if column == COL_SAFETY:
         if safety.tier == "unknown":
             return (1, 0)
@@ -83,19 +95,20 @@ COL_NAME = 0
 COL_MARK = 1
 COL_LEAGUE = 2
 COL_RACES = 3
-COL_SAFETY = 4
-COL_AVG_INC = 5
-COL_AVG_FINISH = 6
-COL_AVG_POS = 7
-COL_DNFS = 8
-COL_LAST_SR = 9
-COL_LAST_IR = 10
-COL_SERIES = 11
-COL_DNF_BREAKDOWN = 12
-COL_NOTE = 13
-COL_CUST_ID = 14
+COL_VS_YOU = 4
+COL_SAFETY = 5
+COL_AVG_INC = 6
+COL_AVG_FINISH = 7
+COL_AVG_POS = 8
+COL_DNFS = 9
+COL_LAST_SR = 10
+COL_LAST_IR = 11
+COL_SERIES = 12
+COL_DNF_BREAKDOWN = 13
+COL_NOTE = 14
+COL_CUST_ID = 15
 
-COLUMN_COUNT = 15
+COLUMN_COUNT = 16
 NOTE_HAS_TEXT = "Notes"
 
 DRIVER_TABLE_HEADERS = [
@@ -103,6 +116,7 @@ DRIVER_TABLE_HEADERS = [
     "Mark",
     "League",
     "Races",
+    "You vs them",
     "Safety Index",
     "Avg Incidents",
     "Avg Finish",
@@ -121,6 +135,7 @@ DEFAULT_DRIVER_TABLE_COLUMN_WIDTHS: dict[int, int] = {
     COL_MARK: 72,
     COL_LEAGUE: 72,
     COL_RACES: 64,
+    COL_VS_YOU: 96,
     COL_SAFETY: 112,
     COL_AVG_INC: 100,
     COL_AVG_FINISH: 88,

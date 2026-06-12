@@ -18,7 +18,11 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from ..data.driver_models import sort_live_mode_card_entries
+from ..data.driver_models import (
+    format_head_to_head_record,
+    head_to_head_tooltip,
+    sort_live_mode_card_entries,
+)
 from ..iracing.session_context import format_session_context_banner
 from ..safety.safety_index import SafetyIndex, empty_safety, tier_color_hex, tier_label
 from ..safety.safety_trend import SafetyTrend
@@ -95,7 +99,13 @@ class LiveDriverCard(QFrame):
         stats.setVerticalSpacing(2)
 
         for col, (key, title) in enumerate(
-            [("inc", "Avg Inc"), ("dnf", "DNF"), ("sr", "Last SR"), ("together", "Together")]
+            [
+                ("inc", "Avg Inc"),
+                ("dnf", "DNF"),
+                ("sr", "Last SR"),
+                ("together", "Together"),
+                ("vs_you", "You vs them"),
+            ]
         ):
             title_lbl = QLabel(title)
             title_lbl.setObjectName("liveStatTitle")
@@ -219,6 +229,7 @@ class LiveDriverCard(QFrame):
         league_label: str = "",
         together_races: int | None = None,
         book_races: int = 0,
+        head_to_head: tuple[int, int, int] | None = None,
     ) -> None:
         self._cust_id = cust_id
         self._driver_name = name or "—"
@@ -303,6 +314,22 @@ class LiveDriverCard(QFrame):
             self._together_value.setText("—")
             self._together_value.setToolTip(
                 "No race history in your book yet for this driver."
+            )
+
+        if head_to_head is not None:
+            wins, losses, ties = head_to_head
+            vs_text = format_head_to_head_record(wins, losses, ties)
+            self._vs_you_value.setText(vs_text)
+            if wins + losses + ties <= 0:
+                self._vs_you_value.setToolTip(
+                    "No shared races with a finish comparison yet."
+                )
+            else:
+                self._vs_you_value.setToolTip(head_to_head_tooltip(wins, losses, ties))
+        else:
+            self._vs_you_value.setText("—")
+            self._vs_you_value.setToolTip(
+                "Set Hide your name in Settings or join iRacing to track your record vs this driver."
             )
 
         if pref == 1:
@@ -565,6 +592,7 @@ class LiveSessionView(QWidget):
         safety: SafetyIndex | None,
         safety_trend: SafetyTrend | None = None,
         together_races: int | None = None,
+        head_to_head: tuple[int, int, int] | None = None,
     ) -> None:
         if self._expanded_cust_id != cust_id:
             return
@@ -582,6 +610,7 @@ class LiveSessionView(QWidget):
             safety=safety,
             safety_trend=safety_trend,
             together_races=together_races,
+            head_to_head=head_to_head,
         )
         for card in self._cards:
             if card.cust_id == cust_id:
@@ -699,6 +728,7 @@ class LiveSessionView(QWidget):
                 (e.get("safety_trend") or SafetyTrend("unknown", None, None, 0)).direction,
                 e.get("league_label") or "",
                 e.get("together_races"),
+                e.get("head_to_head"),
             )
             for e in entries
         )
@@ -749,6 +779,7 @@ class LiveSessionView(QWidget):
                 league_label=str(entry.get("league_label") or ""),
                 together_races=entry.get("together_races"),
                 book_races=int(entry.get("total_races") or 0),
+                head_to_head=entry.get("head_to_head"),
             )
             card.toggle_expand.connect(self._on_card_toggle_expand)
             self._wire_expand_panel(card.expand_signals(), int(entry["cust_id"]))

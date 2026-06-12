@@ -224,6 +224,72 @@ def driver_detail_sql() -> str:
     """
 
 
+_H2H_OUTCOME_EXPR = """
+    CASE
+        WHEN COALESCE(rr_me.reason_out_id, 0) IN (1, 2, 3, 4)
+             AND COALESCE(rr_other.reason_out_id, 0) NOT IN (1, 2, 3, 4)
+            THEN 0
+        WHEN COALESCE(rr_other.reason_out_id, 0) IN (1, 2, 3, 4)
+             AND COALESCE(rr_me.reason_out_id, 0) NOT IN (1, 2, 3, 4)
+            THEN 1
+        WHEN rr_me.finish_position IS NOT NULL
+             AND rr_other.finish_position IS NOT NULL
+             AND rr_me.finish_position < rr_other.finish_position
+            THEN 1
+        WHEN rr_me.finish_position IS NOT NULL
+             AND rr_other.finish_position IS NOT NULL
+             AND rr_me.finish_position > rr_other.finish_position
+            THEN 0
+        ELSE 2
+    END
+"""
+
+
+def fetch_head_to_head_records(
+    conn: sqlite3.Connection,
+    player_cust_id: int,
+    other_cust_ids: list[int],
+) -> dict[int, tuple[int, int, int]]:
+    """
+    Win-loss-tie record for *player_cust_id* vs each other driver.
+
+    Counts only subsessions where both drivers appear in race_results.
+    Outcome uses finish position with DNF handling (reason_out_id 1–4).
+    """
+    player_id = int(player_cust_id)
+    ids = sorted({int(c) for c in other_cust_ids if int(c) != player_id})
+    if not ids:
+        return {}
+
+    records: dict[int, tuple[int, int, int]] = {}
+    for chunk in _chunked_ints(ids, _IN_CLAUSE_CHUNK_SIZE):
+        placeholders = ",".join("?" * len(chunk))
+        sql = f"""
+            SELECT
+                shared.cust_id,
+                SUM(CASE WHEN shared.outcome = 1 THEN 1 ELSE 0 END),
+                SUM(CASE WHEN shared.outcome = 0 THEN 1 ELSE 0 END),
+                SUM(CASE WHEN shared.outcome = 2 THEN 1 ELSE 0 END)
+            FROM (
+                SELECT
+                    rr_other.cust_id AS cust_id,
+                    {_H2H_OUTCOME_EXPR} AS outcome
+                FROM race_results rr_other
+                INNER JOIN race_results rr_me
+                    ON rr_me.subsession_id = rr_other.subsession_id
+                   AND rr_me.cust_id = ?
+                WHERE rr_other.cust_id IN ({placeholders})
+                  AND rr_other.subsession_id IS NOT NULL
+                  AND rr_other.subsession_id != 0
+            ) AS shared
+            GROUP BY shared.cust_id
+        """
+        rows = conn.execute(sql, [player_id, *chunk]).fetchall()
+        for cust_id, wins, losses, ties in rows:
+            records[int(cust_id)] = (int(wins), int(losses), int(ties))
+    return records
+
+
 def fetch_shared_race_counts(
     conn: sqlite3.Connection,
     player_cust_id: int,

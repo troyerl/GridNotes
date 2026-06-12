@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from ..data.driver_models import format_head_to_head_record
 from ..data.note_tags import chip_label, load_note_tags
 from ..safety.safety_index import SafetyIndex, empty_safety
 from ..safety.safety_trend import SafetyTrend
@@ -52,6 +53,7 @@ class LiveDriverExpandPanel(QFrame):
         for row_idx, (key, title) in enumerate(
             [
                 ("together", "Raced together"),
+                ("vs_you", "You vs them"),
                 ("series", "Series"),
                 ("races", "Races in book"),
                 ("avg_finish", "Avg finish"),
@@ -208,6 +210,7 @@ class LiveDriverExpandPanel(QFrame):
         safety: SafetyIndex | None,
         safety_trend: SafetyTrend | None = None,
         together_races: int | None = None,
+        head_to_head: tuple[int, int, int] | None = None,
     ) -> None:
         self.meta_label.setText(meta_text)
         self.notes_edit.setPlainText(notes or "")
@@ -218,6 +221,10 @@ class LiveDriverExpandPanel(QFrame):
             self.set_stat("together", "0")
         else:
             self.set_stat("together", str(together_races))
+        if head_to_head is None:
+            self.set_stat("vs_you", "—")
+        else:
+            self.set_stat("vs_you", format_head_to_head_record(*head_to_head))
         self.set_stat("series", series or "—")
         self.set_stat("races", str(races) if races else "—")
         self.set_stat(
