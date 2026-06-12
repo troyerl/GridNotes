@@ -18,6 +18,7 @@ from gridnotes.app.gridnotes_app import GridNotesApp
 from gridnotes.data.db import init_db
 from gridnotes.services.log_config import setup_logging
 from gridnotes.ui.icons import load_font
+from gridnotes.ui.startup_splash import StartupSplash
 from gridnotes.ui.theme import apply_app_theme
 
 
@@ -37,10 +38,15 @@ def main() -> int:
     if icon is not None:
         app.setWindowIcon(icon)
 
-    window = GridNotesApp()
+    splash = StartupSplash(icon=icon)
+    splash.show()
+    app.processEvents()
+
+    window = GridNotesApp(splash=splash)
     if icon is not None:
         window.setWindowIcon(icon)
 
+    splash.finish(window)
     window.show()
     if sys.platform == "win32":
         from PyQt6.QtCore import QTimer

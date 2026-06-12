@@ -10,6 +10,14 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.62 — 2026-06-10
+
+### New
+
+- **Startup splash** — A loading screen with progress appears while GridNotes opens (database, interface, and driver list).
+
+---
+
 ## v1.0.61 — 2026-06-10
 
 ### New

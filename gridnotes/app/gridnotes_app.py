@@ -195,8 +195,9 @@ PLAYER_CUST_ID_KEY = "player_cust_id"
 # Full table rebuild when more drivers changed than this after import.
 
 class GridNotesApp(QMainWindow):
-    def __init__(self):
+    def __init__(self, splash=None):
         super().__init__()
+        self._splash = splash
         self.setWindowTitle("GridNotes")
         self.setMinimumSize(1280, 760)
         self.resize(1440, 860)
@@ -278,6 +279,7 @@ class GridNotesApp(QMainWindow):
         self._broadcast_connect_timer.timeout.connect(self._on_broadcast_connect_timeout)
         self._shutting_down = False
 
+        self._splash_message("Loading database…")
         init_db()
         try:
             from ..installer.update_paths import prune_old_update_workspaces
@@ -287,11 +289,21 @@ class GridNotesApp(QMainWindow):
             pass
         self._db_conn = connect_db()
         self._run_data_retention_purge()
+        self._splash_message("Building interface…")
         self.init_ui()
         self._sync_windows_install_metadata()
         self.start_sdk_worker()
         if get_setting(AUTO_CHECK_UPDATES_KEY, "0") == "1":
             QTimer.singleShot(800, self._check_for_app_updates_on_startup)
+
+    def _splash_message(self, message: str) -> None:
+        splash = getattr(self, "_splash", None)
+        if splash is None:
+            return
+        splash.set_message(message)
+        app = QApplication.instance()
+        if app is not None:
+            app.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
 
     def _sync_windows_install_metadata(self) -> None:
         """Keep Settings → Apps and the version label in sync with the installed release."""
@@ -1632,6 +1644,7 @@ class GridNotesApp(QMainWindow):
 
         self._update_live_session_filter(active=False, hint=MSG_SESSION_NOT_CONNECTED)
         self._set_driver_panel_enabled(False)
+        self._splash_message("Loading drivers…")
         self._refresh_ui_table_now(force=True)
         self._configure_accessibility()
         self._configure_keyboard_shortcuts()
