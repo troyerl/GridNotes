@@ -168,6 +168,7 @@ class DriverTableRow:
             "cust_id": self.cust_id,
             "name": self.name,
             "avg_inc": self.avg_inc,
+            "avg_fin": self.avg_fin,
             "total_races": self.total_races,
             "dnf_total": self.dnf_total,
             "avg_pos_delta": self.avg_pos_delta,
@@ -176,6 +177,37 @@ class DriverTableRow:
             "has_note": self.has_notes,
             "pref": self.race_preference,
         }
+
+
+def apply_racing_type_stats_to_live_entry(
+    entry: dict,
+    type_row: DriverTableRow | None,
+    *,
+    racing_type: str,
+    racing_type_label: str,
+) -> None:
+    """Replace lifetime scouting stats with a racing-type slice for Live Mode."""
+    entry["racing_type"] = racing_type
+    entry["racing_type_label"] = racing_type_label
+    if not racing_type:
+        return
+    if type_row is None or type_row.total_races <= 0:
+        entry["avg_inc"] = None
+        entry["avg_fin"] = None
+        entry["total_races"] = 0
+        entry["dnf_total"] = 0
+        entry["avg_pos_delta"] = None
+        entry["safety"] = empty_safety()
+        entry["dnf_breakdown"] = ""
+        return
+    entry["avg_inc"] = type_row.avg_inc
+    entry["avg_fin"] = type_row.avg_fin
+    entry["total_races"] = type_row.total_races
+    entry["dnf_total"] = type_row.dnf_total
+    entry["avg_pos_delta"] = type_row.avg_pos_delta
+    entry["safety"] = type_row.safety
+    entry["has_history"] = True
+    entry["dnf_breakdown"] = type_row.dnf_breakdown
 
 
 @dataclass(frozen=True)

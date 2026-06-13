@@ -43,6 +43,11 @@ def parse_session_context(ir) -> dict[str, str]:
                 if cat:
                     out["category"] = cat
                     break
+            for key in ("SeriesName", "SeasonName", "EventTypeName"):
+                series = weekend.get(key)
+                if series:
+                    out["series"] = str(series).strip()
+                    break
     except Exception:
         pass
 

@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QHeaderView,
     QHBoxLayout,
     QCheckBox,
+    QComboBox,
     QLabel,
     QLineEdit,
     QMainWindow,
@@ -48,6 +49,7 @@ from ..data.driver_cleanup import count_zero_race_drivers, purge_zero_race_drive
 from ..data.driver_models import (
     DriverDetailRow,
     DriverTableRow,
+    apply_racing_type_stats_to_live_entry,
     build_live_session_entries,
     format_head_to_head_record,
     head_to_head_tooltip,
@@ -111,13 +113,15 @@ from ..ui.leagues_tab import LeaguesTab
 from ..ui.streamer_mode_progress_dialog import StreamerModeProgressDialog
 from ..data.leagues import fetch_league_membership_labels
 from ..data.queries import (
-    driver_detail_sql,
+    driver_detail_query,
     fetch_head_to_head_records,
     fetch_recent_races_by_cust_ids,
     fetch_shared_race_counts,
+    table_data_for_cust_ids_by_racing_type_sql,
     table_data_for_cust_ids_sql,
     table_data_sql,
 )
+from ..iracing.racing_type import RACING_TYPE_FILTER_OPTIONS, racing_type_label, resolve_racing_type
 from ..iracing.session_kind import is_live_scouting_session, is_race_session, session_kind_label
 from ..safety.safety_index import SafetyIndex, empty_safety, safety_tooltip
 from ..safety.safety_trend import (
@@ -772,6 +776,13 @@ class GridNotesApp(QMainWindow):
                 return int(cust_id)
         return None
 
+    def _resolve_live_racing_type(self) -> str:
+        ctx = self.current_session_context or {}
+        return resolve_racing_type(
+            category=ctx.get("category"),
+            series_name=ctx.get("series"),
+        )
+
     def _build_live_session_entries(self) -> list[dict]:
         if not self.active_cust_ids:
             return []
@@ -794,9 +805,32 @@ class GridNotesApp(QMainWindow):
             self._db_conn,
             self.active_cust_ids,
         )
+
+        racing_type = self._resolve_live_racing_type()
+        type_label = racing_type_label(racing_type)
+        type_rows_by_id: dict[int, DriverTableRow] = {}
+        if racing_type:
+            type_sql, type_params = table_data_for_cust_ids_by_racing_type_sql(
+                sorted(self.active_cust_ids),
+                racing_type,
+            )
+            cursor.execute(type_sql, type_params)
+            type_rows_by_id = {
+                DriverTableRow.from_sql_row(row).cust_id: DriverTableRow.from_sql_row(row)
+                for row in cursor.fetchall()
+            }
+
         for entry in entries:
             entry["safety_trend"] = trends.get(int(entry["cust_id"]))
             entry["league_label"] = league_labels.get(int(entry["cust_id"]), "")
+            if racing_type:
+                cid = int(entry["cust_id"])
+                apply_racing_type_stats_to_live_entry(
+                    entry,
+                    type_rows_by_id.get(cid),
+                    racing_type=racing_type,
+                    racing_type_label=type_label,
+                )
 
         player_cust_id = self._resolve_player_cust_id()
         shared_counts: dict[int, int] = {}
@@ -889,6 +923,17 @@ class GridNotesApp(QMainWindow):
                 return entry
         return None
 
+    def _live_stats_scope_text(self, entry: dict | None) -> str | None:
+        if not entry:
+            return None
+        label = entry.get("racing_type_label")
+        if not label:
+            return None
+        races = int(entry.get("total_races") or 0)
+        if races <= 0:
+            return f"No {label.lower()} history yet"
+        return f"{label} · {races} races in book"
+
     def _populate_live_expanded_detail(
         self,
         cust_id: int,
@@ -905,6 +950,8 @@ class GridNotesApp(QMainWindow):
         together_races = (entry or {}).get("together_races")
         head_to_head = (entry or {}).get("head_to_head")
         together_line = format_shared_races_label(together_races)
+        stats_scope = self._live_stats_scope_text(entry)
+        use_type_stats = bool(entry and entry.get("racing_type"))
 
         if row:
             detail = DriverDetailRow.from_sql_row(row)
@@ -924,22 +971,37 @@ class GridNotesApp(QMainWindow):
                 h2h_line = format_head_to_head_record(*head_to_head)
                 if h2h_line != "—":
                     meta_text = f"{meta_text}\n{h2h_line}"
-            recent = fetch_recent_races_by_cust_ids(self._db_conn, [cust_id], limit=5)
-            trend = compute_safety_trend(detail.safety, recent.get(cust_id, []))
-            safety = detail.safety
-            safety_trend = trend
+            if use_type_stats:
+                safety = entry.get("safety") if isinstance(entry.get("safety"), SafetyIndex) else detail.safety
+                safety_trend = entry.get("safety_trend") if entry else None
+                avg_finish = entry.get("avg_fin")
+                races = int(entry.get("total_races") or 0)
+                avg_pos_delta = entry.get("avg_pos_delta")
+                dnfs = int(entry.get("dnf_total") or 0)
+                dnf_breakdown = str(entry.get("dnf_breakdown") or "")
+            else:
+                recent = fetch_recent_races_by_cust_ids(self._db_conn, [cust_id], limit=5)
+                trend = compute_safety_trend(detail.safety, recent.get(cust_id, []))
+                safety = detail.safety
+                safety_trend = trend
+                avg_finish = detail.avg_fin
+                races = detail.total_races
+                avg_pos_delta = detail.avg_pos_delta
+                dnfs = detail.dnf_total
+                dnf_breakdown = detail.dnf_breakdown
             self.live_session_view.populate_expanded_detail(
                 cust_id,
                 meta_text=meta_text,
                 notes=notes,
                 pref=pref,
                 series=detail.last_series,
-                avg_finish=detail.avg_fin,
-                races=detail.total_races,
+                stats_scope=stats_scope,
+                avg_finish=avg_finish,
+                races=races,
                 last_irating=detail.last_ir,
-                avg_pos_delta=detail.avg_pos_delta,
-                dnfs=detail.dnf_total,
-                dnf_breakdown=detail.dnf_breakdown,
+                avg_pos_delta=avg_pos_delta,
+                dnfs=dnfs,
+                dnf_breakdown=dnf_breakdown,
                 safety=safety,
                 safety_trend=safety_trend,
                 together_races=together_races,
@@ -971,12 +1033,13 @@ class GridNotesApp(QMainWindow):
             notes=notes,
             pref=pref,
             series=None,
-            avg_finish=None,
+            stats_scope=stats_scope,
+            avg_finish=(entry or {}).get("avg_fin"),
             races=int((entry or {}).get("total_races") or 0),
             last_irating=(entry or {}).get("last_ir"),
             avg_pos_delta=(entry or {}).get("avg_pos_delta"),
             dnfs=int((entry or {}).get("dnf_total") or 0),
-            dnf_breakdown="",
+            dnf_breakdown=str((entry or {}).get("dnf_breakdown") or ""),
             safety=safety if isinstance(safety, SafetyIndex) else empty_safety(),
             safety_trend=safety_trend if isinstance(safety_trend, SafetyTrend) else None,
             together_races=together_races,
@@ -1078,8 +1141,9 @@ class GridNotesApp(QMainWindow):
 
     def _fetch_driver_detail_row(self, cust_id: int) -> tuple | None:
         cursor = self._db_conn.cursor()
-        # driver_detail_sql uses cust_id twice (agg CTE + final WHERE)
-        cursor.execute(driver_detail_sql(), (cust_id, cust_id))
+        racing_type = self._selected_racing_type_filter() or None
+        sql, params = driver_detail_query(cust_id, racing_type=racing_type)
+        cursor.execute(sql, params)
         return cursor.fetchone()
 
     def _populate_driver_details(self, cust_id: int) -> None:
@@ -1101,9 +1165,12 @@ class GridNotesApp(QMainWindow):
             )
         else:
             self.driver_name_label.setText(detail.name or "—")
-            self.driver_meta_label.setText(
-                f"ID {cust_id}  ·  Last raced {last_seen_fmt} {tz_label}"
-            )
+            meta = f"ID {cust_id}  ·  Last raced {last_seen_fmt} {tz_label}"
+            type_filter = self._selected_racing_type_filter()
+            if type_filter:
+                label = racing_type_label(type_filter)
+                meta = f"{meta}\nShowing {label.lower()} stats ({detail.total_races} races)"
+            self.driver_meta_label.setText(meta)
         self._set_detail_field("series", detail.last_series)
         self._set_detail_field("avg_finish", detail.avg_fin)
         self._set_detail_field("avg_incidents", detail.avg_inc)
@@ -1395,6 +1462,19 @@ class GridNotesApp(QMainWindow):
         )
         self.chk_current_race_only.stateChanged.connect(self.apply_driver_filters)
         filters_layout.addWidget(self.chk_current_race_only)
+
+        type_label = QLabel("Race type")
+        type_label.setObjectName("statInlineLabel")
+        filters_layout.addWidget(type_label)
+        self.racing_type_filter = QComboBox()
+        self.racing_type_filter.setObjectName("racingTypeFilter")
+        for value, label in RACING_TYPE_FILTER_OPTIONS:
+            self.racing_type_filter.addItem(label, value)
+        self.racing_type_filter.setToolTip(
+            "Show drivers and stats for a racing type: oval, road, formula, or dirt."
+        )
+        self.racing_type_filter.currentIndexChanged.connect(self._on_racing_type_filter_changed)
+        filters_layout.addWidget(self.racing_type_filter)
 
         self.live_session_note = QLabel(MSG_SESSION_NOT_CONNECTED)
         self.live_session_note.setObjectName("sectionHint")
@@ -1855,6 +1935,17 @@ class GridNotesApp(QMainWindow):
         self._refresh_ui_table_now(force=True)
         self.settings_tab.show_zero_race_cleanup_result(deleted)
 
+    def _selected_racing_type_filter(self) -> str:
+        if not hasattr(self, "racing_type_filter"):
+            return ""
+        return str(self.racing_type_filter.currentData() or "")
+
+    def _on_racing_type_filter_changed(self, _index: int = 0) -> None:
+        self._invalidate_table_fingerprint()
+        self._refresh_ui_table_now(force=True)
+        if self.selected_cust_id is not None:
+            self._populate_driver_details(self.selected_cust_id)
+
     def apply_driver_filters(self, *_):
         self._recompute_filtered_table_rows(reset_page=True)
         self._render_table_page()
@@ -1897,6 +1988,7 @@ class GridNotesApp(QMainWindow):
             and self.chk_current_race_only.isChecked()
         )
         active_ids = self.active_cust_ids
+        type_filter = self._selected_racing_type_filter()
 
         filtered: list[tuple] = []
         likes = dislikes = risks = 0
@@ -1907,6 +1999,10 @@ class GridNotesApp(QMainWindow):
                 continue
             if current_only and meta.cust_id not in active_ids:
                 continue
+            if type_filter:
+                driver = DriverTableRow.from_sql_row(meta.row)
+                if driver.total_races <= 0:
+                    continue
             filtered.append(meta.row)
             if meta.race_preference == 1:
                 likes += 1
@@ -2656,6 +2752,7 @@ class GridNotesApp(QMainWindow):
         ).fetchone()
         return (
             self._streamer_mode,
+            self._selected_racing_type_filter(),
             league_meta,
             tuple(
             (
@@ -2784,7 +2881,9 @@ class GridNotesApp(QMainWindow):
 
     def _fetch_table_data(self) -> list[tuple]:
         cursor = self._db_conn.cursor()
-        cursor.execute(table_data_sql())
+        racing_type = self._selected_racing_type_filter() or None
+        sql, params = table_data_sql(racing_type=racing_type)
+        cursor.execute(sql, params)
         return cursor.fetchall()
 
     def _safety_trends_for_table_rows(

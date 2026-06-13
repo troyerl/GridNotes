@@ -75,6 +75,14 @@ def test_import_race_entries(memory_conn):
     assert updated2 >= 2
     assert skipped2 == 0
 
+    types = {
+        row[0]
+        for row in memory_conn.execute(
+            "SELECT DISTINCT racing_type FROM race_results WHERE racing_type IS NOT NULL"
+        ).fetchall()
+    }
+    assert types == {"formula"}
+
 
 def test_sync_live_session_drivers(memory_conn):
     added = sync_live_session_drivers(

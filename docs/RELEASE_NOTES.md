@@ -10,6 +10,19 @@ When you push a tag (for example `v1.0.24`), the GitHub **Release** workflow use
 
 ---
 
+## v1.0.67 — 2026-06-10
+
+### New
+
+- **Race type filter** — Filter the driver table by **Oval**, **Road**, **Formula**, or **Dirt**. Stats and Safety Index update to match the selected type.
+
+### Improved
+
+- **Live Mode stats** — Driver cards and Grid Walk use oval / road / formula / dirt stats for the current session instead of lifetime averages.
+- **League members** — Trophy icon in the driver table, Live Mode, and Grid Walk; hover to see every league and season the driver belongs to.
+
+---
+
 ## v1.0.66 — 2026-06-10
 
 ### Fixed

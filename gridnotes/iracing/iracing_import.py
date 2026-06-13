@@ -6,6 +6,7 @@ import sqlite3
 from typing import Literal
 
 from ..core.utils import normalize_1_based, sqlite_row_to_int
+from .racing_type import classify_racing_type_from_series
 
 # iRacing reason_out_id (0 = finished on track; excluded from DNF stats)
 REASON_OUT_RUNNING = 0
@@ -160,6 +161,7 @@ def _save_race_result(
     reason_out_id,
     race_timestamp: str | None,
 ) -> ImportOutcome:
+    racing_type = classify_racing_type_from_series(series_name)
     row_values = (
         cust_id,
         sub_id,
@@ -172,6 +174,7 @@ def _save_race_result(
         reason_out,
         reason_out_id,
         race_timestamp,
+        racing_type or None,
     )
 
     if sub_id != 0:
@@ -186,7 +189,8 @@ def _save_race_result(
                 starting_position = ?,
                 reason_out = ?,
                 reason_out_id = ?,
-                race_at = COALESCE(?, race_at)
+                race_at = COALESCE(?, race_at),
+                racing_type = ?
             WHERE cust_id = ? AND subsession_id = ?
             """,
             (
@@ -199,6 +203,7 @@ def _save_race_result(
                 reason_out,
                 reason_out_id,
                 race_timestamp,
+                racing_type or None,
                 cust_id,
                 sub_id,
             ),
@@ -219,9 +224,10 @@ def _save_race_result(
                 starting_position,
                 reason_out,
                 reason_out_id,
-                race_at
+                race_at,
+                racing_type
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             row_values,
         )
@@ -240,9 +246,10 @@ def _save_race_result(
             starting_position,
             reason_out,
             reason_out_id,
-            race_at
+            race_at,
+            racing_type
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         row_values,
     )

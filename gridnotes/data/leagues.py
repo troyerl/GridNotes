@@ -348,6 +348,19 @@ def fetch_league_membership_labels(
     return {cid: ", ".join(parts) for cid, parts in grouped.items()}
 
 
+def league_membership_tooltip(full_label: str) -> str:
+    """Hover text listing every league season a driver belongs to."""
+    if not full_label:
+        return ""
+    entries = [part.strip() for part in full_label.split(",") if part.strip()]
+    if not entries:
+        return ""
+    if len(entries) == 1:
+        return f"League member: {entries[0]}"
+    bullets = "\n".join(f"• {entry}" for entry in entries)
+    return f"League memberships:\n{bullets}"
+
+
 def compact_league_indicator(full_label: str) -> str:
     """Short label for table cells and badges."""
     if not full_label:

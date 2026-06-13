@@ -85,6 +85,36 @@ QFrame#filtersBar {
     padding: 2px 8px;
 }
 
+QComboBox#racingTypeFilter {
+    min-width: 120px;
+    padding: 4px 8px;
+    border: 1px solid {{border}};
+    border-radius: 6px;
+    background-color: {{bg_window}};
+    color: {{text_primary}};
+}
+
+QComboBox#racingTypeFilter:hover {
+    border-color: {{border_strong}};
+}
+
+QComboBox#racingTypeFilter:focus,
+QComboBox#racingTypeFilter:on {
+    border: 2px solid {{accent_border}};
+}
+
+QComboBox#racingTypeFilter::drop-down {
+    border: none;
+    width: 22px;
+}
+
+QComboBox#racingTypeFilter QAbstractItemView {
+    background-color: {{bg_elevated}};
+    color: {{text_primary}};
+    border: 1px solid {{border_strong}};
+    selection-background-color: {{selection_bg}};
+}
+
 QPushButton#headerBtn {
     background-color: {{bg_button}};
     border: 1px solid {{border_strong}};

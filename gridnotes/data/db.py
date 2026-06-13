@@ -166,9 +166,11 @@ def _migrate_schema(cursor: sqlite3.Cursor) -> None:
     _ensure_column(cursor, "race_results", "reason_out_id", "INTEGER")
     _ensure_column(cursor, "race_results", "series_name", "TEXT")
     _ensure_column(cursor, "race_results", "race_at", "TEXT")  # ISO race end/start time
+    _ensure_column(cursor, "race_results", "racing_type", "TEXT")
 
     _backfill_race_at(cursor)
     _sync_driver_last_seen_from_results(cursor)
+    _backfill_racing_type(cursor)
 
     # Backfill older imports (pre-series_name) with best available info.
     try:
@@ -297,6 +299,24 @@ def _dedupe_race_results_by_subsession(cursor: sqlite3.Cursor) -> None:
     )
 
 
+def _backfill_racing_type(cursor: sqlite3.Cursor) -> None:
+    """Classify imported races into oval / road / formula / dirt buckets."""
+    from ..iracing.racing_type import classify_racing_type_from_series
+
+    try:
+        rows = cursor.execute(
+            "SELECT id, series_name FROM race_results"
+        ).fetchall()
+        for row_id, series_name in rows:
+            racing_type = classify_racing_type_from_series(series_name)
+            cursor.execute(
+                "UPDATE race_results SET racing_type = ? WHERE id = ?",
+                (racing_type or None, row_id),
+            )
+    except Exception:
+        pass
+
+
 def _ensure_subsession_dedup_index(cursor: sqlite3.Cursor) -> None:
     cursor.execute(
         "SELECT 1 FROM sqlite_master WHERE type='index' AND name='idx_race_results_cust_subsession'"
@@ -321,6 +341,10 @@ def _ensure_perf_indexes(cursor: sqlite3.Cursor) -> None:
         "ON race_results (cust_id, race_at DESC, id DESC)"
     )
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_race_results_series_name ON race_results (series_name)")
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_race_results_cust_racing_type "
+        "ON race_results (cust_id, racing_type)"
+    )
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_race_results_license_class ON race_results (license_class)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_race_results_reason_out_id ON race_results (reason_out_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_race_results_race_at ON race_results (race_at)")

@@ -2,6 +2,7 @@
 
 from gridnotes.data.driver_models import (
     DriverTableRow,
+    apply_racing_type_stats_to_live_entry,
     build_live_session_entries,
     compare_race_finish_outcome,
     format_dnf_breakdown,
@@ -109,3 +110,59 @@ def test_format_shared_races_label():
 
 def test_format_live_session_at_glance_empty():
     assert format_live_session_at_glance([]) == ""
+
+
+def _sample_table_row(*, total_races: int = 10, avg_inc: float = 2.0) -> DriverTableRow:
+    return DriverTableRow.from_sql_row(
+        (
+            "Alice",
+            avg_inc,
+            5.0,
+            total_races,
+            1500,
+            3.5,
+            "Series",
+            0.5,
+            42,
+            None,
+            1,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+        )
+    )
+
+
+def test_apply_racing_type_stats_to_live_entry_uses_type_row():
+    entry = {"cust_id": 42, "total_races": 99, "avg_inc": 9.9}
+    type_row = _sample_table_row(total_races=4, avg_inc=1.5)
+    apply_racing_type_stats_to_live_entry(
+        entry,
+        type_row,
+        racing_type="oval",
+        racing_type_label="Oval",
+    )
+    assert entry["racing_type"] == "oval"
+    assert entry["racing_type_label"] == "Oval"
+    assert entry["total_races"] == 4
+    assert entry["avg_inc"] == 1.5
+    assert entry["has_history"] is True
+    assert entry["safety"].total_races == 4
+    assert entry["dnf_breakdown"] == "Quit:1"
+
+
+def test_apply_racing_type_stats_to_live_entry_clears_missing_history():
+    entry = {"cust_id": 42, "total_races": 12, "avg_inc": 3.0}
+    apply_racing_type_stats_to_live_entry(
+        entry,
+        None,
+        racing_type="road",
+        racing_type_label="Road",
+    )
+    assert entry["total_races"] == 0
+    assert entry["avg_inc"] is None
+    assert entry["safety"].tier == "unknown"
+    assert entry["dnf_breakdown"] == ""

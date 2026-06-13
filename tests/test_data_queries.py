@@ -7,6 +7,7 @@ from gridnotes.data.queries import (
     fetch_head_to_head_records,
     fetch_recent_races_by_cust_ids,
     fetch_shared_race_counts,
+    table_data_for_cust_ids_by_racing_type_sql,
     table_data_for_cust_ids_sql,
     table_data_sql,
 )
@@ -28,8 +29,8 @@ def test_table_data_sql_returns_rows(memory_conn):
         """,
     )
     memory_conn.commit()
-    sql = table_data_sql()
-    rows = memory_conn.execute(sql).fetchall()
+    sql, params = table_data_sql()
+    rows = memory_conn.execute(sql, params).fetchall()
     assert len(rows) == 1
     assert rows[0][0] == "Eve"
 
@@ -42,6 +43,113 @@ def test_table_data_for_cust_ids(memory_conn):
     sql, params = table_data_for_cust_ids_sql([1])
     rows = memory_conn.execute(sql, params).fetchall()
     assert len(rows) == 1
+
+
+def test_table_data_sql_filters_by_racing_type(memory_conn):
+    memory_conn.execute(
+        "INSERT INTO drivers (cust_id, driver_name) VALUES (1, 'A'), (2, 'B')"
+    )
+    memory_conn.executemany(
+        """
+        INSERT INTO race_results (
+            cust_id, subsession_id, finish_position, incidents, racing_type
+        )
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        [
+            (1, 1, 3, 2, "oval"),
+            (1, 2, 5, 8, "road"),
+            (2, 3, 2, 1, "road"),
+        ],
+    )
+    memory_conn.commit()
+    sql, params = table_data_sql(racing_type="road")
+    rows = memory_conn.execute(sql, params).fetchall()
+    by_id = {int(row[8]): row for row in rows}
+    assert int(by_id[1][3]) == 1
+    assert int(by_id[2][3]) == 1
+
+
+def test_table_racing_type_filter_excludes_zero_race_drivers(memory_conn):
+    """Drivers tab hides rows with no races in the selected type."""
+    from gridnotes.data.driver_models import DriverTableRow
+
+    memory_conn.execute(
+        "INSERT INTO drivers (cust_id, driver_name) VALUES (1, 'Oval only'), (2, 'Road only')"
+    )
+    memory_conn.executemany(
+        """
+        INSERT INTO race_results (
+            cust_id, subsession_id, finish_position, incidents, racing_type
+        )
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        [
+            (1, 1, 3, 2, "oval"),
+            (2, 2, 5, 4, "road"),
+        ],
+    )
+    memory_conn.commit()
+    sql, params = table_data_sql(racing_type="oval")
+    rows = memory_conn.execute(sql, params).fetchall()
+    visible = [
+        row
+        for row in rows
+        if DriverTableRow.from_sql_row(row).total_races > 0
+    ]
+    assert len(visible) == 1
+    assert DriverTableRow.from_sql_row(visible[0]).cust_id == 1
+
+
+def test_driver_detail_query_filters_by_racing_type(memory_conn):
+    from gridnotes.data.queries import driver_detail_query
+
+    memory_conn.execute(
+        "INSERT INTO drivers (cust_id, driver_name) VALUES (7, 'Dan')"
+    )
+    memory_conn.executemany(
+        """
+        INSERT INTO race_results (
+            cust_id, subsession_id, finish_position, incidents, racing_type
+        )
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        [
+            (7, 1, 3, 2, "oval"),
+            (7, 2, 5, 8, "oval"),
+            (7, 3, 2, 1, "dirt"),
+        ],
+    )
+    memory_conn.commit()
+    sql, params = driver_detail_query(7, racing_type="dirt")
+    row = memory_conn.execute(sql, params).fetchone()
+    assert row is not None
+    assert int(row[5]) == 1
+
+
+def test_table_data_for_cust_ids_by_racing_type(memory_conn):
+    memory_conn.execute(
+        "INSERT INTO drivers (cust_id, driver_name) VALUES (1, 'A')"
+    )
+    memory_conn.executemany(
+        """
+        INSERT INTO race_results (
+            cust_id, subsession_id, finish_position, incidents, racing_type
+        )
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        [
+            (1, 1, 3, 2, "oval"),
+            (1, 2, 5, 8, "road"),
+            (1, 3, 2, 1, "oval"),
+        ],
+    )
+    memory_conn.commit()
+    sql, params = table_data_for_cust_ids_by_racing_type_sql([1], "oval")
+    row = memory_conn.execute(sql, params).fetchone()
+    assert row is not None
+    assert int(row[3]) == 2  # total_races
+    assert float(row[1]) == 1.5  # avg_inc
 
 
 def test_fetch_recent_races(memory_conn):

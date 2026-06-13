@@ -22,7 +22,7 @@ from ..safety.safety_index import (
 )
 from ..safety.safety_trend import SafetyTrend, combined_safety_tooltip
 from ..core.utils import sqlite_row_to_int
-from ..data.leagues import compact_league_indicator
+from ..data.leagues import league_membership_tooltip
 from ..data.driver_models import DriverTableRow
 from .a11y import driver_mark_label
 from .icons import current_icon_fg, driver_mark_glyphs, fa, mark_item_font
@@ -133,7 +133,7 @@ DRIVER_TABLE_HEADERS = [
 DEFAULT_DRIVER_TABLE_COLUMN_WIDTHS: dict[int, int] = {
     COL_NAME: 200,
     COL_MARK: 72,
-    COL_LEAGUE: 72,
+    COL_LEAGUE: 48,
     COL_RACES: 64,
     COL_VS_YOU: 96,
     COL_SAFETY: 112,
@@ -414,10 +414,11 @@ def make_league_item(full_label: str) -> QTableWidgetItem:
     item = QTableWidgetItem()
     item.setFlags(item.flags() ^ Qt.ItemFlag.ItemIsEditable)
     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-    short = compact_league_indicator(full_label)
-    if short:
-        item.setText(short)
-        item.setToolTip(f"League racer: {full_label}")
+    if full_label:
+        item.setText(fa("trophy"))
+        item.setFont(mark_item_font())
+        item.setForeground(QColor(current_icon_fg()))
+        item.setToolTip(league_membership_tooltip(full_label))
     else:
         item.setText(EMPTY_CELL)
     return item

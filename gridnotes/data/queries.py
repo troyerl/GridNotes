@@ -63,15 +63,29 @@ def _chunked_ints(values: list[int], size: int) -> list[list[int]]:
 def _race_agg_cte(
     *,
     cust_ids: list[int] | None = None,
+    racing_type: str | None = None,
 ) -> tuple[str, list[int]]:
     """
     Build the agg CTE. When *cust_ids* is set, aggregate only those drivers
     (much faster for Live Mode than scanning all race_results).
+    When *racing_type* is set, only races in that bucket are counted.
     """
     if cust_ids is not None and not cust_ids:
         return "agg AS (SELECT NULL AS cust_id WHERE 0)", []
 
-    if cust_ids is None:
+    filters: list[str] = []
+    params: list[object] = []
+    if cust_ids is not None:
+        placeholders = ",".join("?" * len(cust_ids))
+        filters.append(f"cust_id IN ({placeholders})")
+        params.extend(cust_ids)
+    if racing_type:
+        filters.append("racing_type = ?")
+        params.append(racing_type)
+
+    where_sql = f" WHERE {' AND '.join(filters)}" if filters else ""
+
+    if cust_ids is None and not racing_type:
         body = f"""
             agg AS (
                 SELECT {_RACE_AGG_SELECT}
@@ -81,16 +95,15 @@ def _race_agg_cte(
         """
         return body.strip(), []
 
-    placeholders = ",".join("?" * len(cust_ids))
     body = f"""
         agg AS (
             SELECT {_RACE_AGG_SELECT}
             FROM race_results
-            WHERE cust_id IN ({placeholders})
+            {where_sql}
             GROUP BY cust_id
         )
     """
-    return body.strip(), list(cust_ids)
+    return body.strip(), params
 
 
 def _table_select_body() -> str:
@@ -113,19 +126,80 @@ def _table_select_body() -> str:
     """
 
 
-def table_data_sql() -> str:
-    agg_cte, _ = _race_agg_cte()
-    return f"""
+def table_data_sql(*, racing_type: str | None = None) -> tuple[str, list[str]]:
+    agg_cte, params = _race_agg_cte(racing_type=racing_type)
+    sql = f"""
         WITH {agg_cte}
         {_table_select_body().strip()}
         ORDER BY d.driver_name ASC
     """
+    return sql.strip(), params
+
+
+def driver_detail_query(
+    cust_id: int,
+    *,
+    racing_type: str | None = None,
+) -> tuple[str, list[object]]:
+    agg_filters = ["cust_id = ?"]
+    params: list[object] = [int(cust_id)]
+    if racing_type:
+        agg_filters.append("racing_type = ?")
+        params.append(racing_type)
+    agg_where = " AND ".join(agg_filters)
+    sql = f"""
+        WITH agg AS (
+            SELECT {_RACE_AGG_SELECT}
+            FROM race_results
+            WHERE {agg_where}
+            GROUP BY cust_id
+        )
+        SELECT
+            d.driver_name,
+            {_LAST_SEEN_EXPR} AS last_seen_at,
+            d.last_series,
+            a.avg_inc,
+            a.avg_fin,
+            COALESCE(a.total_races, 0) AS total_races,
+            d.last_irating,
+            d.last_safety,
+            a.avg_pos_delta,
+            {_DNF_COALESCE}
+        FROM drivers d
+        LEFT JOIN agg a ON d.cust_id = a.cust_id
+        WHERE d.cust_id = ?
+    """
+    params.append(int(cust_id))
+    return sql.strip(), params
+
+
+def driver_detail_sql() -> str:
+    """Backward-compatible SQL for callers that only need the statement."""
+    sql, _params = driver_detail_query(0)
+    return sql
 
 
 def table_data_for_cust_ids_sql(cust_ids: list[int]) -> tuple[str, list[int]]:
     if not cust_ids:
         return ("SELECT NULL LIMIT 0", [])
     agg_cte, agg_params = _race_agg_cte(cust_ids=cust_ids)
+    placeholders = ",".join("?" * len(cust_ids))
+    sql = f"""
+        WITH {agg_cte}
+        {_table_select_body().strip()}
+        WHERE d.cust_id IN ({placeholders})
+        ORDER BY d.driver_name ASC
+    """
+    return sql, [*agg_params, *cust_ids]
+
+
+def table_data_for_cust_ids_by_racing_type_sql(
+    cust_ids: list[int],
+    racing_type: str,
+) -> tuple[str, list[int]]:
+    if not cust_ids or not racing_type:
+        return ("SELECT NULL LIMIT 0", [])
+    agg_cte, agg_params = _race_agg_cte(cust_ids=cust_ids, racing_type=racing_type)
     placeholders = ",".join("?" * len(cust_ids))
     sql = f"""
         WITH {agg_cte}
@@ -197,31 +271,6 @@ def fetch_recent_races_by_cust_ids(
         _fetch_recent_races_chunk(conn, chunk, limit=limit, into=by_cust)
 
     return by_cust
-
-
-def driver_detail_sql() -> str:
-    return f"""
-        WITH agg AS (
-            SELECT {_RACE_AGG_SELECT}
-            FROM race_results
-            WHERE cust_id = ?
-            GROUP BY cust_id
-        )
-        SELECT
-            d.driver_name,
-            {_LAST_SEEN_EXPR} AS last_seen_at,
-            d.last_series,
-            a.avg_inc,
-            a.avg_fin,
-            COALESCE(a.total_races, 0) AS total_races,
-            d.last_irating,
-            d.last_safety,
-            a.avg_pos_delta,
-            {_DNF_COALESCE}
-        FROM drivers d
-        LEFT JOIN agg a ON d.cust_id = a.cust_id
-        WHERE d.cust_id = ?
-    """
 
 
 _H2H_OUTCOME_EXPR = """

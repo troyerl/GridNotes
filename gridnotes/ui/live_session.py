@@ -18,11 +18,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from ..data.driver_models import (
-    format_head_to_head_record,
-    head_to_head_tooltip,
-    sort_live_mode_card_entries,
-)
+from ..data.leagues import league_membership_tooltip
+from ..iracing.racing_type import racing_type_stats_scope
 from ..iracing.session_context import format_session_context_banner
 from ..safety.safety_index import SafetyIndex, empty_safety, tier_color_hex, tier_label
 from ..safety.safety_trend import SafetyTrend
@@ -110,6 +107,7 @@ class LiveDriverCard(QFrame):
             title_lbl = QLabel(title)
             title_lbl.setObjectName("liveStatTitle")
             stats.addWidget(title_lbl, 0, col)
+            setattr(self, f"_{key}_title", title_lbl)
 
             val_lbl = QLabel("—")
             val_lbl.setObjectName("liveStatValue")
@@ -127,6 +125,7 @@ class LiveDriverCard(QFrame):
         score_title.setObjectName("liveStatTitle")
         score_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         score_col.addWidget(score_title)
+        self._safety_title = score_title
 
         self.score_label = QLabel("—")
         self.score_label.setObjectName("liveScoreValue")
@@ -230,18 +229,31 @@ class LiveDriverCard(QFrame):
         together_races: int | None = None,
         book_races: int = 0,
         head_to_head: tuple[int, int, int] | None = None,
+        stats_scope: str = "",
     ) -> None:
         self._cust_id = cust_id
         self._driver_name = name or "—"
         self.name_label.setText(self._driver_name)
         self.new_label.setVisible(not has_history)
         if league_label:
-            self.league_label.setText("League")
-            self.league_label.setToolTip(f"League racer: {league_label}")
+            set_label_fa_icon(self.league_label, "trophy", pixel_size=14)
+            self.league_label.setToolTip(league_membership_tooltip(league_label))
             self.league_label.setVisible(True)
         else:
+            self.league_label.clear()
             self.league_label.setVisible(False)
             self.league_label.setToolTip("")
+
+        scope_tip = (
+            f"Stats use {stats_scope.lower()} from your book."
+            if stats_scope
+            else ""
+        )
+        for key in ("inc", "dnf"):
+            title = getattr(self, f"_{key}_title", None)
+            if title is not None:
+                title.setToolTip(scope_tip)
+        self._safety_title.setToolTip(scope_tip)
 
         if safety.tier == "unknown":
             self.profile_label.setText("")
@@ -583,6 +595,7 @@ class LiveSessionView(QWidget):
         notes: str,
         pref: int | None,
         series: str | None,
+        stats_scope: str | None = None,
         avg_finish,
         races: int,
         last_irating,
@@ -601,6 +614,7 @@ class LiveSessionView(QWidget):
             notes=notes,
             pref=pref,
             series=series,
+            stats_scope=stats_scope,
             avg_finish=avg_finish,
             races=races,
             last_irating=last_irating,
@@ -726,7 +740,7 @@ class LiveSessionView(QWidget):
                 if e.get("safety") is not None
                 else -1,
                 (e.get("safety_trend") or SafetyTrend("unknown", None, None, 0)).direction,
-                e.get("league_label") or "",
+                e.get("racing_type_label") or "",
                 e.get("together_races"),
                 e.get("head_to_head"),
             )
@@ -780,6 +794,7 @@ class LiveSessionView(QWidget):
                 together_races=entry.get("together_races"),
                 book_races=int(entry.get("total_races") or 0),
                 head_to_head=entry.get("head_to_head"),
+                stats_scope=racing_type_stats_scope(entry.get("racing_type_label")),
             )
             card.toggle_expand.connect(self._on_card_toggle_expand)
             self._wire_expand_panel(card.expand_signals(), int(entry["cust_id"]))

@@ -38,3 +38,37 @@ def test_create_memory_database_isolated():
     assert count_b == 0
     a.close()
     b.close()
+
+
+def test_backfill_racing_type_classifies_from_series_name(memory_conn):
+    from gridnotes.data.db import _backfill_racing_type
+
+    memory_conn.execute(
+        "INSERT INTO drivers (cust_id, driver_name) VALUES (1, 'A')"
+    )
+    memory_conn.executemany(
+        """
+        INSERT INTO race_results (
+            cust_id, subsession_id, finish_position, incidents, series_name, racing_type
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (1, 1, 3, 2, "NASCAR Cup Series", "dirt"),
+            (1, 2, 5, 4, "GT3 Challenge", None),
+            (1, 3, 2, 1, "World of Outlaws Sprint Cars", ""),
+        ],
+    )
+    memory_conn.commit()
+    _backfill_racing_type(memory_conn.cursor())
+    memory_conn.commit()
+    rows = memory_conn.execute(
+        """
+        SELECT series_name, racing_type
+        FROM race_results
+        ORDER BY subsession_id
+        """
+    ).fetchall()
+    assert rows[0] == ("NASCAR Cup Series", "oval")
+    assert rows[1] == ("GT3 Challenge", "road")
+    assert rows[2] == ("World of Outlaws Sprint Cars", "dirt")

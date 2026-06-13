@@ -54,7 +54,7 @@ class LiveDriverExpandPanel(QFrame):
             [
                 ("together", "Raced together"),
                 ("vs_you", "You vs them"),
-                ("series", "Series"),
+                ("stats_scope", "Stats"),
                 ("races", "Races in book"),
                 ("avg_finish", "Avg finish"),
                 ("last_irating", "Last iRating"),
@@ -201,6 +201,7 @@ class LiveDriverExpandPanel(QFrame):
         notes: str,
         pref: int | None,
         series: str | None,
+        stats_scope: str | None = None,
         avg_finish,
         races: int,
         last_irating,
@@ -225,7 +226,12 @@ class LiveDriverExpandPanel(QFrame):
             self.set_stat("vs_you", "—")
         else:
             self.set_stat("vs_you", format_head_to_head_record(*head_to_head))
-        self.set_stat("series", series or "—")
+        if stats_scope:
+            self.set_stat("stats_scope", stats_scope)
+        elif series:
+            self.set_stat("stats_scope", series)
+        else:
+            self.set_stat("stats_scope", "—")
         self.set_stat("races", str(races) if races else "—")
         self.set_stat(
             "avg_finish",

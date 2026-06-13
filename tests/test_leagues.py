@@ -266,10 +266,14 @@ def test_fetch_league_membership_labels(memory_conn):
     assert labels[2] == "Club B · 2026 S1"
     assert 99 not in labels
 
-    from gridnotes.data.leagues import compact_league_indicator
+    from gridnotes.data.leagues import compact_league_indicator, league_membership_tooltip
 
     assert compact_league_indicator(labels[1]) == "League"
     assert compact_league_indicator(labels[2]) == "Club B"
+    tooltip = league_membership_tooltip(labels[1])
+    assert "League memberships:" in tooltip
+    assert "Club A · 2026 S1" in tooltip
+    assert "Club B · 2026 S1" in tooltip
 
 
 def test_delete_league_removes_session_tags(memory_conn):

@@ -14,12 +14,13 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from ..data.leagues import league_membership_tooltip
 from ..data.driver_models import format_live_session_at_glance
 from ..privacy.streamer_mode import streamer_display_name
 from ..safety.safety_index import SafetyIndex, tier_color_hex
 from ..safety.safety_trend import SafetyTrend, combined_safety_tooltip
 from .a11y import driver_mark_label, set_accessible
-from .icons import apply_solid_font, driver_mark_glyphs, trend_rich_span
+from .icons import apply_solid_font, driver_mark_glyphs, set_label_fa_icon, trend_rich_span
 from .live_driver_expand import LiveDriverExpandPanel
 from .theme import configure_scroll_area
 
@@ -189,10 +190,11 @@ class GridWalkRow(QFrame):
         self.name_label.setText(name)
         self.new_label.setVisible(not has_history)
         if league_label:
-            self.league_label.setText("League")
-            self.league_label.setToolTip(f"League racer: {league_label}")
+            set_label_fa_icon(self.league_label, "trophy", pixel_size=12)
+            self.league_label.setToolTip(league_membership_tooltip(league_label))
             self.league_label.setVisible(True)
         else:
+            self.league_label.clear()
             self.league_label.setVisible(False)
             self.league_label.setToolTip("")
 
@@ -229,7 +231,7 @@ class GridWalkRow(QFrame):
                 else ""
             )
         if league_label:
-            league_tip = f"League racer: {league_label}"
+            league_tip = league_membership_tooltip(league_label)
             tooltip = f"{tooltip}\n{league_tip}" if tooltip else league_tip
 
         mark = driver_mark_glyphs(pref, risky)

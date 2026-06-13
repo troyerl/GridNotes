@@ -15,6 +15,7 @@ from gridnotes.ui.driver_table import (
     TABLE_COLUMN_WIDTHS_KEY,
     apply_driver_table_column_widths,
     load_driver_table_column_widths,
+    make_league_item,
     save_driver_table_column_widths,
     table_row_sort_key,
 )
@@ -27,6 +28,15 @@ def test_table_row_sort_key_name():
     row_b = make_driver_sql_row(name="alpha")
     key_b = table_row_sort_key(row_b, COL_NAME)
     assert key_b < key_a
+
+
+def test_make_league_item_uses_trophy_icon(qapp):
+    item = make_league_item("Club A · 2026 S1")
+    assert item.toolTip().startswith("League member:")
+    assert item.text() != "Club A"
+
+    empty = make_league_item("")
+    assert empty.text() == "—"
 
 
 def test_table_row_sort_key_safety_unknown():
